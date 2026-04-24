@@ -1,5 +1,5 @@
 on macOS:
-$: make   $: ./nexs
+: make   : ./nexs
 for examples: 
 ./nexs /example/"name example.nx"
 on nexs:
