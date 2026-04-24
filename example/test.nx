@@ -1,0 +1,87 @@
+# test.nx — Test suite per NEXS
+# ================================
+
+
+# === Test variabili ===
+x = 42
+out x
+
+y = 3.14
+out y
+
+name = "NEXS"
+out name
+
+# === Test aritmetica ===
+out x + 8
+out 10 / 3
+out 10 % 3
+out 2.5 * 4
+
+# === Test stringhe ===
+greeting = "Hello World!"
+out greeting
+out len(greeting)
+
+# === Test concat stringhe ===
+out "hello" + " world"
+
+# === Test booleani ===
+out true and false
+out true or false
+out not true
+out 42 > 10
+out 42 == 42
+
+# === Test array ===
+arr[0] = 100
+arr[1] = 200
+arr[2] = arr[0] + arr[1]
+out arr[2]
+
+# === Test funzioni ===
+fn add(a, b) {
+  ret a + b
+}
+out add(3, 4)
+
+fn factorial(n) {
+  if n <= 1 {
+    ret 1
+  }
+  ret n * factorial(n - 1)
+}
+out factorial(5)
+
+# === Test if/else ===
+val = 42
+if val > 0 {
+  out "positivo"
+} else {
+  out "non positivo"
+}
+
+# === Test loop ===
+i = 0
+sum = 0
+loop {
+  if i >= 10 { break }
+  sum = sum + i
+  i = i + 1
+}
+out sum
+
+# === Test registro ===
+reg /env/app_name = "NEXS"
+out reg /env/app_name
+
+# === Test type() ===
+out type(42)
+out type("hello")
+out type(true)
+
+# === Test getpid ===
+out getpid()
+
+# === Fine ===
+out "OK"
