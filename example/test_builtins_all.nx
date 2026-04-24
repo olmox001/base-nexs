@@ -1,0 +1,35 @@
+out "--- TESTING BUILTINS ---"
+
+out "PID:"
+out getpid()
+
+out "CWD:"
+out getwd()
+
+out "Creating file..."
+fd = create("test_out.txt", 1)
+out "FD:"
+out fd
+
+out "Writing to file..."
+write(fd, "Hello Builtins from NEXS!")
+
+out "Closing file..."
+close(fd)
+
+out "Opening file for reading..."
+fd2 = open("test_out.txt", 0)
+out "FD2:"
+out fd2
+
+out "Reading from file:"
+content = read(fd2, 100)
+out content
+
+out "Closing file..."
+close(fd2)
+
+out "Removing file..."
+remove("test_out.txt")
+
+out "=== TESTS COMPLETED ==="

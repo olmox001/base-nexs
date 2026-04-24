@@ -1,0 +1,13 @@
+fn add(a b) { ret a+b }
+out add(1 2)
+out "Creating file..."
+fd = create("test_out.txt", 1)
+out "FD:"
+out fd
+out "Writing to file..."
+a = 12
+b = 21 
+test =  add (a b)
+test2 = test
+out test2
+write(fd, str (test2))

@@ -1,0 +1,19 @@
+fn sum(from to) {
+  i = from + 0
+  end = to + 0
+  total = 0
+
+  loop {
+    if i >= end { break }
+    total = total + i
+    i = i + 1
+  }
+
+  ret total
+}
+
+fn main() {
+  out sum(0 10)
+}
+
+main()
