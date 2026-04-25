@@ -1,1 +1,6 @@
 .DS_Store
+/stub
+/nexs_dbg.dSYM
+/build
+/.old
+/.claude

@@ -152,7 +152,9 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
     char path[REG_PATH_MAX];
     snprintf(path, sizeof(path), "%s/%s", ctx->scope, n->name);
     reg_set(path, vr.ret_val, RK_ALL);
-    return ok(val_clone(&vr.ret_val));
+    Value ret = val_clone(&vr.ret_val);
+    val_free(&vr.ret_val);
+    return ok(ret);
   }
 
   /* --- Indice array: arr[idx] --- */
@@ -225,7 +227,9 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
     av.err_code = 0;
     av.err_msg = NULL;
     reg_set(path, av, RK_ALL);
-    return ok(val_clone(&vr.ret_val));
+    Value ret = val_clone(&vr.ret_val);
+    val_free(&vr.ret_val);
+    return ok(ret);
   }
 
   /* --- Cancella elemento array --- */
@@ -264,7 +268,9 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
     if (vr.sig != CTRL_NONE)
       return vr;
     reg_set(n->path, vr.ret_val, RK_ALL);
-    return ok(val_clone(&vr.ret_val));
+    Value ret = val_clone(&vr.ret_val);
+    val_free(&vr.ret_val);
+    return ok(ret);
   }
 
   /* --- ls del registro --- */
