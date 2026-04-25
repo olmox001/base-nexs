@@ -40,11 +40,11 @@ NexsProc *proc_create(const char *name, void (*entry)(void *), void *arg) {
     typedef struct { uint64_t rbx,rbp,r12,r13,r14,r15,rsp,rip; } Ctx;
 #endif
     Ctx *ctx = (Ctx *)nexs_alloc(sizeof(Ctx));
-    if (!ctx) { nexs_free(p); return NULL; }
+    if (!ctx) { nexs_free(p, sizeof(*p)); return NULL; }
     memset(ctx, 0, sizeof(Ctx));
 
     uint8_t *stack = (uint8_t *)nexs_alloc(PROC_STACK_SIZE);
-    if (!stack) { nexs_free(ctx); nexs_free(p); return NULL; }
+    if (!stack) { nexs_free(ctx, sizeof(*ctx)); nexs_free(p, sizeof(*p)); return NULL; }
 
     /* Set up initial stack frame so ctx_switch returns into entry(arg) */
     uint64_t *sp = (uint64_t *)(stack + PROC_STACK_SIZE);
@@ -111,7 +111,7 @@ void proc_block(const char *wait_path) {
 }
 
 void proc_unblock_by_msg(const char *ipc_path) {
-    /* Scan registry for /proc/*/wait_path matching ipc_path */
+    /* Scan registry for /proc/[pid]/wait_path matching ipc_path */
     /* For now: linear scan via sched queues */
     extern void sched_unblock_waiting(const char *path);
     sched_unblock_waiting(ipc_path);

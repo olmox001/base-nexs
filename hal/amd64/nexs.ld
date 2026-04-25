@@ -13,6 +13,10 @@ SECTIONS {
         *(.multiboot)
     }
 
+    .note.pvh : {
+        *(.note.pvh)
+    }
+
     .text : {
         *(.text*)
     }

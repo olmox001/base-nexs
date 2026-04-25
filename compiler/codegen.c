@@ -181,7 +181,7 @@ static void emit_dep_table(FILE *out, NexsDepEntry *deps, int n_deps) {
    nexs_codegen_ex
    ========================================================= */
 
-int nexs_codegen_ex(const char *src_path, const char *out_c_path, int no_dep) {
+int nexs_codegen_ex(const char *src_path, const char *out_c_path, int no_dep, int is_baremetal) {
   size_t src_len = 0;
   char *src = read_file(src_path, &src_len);
   if (!src) {
@@ -248,21 +248,20 @@ int nexs_codegen_ex(const char *src_path, const char *out_c_path, int no_dep) {
   emit_forward_decls(out);
 
   /* --- main() or nexs_main_baremetal() --- */
-#ifdef NEXS_BAREMETAL
-  fprintf(out,
-          "#include <stddef.h>\n"
-          "void nexs_hal_print(const char *s);\n"
-          "\n"
-          "void nexs_main_baremetal(void) {\n"
-          "    nexs_runtime_init();\n"
-          "    EvalCtx ctx;\n"
-          "    eval_ctx_init(&ctx);\n"
-          "    ctx.out = (void*)0; /* use nexs_hal_print */\n"
-          "    EvalResult r = eval_str(&ctx, nexs_script_src);\n"
-          "    (void)r;\n"
-          "    while (1) {}\n"
-          "}\n");
-#else
+  if (is_baremetal) {
+    fprintf(out,
+            "#include <stddef.h>\n"
+            "void nexs_hal_print(const char *s);\n"
+            "\n"
+            "void nexs_main_baremetal(void) {\n"
+            "    nexs_runtime_init();\n"
+            "    EvalCtx ctx;\n"
+            "    eval_ctx_init(&ctx);\n"
+            "    EvalResult r = eval_str(&ctx, nexs_script_src);\n"
+            "    (void)r;\n"
+            "    while (1) {}\n"
+            "}\n");
+  } else {
   fprintf(out,
           "#include <stdio.h>\n"
           "#include <stdlib.h>\n"
@@ -283,7 +282,7 @@ int nexs_codegen_ex(const char *src_path, const char *out_c_path, int no_dep) {
           "    val_free(&r.ret_val);\n"
           "    return 0;\n"
           "}\n");
-#endif
+  }
 
   fclose(out);
   return 0;
@@ -294,7 +293,7 @@ int nexs_codegen_ex(const char *src_path, const char *out_c_path, int no_dep) {
    ========================================================= */
 
 int nexs_codegen(const char *src_path, const char *out_c_path) {
-  return nexs_codegen_ex(src_path, out_c_path, 0 /* bundle deps */);
+  return nexs_codegen_ex(src_path, out_c_path, 0 /* bundle deps */, 0 /* is_baremetal */);
 }
 
 /* =========================================================

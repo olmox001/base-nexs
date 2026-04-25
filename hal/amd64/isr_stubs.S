@@ -15,6 +15,8 @@
 #define HAS_ERR(v) ((v)==8||(v)==10||(v)==11||(v)==12||(v)==13||(v)==14||(v)==17||(v)==21||(v)==29||(v)==30)
 
 /* Generate a stub for vector V */
+.altmacro
+
 .macro ISR_NOERR v
 .global isr_stub_\v
 isr_stub_\v:
@@ -23,11 +25,19 @@ isr_stub_\v:
     jmp   common_isr_entry
 .endm
 
+.macro MAKE_ISR_NOERR v
+    ISR_NOERR %v
+.endm
+
 .macro ISR_ERR v
 .global isr_stub_\v
 isr_stub_\v:
     pushq $\v
     jmp   common_isr_entry
+.endm
+
+.macro MAKE_ISR_ERR v
+    ISR_ERR %v
 .endm
 
 .section .text
@@ -69,7 +79,7 @@ ISR_NOERR 31
 /* IRQs / Software interrupts 32-255 */
 .set V, 32
 .rept 224
-ISR_NOERR %V
+MAKE_ISR_NOERR V
 .set V, V+1
 .endr
 
@@ -118,12 +128,20 @@ common_isr_entry:
 
     iretq
 
+.macro QUAD_GEN v
+    .quad isr_stub_\v
+.endm
+
+.macro DO_QUAD v
+    QUAD_GEN %v
+.endm
+
 /* ── Table of stub addresses (used by idt_init) ─────────── */
 .section .rodata
 .global isr_stub_table
 isr_stub_table:
 .set V, 0
 .rept 256
-    .quad isr_stub_%V
+    DO_QUAD V
     .set V, V+1
 .endr

@@ -107,7 +107,7 @@ NEXS_API int nexs_compile_file_ex(const char *src_path,
  */
 NEXS_API int nexs_codegen(const char *src_path, const char *out_c_path);
 NEXS_API int nexs_codegen_ex(const char *src_path, const char *out_c_path,
-                              int no_dep);
+                              int no_dep, int is_baremetal);
 
 /*
  * target_gcc_flags: return a static string with all GCC flags for target.

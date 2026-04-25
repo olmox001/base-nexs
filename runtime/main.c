@@ -19,6 +19,7 @@
 #include "../lang/include/nexs_eval.h"
 #include "../sys/include/nexs_sys.h"
 #include "../compiler/include/nexs_compiler.h"
+#include "../hal/include/nexs_hal.h"
 
 /* builtins_register_all is declared in lang/builtins.c — forward declare here */
 extern void builtins_register_all(void);
@@ -222,6 +223,8 @@ void nexs_main_baremetal(void) {
   if (nexs_script_src && nexs_script_src[0]) {
     EvalResult r = eval_str(&ctx, nexs_script_src);
     (void)r;
+  } else {
+    nexs_repl();
   }
   /* Spin forever */
   while (1) {}

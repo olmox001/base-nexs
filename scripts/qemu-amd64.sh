@@ -15,4 +15,6 @@ exec qemu-system-x86_64 \
     -serial stdio \
     -display none \
     -no-reboot \
+    -d int,cpu_reset \
+    -D /Users/olmo/Documents/git/base-nexs/qemu.log \
     "$@"

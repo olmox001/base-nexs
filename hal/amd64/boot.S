@@ -23,8 +23,17 @@
 .set HEADER_LEN,        16
 .set CHECKSUM,          (-(MULTIBOOT2_MAGIC + MULTIBOOT2_ARCH + HEADER_LEN))
 
-/* ── Multiboot2 Header ─────────────────────────────────────── */
+.set MULTIBOOT1_MAGIC,  0x1BADB002
+.set MULTIBOOT1_FLAGS,  0x00000003 /* ALIGN + MEMINFO */
+.set MULTIBOOT1_CHECKSUM, -(MULTIBOOT1_MAGIC + MULTIBOOT1_FLAGS)
+
+/* ── Multiboot1 & Multiboot2 Headers ──────────────────────── */
 .section .multiboot
+.align 4
+multiboot1_header:
+    .long  MULTIBOOT1_MAGIC
+    .long  MULTIBOOT1_FLAGS
+    .long  (MULTIBOOT1_CHECKSUM & 0xFFFFFFFF)
 .align 8
 multiboot_header:
     .long  MULTIBOOT2_MAGIC
@@ -34,6 +43,15 @@ multiboot_header:
     .short 0          /* end tag type */
     .short 0
     .long  8
+
+/* ── PVH ELF Note for QEMU -kernel (64-bit ELF) ───────────── */
+.section .note.pvh, "a", @note
+.align 4
+    .long 4               /* namesz */
+    .long 4               /* descsz */
+    .long 18              /* type: XEN_ELFNOTE_PHYS32_ENTRY */
+    .asciz "Xen"          /* name */
+    .long _start          /* desc */
 
 /* ── 32-bit Protected Mode Entry ──────────────────────────── */
 .section .text
@@ -48,6 +66,7 @@ _start:
     movl  $(_bss_start), %edi
     movl  $(_bss_end),   %ecx
     subl  %edi, %ecx
+    shrl  $2, %ecx
     xorl  %eax, %eax
     rep stosl
 
@@ -57,7 +76,7 @@ _start:
 
     /* Zero all three tables (3 × 4096 bytes) */
     movl  $0x1000,    %edi
-    movl  $(3*4096/4), %ecx
+    movl  $3072, %ecx
     xorl  %eax, %eax
     rep stosl
 
@@ -128,7 +147,16 @@ _start64:
     movw  %ax,  %gs
     movw  %ax,  %ss
 
-    /* Reload stack pointer (already set, but ensure 16-byte align) */
+    /* Enable SSE */
+    movq  %cr0, %rax
+    andw  $0xFFFB, %ax  /* clear CR0.EM */
+    orw   $0x0002, %ax  /* set CR0.MP */
+    movq  %rax, %cr0
+    movq  %cr4, %rax
+    orl   $0x00000600, %eax /* set CR4.OSFXSR and CR4.OSXMMEXCPT */
+    movq  %rax, %cr4
+
+    /* Reload stack pointer */
     movq  $(_stack_top), %rsp
     andq  $~0xF,        %rsp
 
