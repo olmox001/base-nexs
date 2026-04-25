@@ -1,0 +1,116 @@
+# ===================================================================
+# NEXS Cooperative Micro-OS (nexs_os.nx)
+# Architettura: Scheduler Event-Driven + Macchine a Stati + IPC
+# ===================================================================
+
+out "---------------------------------------------------"
+out "[Boot] NEXS Cooperative Micro-OS v0.4"
+out "[Boot] Initializing Registry and IPC Queues..."
+out "---------------------------------------------------"
+
+# 1. Inizializzazione del namespace di sistema
+reg /os/status = "running"
+reg /sys/app/state = 0
+reg /sys/vfs/disk_latency = 0
+
+# Usiamo i puntatori NEXS per comodità! (Plan 9 style)
+ptr /log = /sys/log/inbox
+ptr /vfs = /sys/vfs/inbox
+ptr /app = /sys/app/inbox
+
+# ===================================================================
+# SOTTOSISTEMA 1: Syslog Daemon (Tick)
+# ===================================================================
+fn syslog_tick() {
+  # Legge tutti i messaggi pendenti finché la coda non è vuota
+  loop {
+    msg = receivemessage("/log")
+    if msg == nil { break }
+    out "[LOG] " + str(msg)
+  }
+}
+
+# ===================================================================
+# SOTTOSISTEMA 2: Virtual File System (Tick)
+# ===================================================================
+fn vfs_tick() {
+  msg = receivemessage("/vfs")
+  if msg != nil {
+    out "[VFS-Hardware] Richiesta ricevuta: " + str(msg)
+    # Simuliamo un'operazione asincrona ritardata usando il registro
+    reg /sys/vfs/disk_latency = 3  # Ci vorranno 3 tick del kernel
+    reg /sys/vfs/pending_job = msg
+  }
+
+  # Gestione della latenza hardware simulata
+  lat = reg /sys/vfs/disk_latency
+  if lat > 0 {
+    reg /sys/vfs/disk_latency = lat - 1
+    if (lat - 1) == 0 {
+      job = reg /sys/vfs/pending_job
+      out "[VFS-Hardware] Lettura completata per: " + str(job)
+      # Risponde all'app
+      sendmessage("/app", "DATA_READY: " + str(job))
+    }
+  }
+}
+
+# ===================================================================
+# USERSPACE: Applicazione Utente (Macchina a stati)
+# ===================================================================
+fn app_tick() {
+  state = reg /sys/app/state
+
+  # Stato 0: Inizializzazione
+  if state == 0 {
+    sendmessage("/log", "User App partita. Richiedo configurazione...")
+    sendmessage("/vfs", "/etc/config.nx")
+    reg /sys/app/state = 1
+  }
+  
+  # Stato 1: Attesa asincrona del VFS
+  if state == 1 {
+    reply = receivemessage("/app")
+    if reply != nil {
+      sendmessage("/log", "User App ha ricevuto il file dal VFS: " + str(reply))
+      reg /sys/app/state = 2
+    }
+  }
+
+  # Stato 2: Terminazione
+  if state == 2 {
+    sendmessage("/log", "User App ha finito. Mando segnale di HALT al Kernel.")
+    reg /os/status = "halted"
+    reg /sys/app/state = 3 # Disattiva l'app
+  }
+}
+
+# ===================================================================
+# KERNEL: Il "Main Loop" dello Scheduler Cooperativo
+# ===================================================================
+out "[Kernel] Entering Cooperative Scheduler Loop..."
+
+tick_count = 0
+
+loop {
+  # 1. Esecuzione dei sottosistemi (Context Switch virtuale)
+  syslog_tick()
+  vfs_tick()
+  app_tick()
+
+  # 2. Controllo di sistema
+  if (reg /os/status) == "halted" {
+    out "[Kernel] Rilevato segnale HALT. Spegnimento in corso..."
+    # Ultimo giro di log per svuotare le code prima di morire
+    syslog_tick() 
+    break
+  }
+
+  # 3. Risparmio energetico (Yield)
+  sleep(100)
+  tick_count = tick_count + 1
+}
+
+out "---------------------------------------------------"
+out "[Power] OS Spento correttamente dopo " + str(tick_count) + " tick."
+out "---------------------------------------------------"
