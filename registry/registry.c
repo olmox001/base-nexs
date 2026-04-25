@@ -18,6 +18,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 /* =========================================================
    GLOBAL STATE
@@ -121,6 +122,11 @@ static void regkey_free_recursive(RegKey *root) {
         val_free(&m->msg);
         xfree(m);
         m = mn;
+      }
+      /* Close pipe fds if pipe transport was active */
+      if (k->queue->use_pipe) {
+        if (k->queue->pipe_fd[0] >= 0) close(k->queue->pipe_fd[0]);
+        if (k->queue->pipe_fd[1] >= 0) close(k->queue->pipe_fd[1]);
       }
       xfree(k->queue);
       k->queue = NULL;
@@ -344,6 +350,17 @@ static void reg_ls_node(RegKey *k, FILE *out, int depth, int recursive) {
   if (k->val.type != TYPE_NIL) {
     fprintf(out, "  = ");
     val_print(&k->val, out);
+    /* For pointer keys, also show the resolved value so the user can
+     * see both the target path and the final value at a glance. */
+    if (k->val.type == TYPE_PTR && k->val.data) {
+      Value resolved = reg_get_deref(k->path);
+      if (resolved.type != TYPE_ERR) {
+        fprintf(out, "  [→ ");
+        val_print(&resolved, out);
+        fprintf(out, "]");
+      }
+      val_free(&resolved);
+    }
   }
   fprintf(out, "\n");
   if (recursive) {

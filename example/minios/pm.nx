@@ -1,0 +1,26 @@
+# ===================================================================
+# Modulo PM (Process & Memory Manager)
+# Fix: Array globali per storicizzare PID e Memoria
+# ===================================================================
+reg /sys/pm/next_pid = 100
+
+fn pm_spawn(nome_processo) {
+  pid = reg /sys/pm/next_pid
+  reg /sys/pm/next_pid = pid + 1
+  
+  pm_nomi[pid] = nome_processo
+  out "[PM] Task '" + nome_processo + "' creato con PID: " + str(pid)
+  ret pid
+}
+
+fn pm_alloc(pid pagine) {
+  byte_allocati = pagine * 4096
+  pm_mem[pid] = byte_allocati
+  out "[MMU] Mappati " + str(byte_allocati) + " byte per il PID " + str(pid)
+}
+
+fn pm_ps() {
+  pid_attuale = (reg /sys/pm/next_pid) - 1
+  out "  PID attivi: "
+  out "  - PID " + str(pid_attuale) + " [In esecuzione]"
+}

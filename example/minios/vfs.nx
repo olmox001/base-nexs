@@ -1,0 +1,41 @@
+# ===================================================================
+# Modulo VFS (Virtual File System)
+# Fix: Array globali al posto dei path dinamici nel registro
+# ===================================================================
+reg /sys/vfs/file_count = 0
+
+fn vfs_write(nome_file contenuto) {
+  idx = reg /sys/vfs/file_count
+  
+  # Salviamo i file negli array globali dinamici
+  vfs_nomi[idx] = nome_file
+  vfs_dati[idx] = contenuto
+  
+  reg /sys/vfs/file_count = idx + 1
+}
+
+fn vfs_read(nome_file) {
+  count = reg /sys/vfs/file_count
+  i = 0
+  loop {
+    if i >= count { break }
+    if vfs_nomi[i] == nome_file {
+      ret vfs_dati[i]
+    }
+    i = i + 1
+  }
+  ret "Errore: File non trovato"
+}
+
+fn vfs_ls() {
+  count = reg /sys/vfs/file_count
+  out "  Totale file: " + str(count)
+  i = 0
+  loop {
+    if i >= count { break }
+    nome = vfs_nomi[i]
+    dim = len(vfs_dati[i])
+    out "  - " + nome + " (" + str(dim) + " byte)"
+    i = i + 1
+  }
+}

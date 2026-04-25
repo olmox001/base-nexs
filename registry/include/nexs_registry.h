@@ -34,6 +34,11 @@ typedef struct {
   MsgNode *tail;       /* enqueue at tail */
   int      count;
   int      max_count;
+  /* Pipe-backed IPC transport (activated after rfork/fork in hosted mode).
+   * pipe_fd[0] = read end, pipe_fd[1] = write end.
+   * -1 means the pipe has not been created yet. */
+  int      pipe_fd[2];
+  int      use_pipe;   /* 0 = in-process queue; 1 = pipe transport active */
 } RegIpcQueue;
 
 /* =========================================================
@@ -127,6 +132,15 @@ NEXS_API int reg_ipc_recv(const char *path, Value *out_msg);
  * or 0 if the queue does not exist.
  */
 NEXS_API int reg_ipc_pending(const char *path);
+
+/*
+ * reg_ipc_enable_pipes — switch ALL existing IPC queues to pipe-backed
+ * transport.  Must be called in both parent and child immediately after
+ * fork() so that subsequent sendmessage/receivemessage cross the process
+ * boundary via real POSIX pipes instead of the forked heap copies.
+ * Safe to call multiple times (idempotent for already-converted queues).
+ */
+NEXS_API void reg_ipc_enable_pipes(void);
 
 /* =========================================================
    BUILT-IN REGISTRATION HELPER

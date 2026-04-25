@@ -1,0 +1,34 @@
+# ===================================================================
+# KERNEL INIT (boot.nx)
+# Bootloader e Modulo Principale
+# ===================================================================
+
+out "==================================================="
+out " [INIT] Booting NEXS Modular Micro-OS"
+out "==================================================="
+out "[INIT] Fase 1: Caricamento Driver (Librerie Dinamiche)..."
+
+exec("example/minios/vfs.nx")
+exec("example/minios/pm.nx")
+exec("example/minios/wasm_vm.nx")
+exec("example/minios/shell.nx")
+
+out "[INIT] Fase 2: Inizializzazione Sottosistemi..."
+pid_vfs = pm_spawn("VFS_Daemon")
+pm_alloc(pid_vfs 2)
+
+pid_shell = pm_spawn("Shell_TTY")
+pm_alloc(pid_shell 1)
+
+out "[INIT] Fase 3: Popolamento Root FS..."
+vfs_write("motd.txt" "Benvenuti nel super-sistema NEXS! Tutto gira nel Registry.")
+vfs_write("kernel.sys" "BINARY_DATA_CORRUPTED_DO_NOT_READ")
+
+out "==================================================="
+out " [INIT] Boot completato. Cessione controllo alla UI."
+out "==================================================="
+
+# Avvia il loop dell'interprete utente
+shell_loop()
+
+out "[HALT] Sistema operativo fermato con successo."

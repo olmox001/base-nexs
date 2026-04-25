@@ -261,11 +261,14 @@ int main(int argc, char *argv[]) {
             "      macos-amd64  macos-arm64  plan9-amd64\n"
             "      baremetal-arm64  baremetal-amd64\n"
             "    -o <output>                  Output binary path\n"
+            "    --no-dep                     Skip dependency bundling\n"
+            "                                 (exec() calls will use fopen at runtime)\n"
+            "    --dep-only                   List exec() dependencies and exit\n"
             "  (no args)                      Start interactive REPL\n");
     return 0;
   }
 
-  /* --compile <file.nx> [--target <t>] [-o <out>] */
+  /* --compile <file.nx> [--target <t>] [-o <out>] [--no-dep] [--dep-only] */
   if (strcmp(argv[1], "--compile") == 0) {
     if (argc < 3) {
       fprintf(stderr, "nexs: --compile requires a source file\n");
@@ -274,6 +277,8 @@ int main(int argc, char *argv[]) {
     const char *src_file  = argv[2];
     const char *out_file  = "nexs_out";
     CompileTarget target  = TARGET_LINUX_AMD64;
+    int no_dep            = 0;
+    int dep_only          = 0;
 
     for (int i = 3; i < argc; i++) {
       if (strcmp(argv[i], "--target") == 0 && i + 1 < argc) {
@@ -294,12 +299,33 @@ int main(int argc, char *argv[]) {
         }
       } else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
         out_file = argv[++i];
+      } else if (strcmp(argv[i], "--no-dep") == 0) {
+        no_dep = 1;
+      } else if (strcmp(argv[i], "--dep-only") == 0) {
+        dep_only = 1;
       }
     }
 
-    fprintf(stdout, "Compiling %s → %s [target: %s]\n",
-            src_file, out_file, target_name(target));
-    int rc = nexs_compile_file(src_file, target, out_file);
+    /* --dep-only: scan and print dependencies, then exit */
+    if (dep_only) {
+      NexsDepEntry deps[NEXS_MAX_DEPS];
+      int n = nexs_scan_deps(src_file, deps, NEXS_MAX_DEPS);
+      if (n == 0) {
+        fprintf(stdout, "(no exec() dependencies found in '%s')\n", src_file);
+      } else {
+        fprintf(stdout, "Dependencies of '%s' (%d):\n", src_file, n);
+        for (int i = 0; i < n; i++)
+          fprintf(stdout, "  [%d] %s%s\n", i, deps[i].path,
+                  deps[i].src ? "" : "  [UNREADABLE]");
+        nexs_free_deps(deps, n);
+      }
+      return 0;
+    }
+
+    fprintf(stdout, "Compiling %s → %s [target: %s%s]\n",
+            src_file, out_file, target_name(target),
+            no_dep ? ", no-dep" : " + bundled deps");
+    int rc = nexs_compile_file_ex(src_file, target, out_file, no_dep);
     if (rc != 0) {
       fprintf(stderr, "nexs: compilation failed\n");
       return 1;

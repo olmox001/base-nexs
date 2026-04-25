@@ -1,0 +1,62 @@
+# ===================================================================
+# Modulo Shell (Userspace CLI)
+# Fix: Rimozione del punto e virgola, un'istruzione per riga
+# ===================================================================
+
+fn input(prompt) {
+  out prompt
+  buffer = ""
+  loop {
+    ch = read(0 1)
+    if ch == "" || ch == "\n" { break }
+    buffer = buffer + ch
+  }
+  ret buffer
+}
+
+fn shell_loop() {
+  out "---------------------------------------------------"
+  out " NEXS Shell v1.0. Digita 'help' per i comandi."
+  out "---------------------------------------------------"
+  
+  loop {
+    cmd = input("nexs-os> ")
+    
+    if cmd == "exit" {
+      out "Esecuzione sequenza di spegnimento..."
+      break
+    }
+    if cmd == "help" {
+      out "  Comandi supportati:"
+      out "  ls     - Mostra i file nel VFS"
+      out "  ps     - Mostra i processi allocati"
+      out "  cat    - Legge il file di benvenuto"
+      out "  runvm  - Esegue il bytecode Wasm di test"
+      out "  exit   - Spegne il sistema"
+    }
+    if cmd == "ls" {
+      vfs_ls()
+    }
+    if cmd == "ps" {
+      pm_ps()
+    }
+    if cmd == "cat" {
+      out vfs_read("motd.txt")
+    }
+    if cmd == "runvm" {
+      # Assegnazione riga per riga per l'interprete NEXS
+      bytecode[0] = 0
+      bytecode[1] = 10
+      bytecode[2] = 0
+      bytecode[3] = 20
+      bytecode[4] = 1  # ADD
+      bytecode[5] = 0
+      bytecode[6] = 2
+      bytecode[7] = 2  # MUL
+      bytecode[8] = 3  # PRINT
+      bytecode[9] = 4  # HALT
+      
+      vm_run(bytecode 10)
+    }
+  }
+}
