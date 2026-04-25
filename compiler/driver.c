@@ -123,7 +123,8 @@ int nexs_compile_file(const char *src_path,
                   " lang/fn_table.c lang/lexer.c lang/parser.c"
                   " lang/eval.c lang/builtins.c"
                   " sys/sysio.c sys/sysproc.c"
-                  " runtime/runtime.c",
+                  " runtime/runtime.c"
+                  " hal/bc/nexs_hal_bc.c hal/hal_hosted.c",
                   script_c);
 
   /* Bare-metal extras */

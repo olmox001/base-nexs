@@ -39,6 +39,13 @@ typedef struct {
   int       ref_count;
   int       is_builtin;   /* 1 = builtin_fn is valid, body == NULL */
   BuiltinFn builtin_fn;
+
+  /*
+   * signature: human-readable prototype shown when printing this value.
+   * Example: "open(path str, mode int) → fd int"
+   * Empty for user-defined functions (signature is derived from params[]).
+   */
+  char signature[128];
 } NexsFnDef;
 
 /* =========================================================
@@ -70,6 +77,13 @@ NEXS_API int fn_register(const char *name,
  * Returns the index, or -1 on error.
  */
 NEXS_API int fn_register_builtin(const char *name, BuiltinFn fn);
+
+/*
+ * fn_register_builtin_sig: register a builtin with a human-readable signature.
+ * sig example: "open(path str, mode int) → fd int"
+ */
+NEXS_API int fn_register_builtin_sig(const char *name, BuiltinFn fn,
+                                      const char *sig);
 
 /* fn_lookup: find by name, return pointer into g_fn_table or NULL */
 NEXS_API NexsFnDef *fn_lookup(const char *name);

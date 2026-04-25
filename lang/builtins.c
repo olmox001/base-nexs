@@ -21,11 +21,15 @@
    HELPER — register into both fn_table and registry /sys/
    ========================================================= */
 
-static void register_builtin(const char *name, BuiltinFn fn) {
-  /* Register in fn_table for fast direct lookup */
-  fn_register_builtin(name, fn);
-  /* Also register in registry /sys/<name> for legacy resolution */
-  reg_register_builtin(name, (void *)fn);
+static void register_builtin_sig(const char *name, BuiltinFn fn,
+                                  const char *sig) {
+  int idx = fn_register_builtin_sig(name, fn, sig);
+  if (idx >= 0) {
+    /* Store actual fn_table index in /sys/<name> — enables val_print to show signature */
+    char path[REG_PATH_MAX];
+    snprintf(path, sizeof(path), "/sys/%s", name);
+    reg_set(path, val_fn_idx(idx), RK_READ | RK_EXEC);
+  }
 }
 
 /* =========================================================
@@ -142,20 +146,32 @@ static Value nexs_builtin_deref(Value *args, int n) {
    ========================================================= */
 
 void builtins_register_all(void) {
-  register_builtin("str",          builtin_str);
-  register_builtin("int",          builtin_int_);
-  register_builtin("float",        builtin_float_);
-  register_builtin("len",          builtin_len);
-  register_builtin("type",         builtin_type);
-  register_builtin("buddy_stats",  builtin_buddy_stats);
-  register_builtin("errstr",       builtin_errstr);
+  register_builtin_sig("str",         builtin_str,
+    "str(value) \xe2\x86\x92 str");
+  register_builtin_sig("int",         builtin_int_,
+    "int(value) \xe2\x86\x92 int");
+  register_builtin_sig("float",       builtin_float_,
+    "float(value) \xe2\x86\x92 float");
+  register_builtin_sig("len",         builtin_len,
+    "len(str|arr) \xe2\x86\x92 int");
+  register_builtin_sig("type",        builtin_type,
+    "type(value) \xe2\x86\x92 str");
+  register_builtin_sig("buddy_stats", builtin_buddy_stats,
+    "buddy_stats() \xe2\x86\x92 nil");
+  register_builtin_sig("errstr",      builtin_errstr,
+    "errstr() \xe2\x86\x92 str");
 
-  /* IPC */
-  register_builtin("sendmsg",      nexs_builtin_sendmsg);
-  register_builtin("recvmsg",      nexs_builtin_recvmsg);
-  register_builtin("msgpending",   nexs_builtin_msgpending);
+  /* IPC — function-call forms; keyword forms (sendmessage /path v) are parsed to AST_SEND_MSG */
+  register_builtin_sig("sendmessage", nexs_builtin_sendmsg,
+    "sendmessage(path str, value) \xe2\x86\x92 int");
+  register_builtin_sig("receivemessage", nexs_builtin_recvmsg,
+    "receivemessage(path str) \xe2\x86\x92 value");
+  register_builtin_sig("msgpending",  nexs_builtin_msgpending,
+    "msgpending(path str) \xe2\x86\x92 int");
 
   /* Pointers */
-  register_builtin("mkptr",        nexs_builtin_ptr);
-  register_builtin("deref",        nexs_builtin_deref);
+  register_builtin_sig("mkptr",       nexs_builtin_ptr,
+    "mkptr(path str) \xe2\x86\x92 ptr");
+  register_builtin_sig("deref",       nexs_builtin_deref,
+    "deref(path str) \xe2\x86\x92 value");
 }

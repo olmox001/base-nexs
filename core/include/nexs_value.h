@@ -153,6 +153,13 @@ NEXS_API void      arr_free(DynArray *arr);
 #define VAL_TRUE     val_bool(1)
 #define VAL_FALSE    val_bool(0)
 
+/*
+ * nexs_val_fn_print — hook called by val_print for TYPE_FN values.
+ * Set once during runtime init (runtime/runtime.c) to fn_print_hook in fn_table.c.
+ * Avoids a circular dependency: core → lang.
+ */
+extern void (*nexs_val_fn_print)(int64_t fn_idx, FILE *out);
+
 #define PROPAGATE_ERR(v)                                                       \
   do {                                                                         \
     if (val_is_error(&(v)))                                                    \

@@ -12,6 +12,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Hook set by runtime after fn_table init (avoids core→lang dependency) */
+void (*nexs_val_fn_print)(int64_t fn_idx, FILE *out) = NULL;
+
 /* =========================================================
    TYPE NAME
    ========================================================= */
@@ -179,9 +182,8 @@ void val_print(const Value *v, FILE *out) {
     break;
   }
   case TYPE_FN:
-    /* ival==1 is the legacy magic flag for builtins registered via registry */
-    if (v->ival == 1 && v->data)
-      fprintf(out, "<builtin fn>");
+    if (nexs_val_fn_print)
+      nexs_val_fn_print(v->ival, out);
     else
       fprintf(out, "<fn #%lld>", (long long)v->ival);
     break;

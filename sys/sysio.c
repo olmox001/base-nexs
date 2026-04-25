@@ -5,6 +5,7 @@
 
 #include "include/nexs_sys.h"
 #include "../registry/include/nexs_registry.h"
+#include "../lang/include/nexs_fn.h"
 #include "../core/include/nexs_alloc.h"
 #include "../core/include/nexs_value.h"
 #include "../core/include/nexs_common.h"
@@ -399,22 +400,60 @@ static Value bi_unmount(Value *args, int n) {
   return val_int(reg_unmount(src, dst));
 }
 
-void sysio_register_builtins(void) {
-  reg_register_builtin("open",    bi_open);
-  reg_register_builtin("create",  bi_create);
-  reg_register_builtin("close",   bi_close);
-  reg_register_builtin("read",    bi_read);
-  reg_register_builtin("write",   bi_write);
-  reg_register_builtin("seek",    bi_seek);
-  reg_register_builtin("dup",     bi_dup);
-  reg_register_builtin("fd2path", bi_fd2path);
-  reg_register_builtin("remove",  bi_remove);
-  reg_register_builtin("pipe",    bi_pipe);
-  reg_register_builtin("fstat",   bi_fstat);
-  reg_register_builtin("chdir",   bi_chdir);
-  reg_register_builtin("mount",   bi_mount);
-  reg_register_builtin("bind",    bi_bind);
-  reg_register_builtin("unmount", bi_unmount);
+/* Arrow UTF-8 → (U+2192) */
+#define SIG(s) s " \xe2\x86\x92 "
 
+void sysio_register_builtins(void) {
+  fn_register_builtin_sig("open",    bi_open,
+    SIG("open(path str, mode int)") "fd int");
+  fn_register_builtin_sig("create",  bi_create,
+    SIG("create(path str, mode int, perm int)") "fd int");
+  fn_register_builtin_sig("close",   bi_close,
+    SIG("close(fd int)") "nil");
+  fn_register_builtin_sig("read",    bi_read,
+    SIG("read(fd int, n int)") "str");
+  fn_register_builtin_sig("write",   bi_write,
+    SIG("write(fd int, data str)") "int");
+  fn_register_builtin_sig("seek",    bi_seek,
+    SIG("seek(fd int, offset int, whence int)") "int");
+  fn_register_builtin_sig("dup",     bi_dup,
+    SIG("dup(oldfd int, newfd int)") "fd int");
+  fn_register_builtin_sig("fd2path", bi_fd2path,
+    SIG("fd2path(fd int)") "str");
+  fn_register_builtin_sig("remove",  bi_remove,
+    SIG("remove(path str)") "int");
+  fn_register_builtin_sig("pipe",    bi_pipe,
+    SIG("pipe()") "arr [rfd wfd]");
+  fn_register_builtin_sig("fstat",   bi_fstat,
+    SIG("fstat(path str)") "str");
+  fn_register_builtin_sig("chdir",   bi_chdir,
+    SIG("chdir(path str)") "int");
+  fn_register_builtin_sig("mount",   bi_mount,
+    SIG("mount(src str, dst str, flags int)") "int");
+  fn_register_builtin_sig("bind",    bi_bind,
+    SIG("bind(src str, dst str, flags int)") "int");
+  fn_register_builtin_sig("unmount", bi_unmount,
+    SIG("unmount(src str, dst str)") "int");
+
+  /* Store actual fn_table indices in /sys/<name> for val_print and eval resolution */
+  {
+    static const struct { const char *name; BuiltinFn fn; } t[] = {
+      {"open",bi_open},{"create",bi_create},{"close",bi_close},
+      {"read",bi_read},{"write",bi_write},{"seek",bi_seek},
+      {"dup",bi_dup},{"fd2path",bi_fd2path},{"remove",bi_remove},
+      {"pipe",bi_pipe},{"fstat",bi_fstat},{"chdir",bi_chdir},
+      {"mount",bi_mount},{"bind",bi_bind},{"unmount",bi_unmount},
+    };
+    char path[REG_PATH_MAX];
+    for (int _i = 0; _i < (int)(sizeof(t)/sizeof(t[0])); _i++) {
+      NexsFnDef *def = fn_lookup(t[_i].name);
+      if (def) {
+        int idx = (int)(def - g_fn_table);
+        snprintf(path, sizeof(path), "/sys/%s", t[_i].name);
+        reg_set(path, val_fn_idx(idx), RK_READ | RK_EXEC);
+      }
+    }
+  }
   reg_mkpath("/sys/fd", RK_READ);
 }
+#undef SIG

@@ -1,10 +1,8 @@
 # =============================================================================
 # NEXS — Top-Level Makefile
 # =============================================================================
-# Compiles the new modular source layout under:
-#   core/ registry/ lang/ sys/ runtime/ compiler/
-#
-# The old src/ directory is kept but NOT compiled here.
+# Modular layout: core/ registry/ lang/ sys/ runtime/ compiler/ hal/
+# Legacy code: old/src/ (not compiled)
 # =============================================================================
 
 CC     = gcc
@@ -46,7 +44,9 @@ SRCS = \
   runtime/runtime.c \
   runtime/main.c \
   compiler/codegen.c \
-  compiler/driver.c
+  compiler/driver.c \
+  hal/bc/nexs_hal_bc.c \
+  hal/hal_hosted.c
 
 OBJS = $(SRCS:.c=.o)
 
@@ -66,7 +66,9 @@ HDRS = \
   runtime/include/nexs_runtime.h \
   compiler/include/nexs_compiler.h \
   compiler/targets.h \
-  hal/include/nexs_hal.h
+  hal/include/nexs_hal.h \
+  hal/include/nexs_hal_bc.h \
+  include/nexs.h
 
 .PHONY: all clean test debug run compile-test
 

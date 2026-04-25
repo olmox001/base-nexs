@@ -5,6 +5,7 @@
 
 #include "include/nexs_sys.h"
 #include "../registry/include/nexs_registry.h"
+#include "../lang/include/nexs_fn.h"
 #include "../core/include/nexs_alloc.h"
 #include "../core/include/nexs_value.h"
 #include "../core/include/nexs_common.h"
@@ -128,15 +129,41 @@ static Value bi_getwd(Value *args, int n) {
    REGISTRATION
    ========================================================= */
 
+#define SIG(s) s " \xe2\x86\x92 "
+
 void sysproc_register_builtins(void) {
-  reg_register_builtin("sleep",  bi_sleep);
-  reg_register_builtin("exec",   bi_exec);
-  reg_register_builtin("exits",  bi_exits);
-  reg_register_builtin("alarm",  bi_alarm);
-  reg_register_builtin("rfork",  bi_rfork);
-  reg_register_builtin("await",  bi_await);
-  reg_register_builtin("getpid", bi_getpid);
-  reg_register_builtin("getwd",  bi_getwd);
+  fn_register_builtin_sig("sleep",  bi_sleep,
+    SIG("sleep(msec int)") "nil");
+  fn_register_builtin_sig("exec",   bi_exec,
+    SIG("exec(path str)") "nil");
+  fn_register_builtin_sig("exits",  bi_exits,
+    SIG("exits(status str)") "nil");
+  fn_register_builtin_sig("alarm",  bi_alarm,
+    SIG("alarm(msec int)") "int");
+  fn_register_builtin_sig("rfork",  bi_rfork,
+    SIG("rfork(flags int)") "pid int");
+  fn_register_builtin_sig("await",  bi_await,
+    SIG("await()") "str");
+  fn_register_builtin_sig("getpid", bi_getpid,
+    SIG("getpid()") "int");
+  fn_register_builtin_sig("getwd",  bi_getwd,
+    SIG("getwd()") "str");
+
+  /* Store actual fn_table indices in /sys/<name> */
+  {
+    static const char *names[] = {
+      "sleep","exec","exits","alarm","rfork","await","getpid","getwd"
+    };
+    char path[REG_PATH_MAX];
+    for (int _i = 0; _i < 8; _i++) {
+      NexsFnDef *def = fn_lookup(names[_i]);
+      if (def) {
+        int idx = (int)(def - g_fn_table);
+        snprintf(path, sizeof(path), "/sys/%s", names[_i]);
+        reg_set(path, val_fn_idx(idx), RK_READ | RK_EXEC);
+      }
+    }
+  }
 
   reg_set("/sys/rfork/RFPROC",   val_int(NEXS_RFPROC),   RK_READ);
   reg_set("/sys/rfork/RFNOWAIT", val_int(NEXS_RFNOWAIT), RK_READ);
@@ -149,3 +176,4 @@ void sysproc_register_builtins(void) {
   reg_set("/sys/ORDWR",  val_int(NEXS_ORDWR),  RK_READ);
   reg_set("/sys/OTRUNC", val_int(NEXS_OTRUNC), RK_READ);
 }
+#undef SIG

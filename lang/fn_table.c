@@ -9,7 +9,9 @@
 #include "include/nexs_ast.h"
 #include "../core/include/nexs_alloc.h"
 #include "../core/include/nexs_common.h"
+#include "../core/include/nexs_value.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* =========================================================
@@ -23,9 +25,31 @@ int       g_fn_count = 0;
    INIT / FREE
    ========================================================= */
 
+/* =========================================================
+   PRINT HOOK — installed into nexs_val_fn_print at init
+   ========================================================= */
+
+static void fn_print_hook(int64_t idx, FILE *out) {
+  NexsFnDef *def = fn_lookup_by_idx((int)idx);
+  if (!def) { fprintf(out, "<fn #%lld>", (long long)idx); return; }
+
+  if (def->is_builtin) {
+    if (def->signature[0])
+      fprintf(out, "<builtin: %s>", def->signature);
+    else
+      fprintf(out, "<builtin: %s(...)>", def->name);
+  } else {
+    fprintf(out, "<fn %s(", def->name);
+    for (int i = 0; i < def->n_params; i++)
+      fprintf(out, "%s%s", i ? " " : "", def->params[i]);
+    fprintf(out, ")>");
+  }
+}
+
 void fn_table_init(void) {
   memset(g_fn_table, 0, sizeof(g_fn_table));
   g_fn_count = 0;
+  nexs_val_fn_print = fn_print_hook;
 }
 
 void fn_table_free(void) {
@@ -90,7 +114,24 @@ int fn_register(const char *name,
    ========================================================= */
 
 int fn_register_builtin(const char *name, BuiltinFn fn) {
+  return fn_register_builtin_sig(name, fn, NULL);
+}
+
+int fn_register_builtin_sig(const char *name, BuiltinFn fn, const char *sig) {
   if (!name || !fn) return -1;
+
+  /* Replace if already registered (e.g. sysio re-registers after builtins) */
+  for (int i = 0; i < g_fn_count; i++) {
+    if (g_fn_table[i].is_builtin && strcmp(g_fn_table[i].name, name) == 0) {
+      g_fn_table[i].builtin_fn = fn;
+      if (sig) {
+        strncpy(g_fn_table[i].signature, sig, sizeof(g_fn_table[i].signature) - 1);
+        g_fn_table[i].signature[sizeof(g_fn_table[i].signature) - 1] = '\0';
+      }
+      return i;
+    }
+  }
+
   if (g_fn_count >= NEXS_MAX_FN_DEFS) return -1;
 
   int idx = g_fn_count++;
@@ -101,6 +142,10 @@ int fn_register_builtin(const char *name, BuiltinFn fn) {
   g_fn_table[idx].builtin_fn = fn;
   g_fn_table[idx].ref_count  = 1;
   g_fn_table[idx].n_params   = 0;
+  if (sig) {
+    strncpy(g_fn_table[idx].signature, sig, sizeof(g_fn_table[idx].signature) - 1);
+    g_fn_table[idx].signature[sizeof(g_fn_table[idx].signature) - 1] = '\0';
+  }
   return idx;
 }
 

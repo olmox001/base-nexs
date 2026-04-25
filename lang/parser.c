@@ -226,9 +226,23 @@ static ASTNode *parse_primary(Parser *p) {
     n->left = parse_primary(p);
     return n;
   }
-  /* IPC / PTR keywords usable as expressions (e.g. out msgpending /path) */
+  /* IPC / PTR keywords usable as expressions (e.g. out msgpending /path)
+   * Also support function-call form: out msgpending("/q")                */
   case TK_KW_PENDING: {
+    Token kw = t;
     parser_advance(p);
+    if (p->cur.kind == TK_LPAREN) {
+      ASTNode *fn = ast_alloc(AST_FN_CALL, kw);
+      strncpy(fn->name, "msgpending", NAME_LEN - 1);
+      parser_advance(p);
+      fn->n_args = 0;
+      while (p->cur.kind != TK_RPAREN && p->cur.kind != TK_EOF) {
+        if (fn->n_args < MAX_PARAMS) fn->args[fn->n_args++] = parse_expr(p);
+        if (p->cur.kind == TK_COMMA) parser_advance(p);
+      }
+      if (!parser_expect(p, TK_RPAREN)) return NULL;
+      return fn;
+    }
     Token pt = p->cur;
     if (!parser_expect(p, TK_REGPATH)) return NULL;
     ASTNode *n = ast_alloc(AST_MSG_PENDING, pt);
@@ -237,7 +251,20 @@ static ASTNode *parse_primary(Parser *p) {
     return n;
   }
   case TK_KW_RECV: {
+    Token kw = t;
     parser_advance(p);
+    if (p->cur.kind == TK_LPAREN) {
+      ASTNode *fn = ast_alloc(AST_FN_CALL, kw);
+      strncpy(fn->name, "receivemessage", NAME_LEN - 1);
+      parser_advance(p);
+      fn->n_args = 0;
+      while (p->cur.kind != TK_RPAREN && p->cur.kind != TK_EOF) {
+        if (fn->n_args < MAX_PARAMS) fn->args[fn->n_args++] = parse_expr(p);
+        if (p->cur.kind == TK_COMMA) parser_advance(p);
+      }
+      if (!parser_expect(p, TK_RPAREN)) return NULL;
+      return fn;
+    }
     Token pt = p->cur;
     if (!parser_expect(p, TK_REGPATH)) return NULL;
     ASTNode *n = ast_alloc(AST_RECV_MSG, pt);
@@ -456,10 +483,26 @@ ASTNode *parse_stmt(Parser *p) {
     return n;
   }
 
-  /* sendmessage /path expr */
+  /* sendmessage /path expr           — keyword form with literal path
+   * sendmessage(path_expr, val_expr) — function-call form with any expression */
   if (t.kind == TK_KW_SEND) {
     parser_advance(p);
-    Token pt = p->cur;
+    Token peek = p->cur;
+    if (peek.kind == TK_LPAREN) {
+      /* Function-call form: delegate to fn_call parsing */
+      ASTNode *fn = ast_alloc(AST_FN_CALL, t);
+      strncpy(fn->name, "sendmessage", NAME_LEN - 1);
+      parser_advance(p); /* consume '(' */
+      fn->n_args = 0;
+      while (p->cur.kind != TK_RPAREN && p->cur.kind != TK_EOF) {
+        if (fn->n_args < MAX_PARAMS)
+          fn->args[fn->n_args++] = parse_expr(p);
+        if (p->cur.kind == TK_COMMA) parser_advance(p);
+      }
+      if (!parser_expect(p, TK_RPAREN)) return NULL;
+      return fn;
+    }
+    Token pt = peek;
     if (!parser_expect(p, TK_REGPATH)) return NULL;
     ASTNode *n = ast_alloc(AST_SEND_MSG, pt);
     strncpy(n->path, pt.text, REG_PATH_MAX - 1);
@@ -468,10 +511,24 @@ ASTNode *parse_stmt(Parser *p) {
     return n;
   }
 
-  /* receivemessage /path */
+  /* receivemessage /path  or  receivemessage(path_expr) */
   if (t.kind == TK_KW_RECV) {
     parser_advance(p);
-    Token pt = p->cur;
+    Token peek = p->cur;
+    if (peek.kind == TK_LPAREN) {
+      ASTNode *fn = ast_alloc(AST_FN_CALL, t);
+      strncpy(fn->name, "receivemessage", NAME_LEN - 1);
+      parser_advance(p);
+      fn->n_args = 0;
+      while (p->cur.kind != TK_RPAREN && p->cur.kind != TK_EOF) {
+        if (fn->n_args < MAX_PARAMS)
+          fn->args[fn->n_args++] = parse_expr(p);
+        if (p->cur.kind == TK_COMMA) parser_advance(p);
+      }
+      if (!parser_expect(p, TK_RPAREN)) return NULL;
+      return fn;
+    }
+    Token pt = peek;
     if (!parser_expect(p, TK_REGPATH)) return NULL;
     ASTNode *n = ast_alloc(AST_RECV_MSG, pt);
     strncpy(n->path, pt.text, REG_PATH_MAX - 1);
@@ -479,10 +536,24 @@ ASTNode *parse_stmt(Parser *p) {
     return n;
   }
 
-  /* msgpending /path */
+  /* msgpending /path  or  msgpending(path_expr) */
   if (t.kind == TK_KW_PENDING) {
     parser_advance(p);
-    Token pt = p->cur;
+    Token peek = p->cur;
+    if (peek.kind == TK_LPAREN) {
+      ASTNode *fn = ast_alloc(AST_FN_CALL, t);
+      strncpy(fn->name, "msgpending", NAME_LEN - 1);
+      parser_advance(p);
+      fn->n_args = 0;
+      while (p->cur.kind != TK_RPAREN && p->cur.kind != TK_EOF) {
+        if (fn->n_args < MAX_PARAMS)
+          fn->args[fn->n_args++] = parse_expr(p);
+        if (p->cur.kind == TK_COMMA) parser_advance(p);
+      }
+      if (!parser_expect(p, TK_RPAREN)) return NULL;
+      return fn;
+    }
+    Token pt = peek;
     if (!parser_expect(p, TK_REGPATH)) return NULL;
     ASTNode *n = ast_alloc(AST_MSG_PENDING, pt);
     strncpy(n->path, pt.text, REG_PATH_MAX - 1);

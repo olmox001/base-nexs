@@ -76,16 +76,20 @@ void nexs_repl(void) {
     }
 
     if (strcmp(line, ":fn") == 0) {
-      /* List all registered functions from fn_table */
       fprintf(stdout, "\n[FN TABLE] %d functions registered:\n", g_fn_count);
       for (int i = 0; i < g_fn_count; i++) {
         NexsFnDef *def = &g_fn_table[i];
-        fprintf(stdout, "  [%d] %s%s(", i,
-                def->is_builtin ? "<builtin> " : "",
-                def->name);
-        for (int j = 0; j < def->n_params; j++)
-          fprintf(stdout, "%s%s", j > 0 ? ", " : "", def->params[j]);
-        fprintf(stdout, ") ref=%d\n", def->ref_count);
+        if (def->is_builtin) {
+          if (def->signature[0])
+            fprintf(stdout, "  [%d] %s  ref=%d\n", i, def->signature, def->ref_count);
+          else
+            fprintf(stdout, "  [%d] <builtin: %s(...)>  ref=%d\n", i, def->name, def->ref_count);
+        } else {
+          fprintf(stdout, "  [%d] fn %s(", i, def->name);
+          for (int j = 0; j < def->n_params; j++)
+            fprintf(stdout, "%s%s", j > 0 ? " " : "", def->params[j]);
+          fprintf(stdout, ")  ref=%d\n", def->ref_count);
+        }
       }
       fprintf(stdout, "\n");
       continue;
