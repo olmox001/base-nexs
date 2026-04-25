@@ -1,0 +1,191 @@
+# ===================================================================
+# NXED v13 - VIM STYLE + CTRL-X MENU (Scope Monolitico)
+# ===================================================================
+exec("example/minios/vfs.nx")
+
+fn get_ln(y) {
+  l = reg_get("/sys/ed/buf/" + str(y))
+  if type(l) == "err" { ret "" }
+  ret l
+}
+
+fn start() {
+  O = 1
+  I = 0
+  
+  # --- CALIBRAZIONE ---
+  write(O, "1. INVIO | 2. ESC | 3. BACKSPACE | 4. CTRL+X\n")
+  RET  = read(I, 1)
+  ESC  = read(I, 1)
+  BS   = read(I, 1)
+  MENU = read(I, 1)
+
+  reg_set("/sys/ed/buf/0", "")
+
+  cur_x = 0
+  cur_y = 0
+  view_y = 0
+  SCR_H = 12
+  MAX_Y = 0
+
+  # Nascondiamo il cursore hardware del terminale
+  write(O, ESC + "[?25l")
+
+  loop {
+    # --- RENDERER VIM-STYLE ---
+    write(O, ESC + "[2J" + ESC + "[H")
+    write(O, ESC + "[7m NXED v13 | L:" + str(cur_y) + " C:" + str(cur_x) + " | CTRL+X: Menu " + ESC + "[0m\n")
+    
+    i = view_y
+    limit = view_y + SCR_H
+    loop {
+      if i >= limit { break }
+      txt = get_ln(i)
+      
+      if i == cur_y {
+        l = len(txt)
+        if cur_x >= l {
+          # Cursore a fine riga (spazio vuoto invertito)
+          write(O, "> " + txt + ESC + "[7m " + ESC + "[0m\n")
+        } else {
+          # Cursore in mezzo alla riga
+          p1 = substr(txt 0 cur_x)
+          cc = substr(txt cur_x 1)
+          p2 = ""
+          rem = l - cur_x - 1
+          if rem > 0 { p2 = substr(txt cur_x + 1 rem) }
+          write(O, "> " + p1 + ESC + "[7m" + cc + ESC + "[0m" + p2 + "\n")
+        }
+      } else {
+        write(O, "  " + txt + "\n")
+      }
+      i = i + 1
+    }
+
+    # --- INPUT ---
+    ch = read(I, 1)
+
+    # 0. MENU (CTRL+X)
+    if ch == MENU {
+      write(O, ESC + "[2J" + ESC + "[H")
+      write(O, ESC + "[7m --- MENU DI SISTEMA NEXS --- " + ESC + "[0m\n")
+      write(O, " q : Esci senza salvare\n")
+      write(O, " s : Salva con nome\n")
+      write(O, " c : Annulla e continua\n\n> ")
+      
+      opt = read(I, 1)
+      
+      if opt == "q" {
+        # Ripristina cursore hardware prima di uscire!
+        write(O, ESC + "[?25h")
+        write(O, ESC + "[2J" + ESC + "[H")
+        break
+      }
+      
+      if opt == "s" {
+        write(O, "\nNome file: ")
+        write(O, ESC + "[?25h") # Mostra cursore hardware per l'input testuale
+        
+        fname = ""
+        loop {
+          fc = read(I, 1)
+          if fc == "\n" { break }
+          if fc == RET { break }
+          if fc == BS {
+            l_f = len(fname)
+            if l_f > 0 {
+              fname = substr(fname 0 l_f - 1)
+              write(O, ESC + "[1D " + ESC + "[1D")
+            }
+            cont
+          }
+          fname = fname + fc
+          write(O, fc)
+        }
+        
+        write(O, ESC + "[?25l") # Nascondi di nuovo cursore
+        
+        if len(fname) > 0 {
+          fd = create(fname 1 0644)
+          idx = 0
+          loop {
+            if idx > MAX_Y { break }
+            write(fd, get_ln(idx) + "\n")
+            idx = idx + 1
+          }
+          close(fd)
+          write(O, "\n[ Salvataggio di " + fname + " completato. Premi un tasto per tornare. ]")
+          read(I, 1) # Attende un tasto qualsiasi
+        }
+      }
+      cont
+    }
+
+    # 1. ESC / FRECCE
+    if ch == ESC {
+      b1 = read(I, 1)
+      if b1 == "[" {
+        b2 = read(I, 1)
+        if b2 == "A" { if cur_y > 0 { cur_y = cur_y - 1 } }
+        if b2 == "B" { cur_y = cur_y + 1 }
+        if b2 == "C" { cur_x = cur_x + 1 }
+        if b2 == "D" { if cur_x > 0 { cur_x = cur_x - 1 } }
+        
+        if cur_y < view_y { view_y = cur_y }
+        if cur_y >= (view_y + SCR_H) { view_y = view_y + 1 }
+        if cur_y > MAX_Y { MAX_Y = cur_y }
+        
+        l_len = len(get_ln(cur_y))
+        if cur_x > l_len { cur_x = l_len }
+        cont
+      }
+      cont
+    }
+
+    # 2. CANCELLAZIONE
+    if ch == BS {
+      if cur_x > 0 {
+        txt = get_ln(cur_y)
+        l = len(txt)
+        p1 = substr(txt 0 cur_x - 1)
+        p2 = ""
+        rem = l - cur_x
+        if rem > 0 { p2 = substr(txt cur_x rem) }
+        
+        reg_set("/sys/ed/buf/" + str(cur_y), p1 + p2)
+        cur_x = cur_x - 1
+      }
+      cont
+    }
+
+    # 3. INVIO
+    if ch == "\n" {
+      cur_y = cur_y + 1
+      cur_x = 0
+      if cur_y > MAX_Y { MAX_Y = cur_y }
+      cont
+    }
+    if ch == RET {
+      cur_y = cur_y + 1
+      cur_x = 0
+      if cur_y > MAX_Y { MAX_Y = cur_y }
+      cont
+    }
+
+    # 4. SCRITTURA
+    txt = get_ln(cur_y)
+    l = len(txt)
+    if cur_x >= l {
+      reg_set("/sys/ed/buf/" + str(cur_y), txt + ch)
+    } else {
+      p1 = substr(txt 0 cur_x)
+      p2 = ""
+      rem = l - cur_x
+      if rem > 0 { p2 = substr(txt cur_x rem) }
+      reg_set("/sys/ed/buf/" + str(cur_y), p1 + ch + p2)
+    }
+    cur_x = cur_x + 1
+  }
+}
+
+start()
