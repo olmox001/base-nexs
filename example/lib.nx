@@ -1,0 +1,25 @@
+# ===================================================================
+# NEXS Math Library (lib.nx)
+# ===================================================================
+
+# Funzione per calcolare il quadrato
+fn square(n) {
+  ret n * n
+}
+
+# Funzione per calcolare la potenza
+fn power(base exp) {
+  res = 1
+  i = 0
+  loop {
+    if i >= exp { break }
+    res = res * base
+    i = i + 1
+  }
+  ret res
+}
+
+# Esportiamo una costante nel Registry (Plan 9 style)
+reg /lib/math/version = "1.0.0"
+
+out "[Lib] Libreria matematica caricata correttamente."

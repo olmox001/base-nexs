@@ -1,0 +1,40 @@
+# ===================================================================
+# NEXS Input Test (test_input.nx)
+# Fix: Lettura byte per byte per aggirare il blocco di fread()
+# ===================================================================
+
+# Funzione per leggere una riga da tastiera (come in Python)
+fn input(prompt) {
+  # Usiamo out per il prompt (aggiungerà un a capo, è normale in NEXS)
+  out prompt
+  
+  buffer = ""
+  loop {
+    # Legge esattamente 1 byte dal file descriptor 0
+    ch = read(0 1)
+    
+    # Condizione di uscita: fine file o "Invio"
+    if ch == "" { break }
+    if ch == "\n" { break }
+    
+    # Concatena il carattere
+    buffer = buffer + ch
+  }
+  ret buffer
+}
+
+out "---------------------------------------------------"
+out " Test di Input Interattivo NEXS (Corretto)"
+out "---------------------------------------------------"
+
+nome = input("Come ti chiami?")
+numero_str = input("Qual e' il tuo numero preferito?")
+
+# Convertiamo in numero
+numero = int(numero_str)
+doppio = numero * 2
+
+out "---------------------------------------------------"
+out "Ciao " + str(nome) + "!"
+out "Sapevi che il doppio di " + str(numero) + " e' " + str(doppio) + "?"
+out "---------------------------------------------------"

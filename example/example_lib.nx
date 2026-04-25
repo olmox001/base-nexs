@@ -1,0 +1,23 @@
+# ===================================================================
+# Main Application (example_lib.nx)
+# ===================================================================
+
+out "[Main] Avvio applicazione..."
+
+# Caricamento dinamico della libreria
+# Questo popola la fn_table con 'square' e 'power'
+exec("example/lib.nx")
+
+# Verifica della versione dal Registry
+ver = reg /lib/math/version
+out "[Main] Utilizzando MathLib versione: " + ver
+
+# Utilizzo delle funzioni caricate dalla libreria
+val = 5
+sq = square(val)
+pwr = power(2 10)
+
+out "[Main] Il quadrato di " + str(val) + " è: " + str(sq)
+out "[Main] 2 alla decima è: " + str(pwr)
+
+out "[Main] Esecuzione completata."

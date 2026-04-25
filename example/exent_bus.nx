@@ -1,0 +1,120 @@
+# ===================================================================
+# NEXS Broker & Synchronized Workers (event_bus.nx)
+# Pattern: Load Balancing, Mutex Locks, Shared Dynamic Array
+# ===================================================================
+
+out "---------------------------------------------------"
+out "[Boot] Inizializzazione Broker e Worker Pool..."
+out "---------------------------------------------------"
+
+# 1. Inizializzazione Mutex (Semaforo a 1 Token)
+# Usiamo la coda /sys/mutex come lock per proteggere il database.
+ptr /mutex = /sys/locks/db
+sendmessage("/mutex" "TOKEN")
+
+fn lock() {
+  loop {
+    # msgpending restituisce > 0 se c'è un token disponibile
+    if msgpending("/mutex") > 0 {
+      receivemessage("/mutex") # Consuma il token (Acquire)
+      ret 1
+    }
+    sleep(10)
+  }
+}
+
+fn unlock() {
+  sendmessage("/mutex" "TOKEN") # Ripristina il token (Release)
+}
+
+# 2. Configurazione del Broker (Router Round-Robin)
+reg /broker/turn = 1
+ptr /bus = /sys/broker/inbox
+
+fn broker_tick() {
+  # Riceve job in ingresso
+  job = receivemessage("/bus")
+  if job != nil {
+    turn = reg /broker/turn
+    if turn == 1 {
+      # Inoltra al Worker 1 usando la chiamata di funzione dinamica
+      sendmessage("/sys/w1/inbox" job)
+      reg /broker/turn = 2
+      out "[Broker] Smistato Job '" + str(job) + "' al Worker-1"
+    } else {
+      # Inoltra al Worker 2
+      sendmessage("/sys/w2/inbox" job)
+      reg /broker/turn = 1
+      out "[Broker] Smistato Job '" + str(job) + "' al Worker-2"
+    }
+  }
+}
+
+# 3. Database Condiviso (Array Globale e Contatore)
+reg /db/count = 0
+
+# 4. Logica dei Worker (Parametrica)
+fn worker_tick(nome coda_in) {
+  # La funzione riceve la stringa del path dinamicamente!
+  task = receivemessage(coda_in)
+  
+  if task != nil {
+    out "[" + nome + "] Calcolo in corso per: " + str(task)
+    
+    # Simuliamo un lavoro computazionale (es: formula)
+    risultato = task * task + 42
+    
+    out "[" + nome + "] Attesa lock per aggiornare il Ledger..."
+    lock()
+    
+    # --- CRITICAL SECTION ---
+    # Nessun altro worker può entrare qui finché c'è il lock
+    idx = reg /db/count
+    ledger[idx] = risultato
+    out "[" + nome + "] Scritto " + str(risultato) + " in ledger[" + str(idx) + "]"
+    
+    sleep(50) # Simula latenza di I/O (Database)
+    reg /db/count = idx + 1
+    # ------------------------
+    
+    unlock()
+    out "[" + nome + "] Lock rilasciato."
+  }
+}
+
+# ===================================================================
+# KERNEL: SIMULAZIONE DEL SISTEMA
+# ===================================================================
+
+# Inviamo 4 job matematici bruti al Broker
+sendmessage("/bus" 5)
+sendmessage("/bus" 10)
+sendmessage("/bus" 7)
+sendmessage("/bus" 3)
+
+out "[System] Job accodati sul bus principale. Avvio core loop..."
+
+loop {
+  # Esecuzione dei task
+  broker_tick()
+  
+  worker_tick("W-1" "/sys/w1/inbox")
+  worker_tick("W-2" "/sys/w2/inbox")
+  
+  # Condizione di uscita: il DB ha 4 record?
+  if (reg /db/count) >= 4 {
+    out "[System] Tutti i task completati."
+    break
+  }
+  
+  sleep(15)
+}
+
+# Stampa i risultati finali dell'array
+out "---------------------------------------------------"
+out "Risultati finali nel Ledger (Array Dinamico):"
+out " Indice 0: " + str(ledger[0])
+out " Indice 1: " + str(ledger[1])
+out " Indice 2: " + str(ledger[2])
+out " Indice 3: " + str(ledger[3])
+out "---------------------------------------------------"
