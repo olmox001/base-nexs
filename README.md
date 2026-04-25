@@ -16,6 +16,7 @@ Cross-compile targets:
 make linux-amd64     # GCC x86_64 Linux ELF
 make linux-arm64     # aarch64-linux-gnu-gcc
 make macos-arm64     # clang -arch arm64 (Apple Silicon)
+make macos-amd64 
 make plan9-amd64     # Plan 9 style (GCC)
 make baremetal-arm64 # aarch64-none-elf-gcc, QEMU virt
 make baremetal-amd64 # x86_64-elf-gcc, Multiboot2
