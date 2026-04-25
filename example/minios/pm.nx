@@ -1,26 +1,52 @@
 # ===================================================================
 # Modulo PM (Process & Memory Manager)
-# Fix: Array globali per storicizzare PID e Memoria
 # ===================================================================
+# Tutti i processi vengono registrati nel namespace NEXS:
+#   /sys/pm/procs/<pid>/name   = nome del processo
+#   /sys/pm/procs/<pid>/state  = "running" | "zombie"
+#   /sys/pm/procs/<pid>/mem    = byte allocati
+#   /sys/pm/next_pid           = prossimo PID disponibile
+# Visibile tramite: ls /sys/pm
+# ===================================================================
+
 reg /sys/pm/next_pid = 100
 
 fn pm_spawn(nome_processo) {
   pid = reg /sys/pm/next_pid
   reg /sys/pm/next_pid = pid + 1
-  
-  pm_nomi[pid] = nome_processo
+
+  reg_set("/sys/pm/procs/" + str(pid) + "/name",  nome_processo)
+  reg_set("/sys/pm/procs/" + str(pid) + "/state", "running")
+  reg_set("/sys/pm/procs/" + str(pid) + "/mem",   0)
+
   out "[PM] Task '" + nome_processo + "' creato con PID: " + str(pid)
   ret pid
 }
 
 fn pm_alloc(pid pagine) {
   byte_allocati = pagine * 4096
-  pm_mem[pid] = byte_allocati
-  out "[MMU] Mappati " + str(byte_allocati) + " byte per il PID " + str(pid)
+  reg_set("/sys/pm/procs/" + str(pid) + "/mem", byte_allocati)
+  out "[MMU] Mappati " + str(byte_allocati) + " byte per PID " + str(pid)
+}
+
+fn pm_kill(pid) {
+  reg_set("/sys/pm/procs/" + str(pid) + "/state", "zombie")
+  out "[PM] PID " + str(pid) + " terminato."
 }
 
 fn pm_ps() {
-  pid_attuale = (reg /sys/pm/next_pid) - 1
-  out "  PID attivi: "
-  out "  - PID " + str(pid_attuale) + " [In esecuzione]"
+  primo_pid = 100
+  ultimo_pid = (reg /sys/pm/next_pid) - 1
+  out "  === Tabella Processi (PID " + str(primo_pid) + ".." + str(ultimo_pid) + ") ==="
+  pid = primo_pid
+  loop {
+    if pid > ultimo_pid { break }
+    nome  = reg_get("/sys/pm/procs/" + str(pid) + "/name")
+    stato = reg_get("/sys/pm/procs/" + str(pid) + "/state")
+    mem   = reg_get("/sys/pm/procs/" + str(pid) + "/mem")
+    if type(nome) != "err" {
+      out "  PID " + str(pid) + "  " + nome + "  [" + stato + "]  mem=" + str(mem) + "B"
+    }
+    pid = pid + 1
+  }
 }
