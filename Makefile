@@ -184,6 +184,18 @@ baremetal-amd64: $(TARGET)
 	  echo "x86_64-elf-gcc not found, skipping baremetal-amd64"; \
 	fi
 
+linux-x86: $(TARGET)
+	@if $(CC) -m32 -dumpmachine > /dev/null 2>&1; then \
+	  mkdir -p build/linux-x86 && \
+	  $(CC) -m32 -march=i686 -DNEXS_LINUX \
+	    $(CFLAGS) \
+	    $(SRCS) -o build/linux-x86/nexs; \
+	  echo "Compiled for Linux x86 (32-bit) -> build/linux-x86/nexs"; \
+	else \
+	  echo "Multilib non installata (gcc -m32 fallito). Installa gcc-multilib."; \
+	fi
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Run the REPL
 # ─────────────────────────────────────────────────────────────────────────────
