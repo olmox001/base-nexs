@@ -156,6 +156,35 @@ plan9-amd64: $(TARGET)
 	@echo "Plan 9 target: requires Plan 9 toolchain (9c/9l)"
 	@echo "Skipping (not implemented for POSIX cross-compilation)"
 
+# Kernel sources (shared between amd64 and arm64 baremetal)
+KERNEL_SRCS = \
+  kernel/proc.c \
+  kernel/sched.c
+
+ARM64_HAL_SRCS = \
+  hal/arm64/boot.S \
+  hal/arm64/exc_vectors.S \
+  hal/arm64/exc_handler.c \
+  hal/arm64/uart.c \
+  hal/arm64/mmu.c \
+  hal/arm64/gic.c \
+  hal/arm64/timer.c \
+  hal/arm64/fdt.c \
+  kernel/ctx_arm64.S
+
+AMD64_HAL_SRCS = \
+  hal/amd64/boot.S \
+  hal/amd64/isr_stubs.S \
+  hal/amd64/uart.c \
+  hal/amd64/gdt.c \
+  hal/amd64/idt.c \
+  hal/amd64/apic.c \
+  hal/amd64/mmu.c \
+  hal/amd64/acpi.c \
+  kernel/ctx_amd64.S
+
+AMD64_INCS = $(INCS) -Ikernel/include -Ihal/include
+
 baremetal-arm64: $(TARGET)
 	@if command -v aarch64-none-elf-gcc >/dev/null 2>&1; then \
 	  mkdir -p build/baremetal-arm64 && \
@@ -163,7 +192,8 @@ baremetal-arm64: $(TARGET)
 	    -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
 	    -nostdlib -nostartfiles \
 	    -T hal/arm64/nexs.ld \
-	    $(INCS) $(SRCS) hal/arm64/boot.S hal/arm64/uart.c \
+	    $(INCS) -Ikernel/include -Ihal/include \
+	    $(SRCS) $(KERNEL_SRCS) $(ARM64_HAL_SRCS) \
 	    -o build/baremetal-arm64/nexs.elf; \
 	  echo "Cross-compiled -> build/baremetal-arm64/nexs.elf"; \
 	else \
@@ -177,7 +207,8 @@ baremetal-amd64: $(TARGET)
 	    -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
 	    -nostdlib -nostartfiles \
 	    -T hal/amd64/nexs.ld \
-	    $(INCS) $(SRCS) hal/amd64/boot.S hal/amd64/uart.c \
+	    $(INCS) -Ikernel/include -Ihal/include \
+	    $(SRCS) $(KERNEL_SRCS) $(AMD64_HAL_SRCS) \
 	    -o build/baremetal-amd64/nexs.elf; \
 	  echo "Cross-compiled -> build/baremetal-amd64/nexs.elf"; \
 	else \

@@ -61,6 +61,10 @@ NEXS_API EvalResult eval(EvalCtx *ctx, ASTNode *node);
 NEXS_API EvalResult eval_str(EvalCtx *ctx, const char *src);
 NEXS_API EvalResult eval_file(EvalCtx *ctx, const char *path);
 
+/* Global REPL context — set by main() before running repl.nx;
+   used by the eval() builtin so .nx code can evaluate strings. */
+extern EvalCtx *nexs_g_eval_ctx;
+
 #ifdef __cplusplus
 }
 #endif
