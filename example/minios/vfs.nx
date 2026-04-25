@@ -1,0 +1,63 @@
+# ===================================================================
+# Modulo VFS (Virtual File System)
+# ===================================================================
+# Tutti i file vengono salvati nel registro NEXS come:
+#   /sys/vfs/files/<nome>   = contenuto
+#   /sys/vfs/idx/<n>        = nome_file   (indice per ls)
+#   /sys/vfs/count          = numero totale di file
+# Questo garantisce che i dati sopravvivano alle chiamate di funzione
+# e siano visibili via `ls /sys/vfs`.
+# ===================================================================
+
+reg /sys/vfs/count = 0
+
+fn vfs_write(nome_file contenuto) {
+  # Controlla se il file esiste gia' (aggiornamento)
+  count = reg /sys/vfs/count
+  i = 0
+  loop {
+    if i >= count { break }
+    nome_chiave = "/sys/vfs/idx/" + str(i)
+    nome_esistente = reg_get(nome_chiave)
+    if nome_esistente == nome_file {
+      # Aggiorna contenuto in-place
+      reg_set("/sys/vfs/files/" + nome_file, contenuto)
+      ret nil
+    }
+    i = i + 1
+  }
+  # Nuovo file
+  reg_set("/sys/vfs/files/" + nome_file, contenuto)
+  reg_set("/sys/vfs/idx/" + str(count), nome_file)
+  reg /sys/vfs/count = count + 1
+}
+
+fn vfs_read(nome_file) {
+  val = reg_get("/sys/vfs/files/" + nome_file)
+  if type(val) == "err" {
+    ret "ERR: File '" + nome_file + "' non trovato nel VFS"
+  }
+  ret val
+}
+
+fn vfs_ls() {
+  count = reg /sys/vfs/count
+  out "  === VFS — " + str(count) + " file nel registro NEXS ==="
+  i = 0
+  loop {
+    if i >= count { break }
+    nome = reg_get("/sys/vfs/idx/" + str(i))
+    contenuto = reg_get("/sys/vfs/files/" + nome)
+    dim = len(contenuto)
+    out "  [" + str(i) + "] " + nome + "  (" + str(dim) + " byte)  @ /sys/vfs/files/" + nome
+    i = i + 1
+  }
+}
+
+fn vfs_stat(nome_file) {
+  val = reg_get("/sys/vfs/files/" + nome_file)
+  if type(val) == "err" {
+    ret "not found"
+  }
+  ret str(len(val)) + " byte"
+}

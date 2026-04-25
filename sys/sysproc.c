@@ -16,6 +16,17 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+/*
+ * nexs_embedded_lookup — provided by standalone compiled binaries (generated
+ * by compiler/codegen.c).  When running as the interactive interpreter this
+ * always returns NULL so eval_file() falls through to fopen() as usual.
+ * Declared as a weak symbol so both build paths link cleanly.
+ */
+__attribute__((weak)) const char *nexs_embedded_lookup(const char *path) {
+  (void)path;
+  return NULL;
+}
+
 /* =========================================================
    SYSCALL IMPLEMENTATIONS
    ========================================================= */
@@ -28,7 +39,16 @@ int nexs_sleep(int msec) {
 
 int nexs_exec(EvalCtx *ctx, const char *path) {
   if (!ctx || !path) return -1;
-  EvalResult r = eval_file(ctx, path);
+  EvalResult r;
+  /* Bug 2 fix: check embedded dep table before touching the filesystem.
+   * In standalone compiled binaries nexs_embedded_lookup() returns the
+   * inlined source; in the interpreter it is a weak no-op returning NULL. */
+  const char *embedded_src = nexs_embedded_lookup(path);
+  if (embedded_src) {
+    r = eval_str(ctx, embedded_src);
+  } else {
+    r = eval_file(ctx, path);
+  }
   if (r.sig == CTRL_ERR) {
     val_print(&r.ret_val, ctx->err);
     fprintf(ctx->err, "\n");
@@ -55,9 +75,18 @@ int nexs_rfork(int flags) {
   if (!(flags & NEXS_RFPROC)) return 0;
   pid_t pid = fork();
   if (pid < 0) return -1;
-  if (pid == 0) return 0;
-  if (flags & NEXS_RFNOWAIT) signal(SIGCHLD, SIG_IGN);
-  return (int)pid;
+  /* Bug 3 fix: after fork() the registry lives in two separate heap copies.
+   * Activate the pipe-backed IPC transport so sendmessage/receivemessage
+   * cross the process boundary correctly in hosted (macOS/Linux) mode. */
+  if (pid > 0) {
+    /* Parent: enable pipes and set up wait if needed */
+    reg_ipc_enable_pipes();
+    if (flags & NEXS_RFNOWAIT) signal(SIGCHLD, SIG_IGN);
+    return (int)pid;
+  }
+  /* Child (pid == 0) */
+  reg_ipc_enable_pipes();
+  return 0;
 }
 
 int nexs_await(char *buf, int nbuf) {

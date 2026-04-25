@@ -1,7 +1,11 @@
 /*
  * compiler/driver.c — NEXS Compilation Driver
  * =============================================
- * Orchestrates: codegen → gcc → optional ELF inspection for baremetal.
+ * Orchestrates: dep-scan → codegen → gcc → optional ELF inspection.
+ *
+ * New:
+ *   nexs_compile_file_ex(src, target, out, no_dep)
+ *   nexs_compile_file is a backwards-compat wrapper (no_dep=0).
  */
 
 #include "include/nexs_compiler.h"
@@ -35,7 +39,6 @@ static void nexs_print_baremetal_info(const char *out_path,
 
   int is64 = (ident[4] == 2);
   if (is64) {
-    /* Skip e_type(2) e_machine(2) e_version(4) = 8 bytes */
     fseek(f, 24, SEEK_SET); /* e_entry is at offset 24 in 64-bit ELF */
     unsigned long long entry = 0;
     if (fread(&entry, 8, 1, f) == 1)
@@ -51,12 +54,13 @@ static void nexs_print_baremetal_info(const char *out_path,
 }
 
 /* =========================================================
-   nexs_compile_file
+   nexs_compile_file_ex
    ========================================================= */
 
-int nexs_compile_file(const char *src_path,
-                       CompileTarget target,
-                       const char *out_path) {
+int nexs_compile_file_ex(const char *src_path,
+                          CompileTarget target,
+                          const char *out_path,
+                          int no_dep) {
   if (!src_path || !out_path) return -1;
   if (target < 0 || target >= TARGET_COUNT) return -1;
 
@@ -76,45 +80,29 @@ int nexs_compile_file(const char *src_path,
     }
   }
 
-  /* --- Step 1: Generate C wrapper file --- */
+  /* --- Step 1: Generate C wrapper file (with or without deps) --- */
   char script_c[256];
   snprintf(script_c, sizeof(script_c), "/tmp/nexs_build_%d.c", (int)getpid());
 
-  if (nexs_codegen(src_path, script_c) != 0) {
+  if (nexs_codegen_ex(src_path, script_c, no_dep) != 0) {
     fprintf(stderr, "nexs: codegen failed for '%s'\n", src_path);
     return -1;
   }
 
-  /* --- Step 2: Determine include paths relative to source tree ---
-   * We use the directory containing this binary's argv[0] as the base,
-   * but the simplest portable approach is to use the compile-time paths.
-   * For a development build we rely on the Makefile setting -I correctly.
-   */
-
-  /* --- Step 3: Build gcc command --- */
+  /* --- Step 2: Build gcc command --- */
   char cmd[4096];
   int  pos = 0;
 
-  /* Compiler binary */
   pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, "%s", tc->gcc_binary);
-
-  /* Architecture and OS flags */
   pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
                   " %s %s", tc->arch_flags, tc->os_flags);
-
-  /* Common flags */
   pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
                   " -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter");
-
-  /* Include paths */
   pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
                   " -Icore/include -Iregistry/include -Ilang/include"
                   " -Isys/include -Iruntime/include"
                   " -Icompiler/include -Ihal/include");
 
-  /* Source files: generated wrapper + all runtime modules.
-   * runtime/main.c and compiler/ are excluded — the generated .c provides main().
-   * runtime/runtime.c provides nexs_runtime_init() for the standalone binary. */
   pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
                   " %s"
                   " core/buddy.c core/pager.c core/value.c"
@@ -135,7 +123,6 @@ int nexs_compile_file(const char *src_path,
     pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
                     " -nostdlib -nostartfiles");
 
-    /* Add HAL boot and uart */
     if (strcmp(tc->name, "baremetal-arm64") == 0) {
       pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
                       " hal/arm64/boot.S hal/arm64/uart.c");
@@ -145,20 +132,29 @@ int nexs_compile_file(const char *src_path,
     }
   }
 
-  /* Output binary */
   pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -o %s", out_path);
 
   fprintf(stdout, "[compile] %s\n", cmd);
 
-  /* --- Step 4: Execute --- */
+  /* --- Step 3: Execute --- */
   int rc = system(cmd);
 
-  /* --- Step 5: Cleanup temp file --- */
+  /* --- Step 4: Cleanup temp file --- */
   unlink(script_c);
 
-  /* --- Step 6: Print bare-metal access point info --- */
+  /* --- Step 5: Print bare-metal access point info --- */
   if (rc == 0 && tc->is_baremetal)
     nexs_print_baremetal_info(out_path, tc);
 
   return (rc == 0) ? 0 : -1;
+}
+
+/* =========================================================
+   nexs_compile_file — backwards-compat wrapper
+   ========================================================= */
+
+int nexs_compile_file(const char *src_path,
+                       CompileTarget target,
+                       const char *out_path) {
+  return nexs_compile_file_ex(src_path, target, out_path, 0 /* bundle deps */);
 }

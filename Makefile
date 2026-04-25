@@ -45,6 +45,7 @@ SRCS = \
   runtime/main.c \
   compiler/codegen.c \
   compiler/driver.c \
+  compiler/dep_scan.c \
   hal/bc/nexs_hal_bc.c \
   hal/hal_hosted.c
 

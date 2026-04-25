@@ -18,6 +18,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 /* =========================================================
    GLOBAL STATE
@@ -121,6 +122,11 @@ static void regkey_free_recursive(RegKey *root) {
         val_free(&m->msg);
         xfree(m);
         m = mn;
+      }
+      /* Close pipe fds if pipe transport was active */
+      if (k->queue->use_pipe) {
+        if (k->queue->pipe_fd[0] >= 0) close(k->queue->pipe_fd[0]);
+        if (k->queue->pipe_fd[1] >= 0) close(k->queue->pipe_fd[1]);
       }
       xfree(k->queue);
       k->queue = NULL;
@@ -340,11 +346,46 @@ static void reg_ls_node(RegKey *k, FILE *out, int depth, int recursive) {
   if (!k || !out) return;
   for (int i = 0; i < depth; i++)
     fprintf(out, "  ");
-  fprintf(out, "%-24s  %-6s", k->path, val_type_name(k->val.type));
+
+  /* Count children for display */
+  int n_children = 0;
+  for (RegKey *c = k->children; c; c = c->next) n_children++;
+
+  fprintf(out, "%-28s  %-6s", k->path, val_type_name(k->val.type));
+
   if (k->val.type != TYPE_NIL) {
     fprintf(out, "  = ");
-    val_print(&k->val, out);
+    /* Arrays: show element count instead of full dump (too wide) */
+    if (k->val.type == TYPE_ARR && k->val.data) {
+      DynArray *arr = (DynArray *)k->val.data;
+      fprintf(out, "arr[%zu elements]", arr->size);
+    } else {
+      val_print(&k->val, out);
+    }
+    /* Pointer: show resolved value */
+    if (k->val.type == TYPE_PTR && k->val.data) {
+      Value resolved = reg_get_deref(k->path);
+      if (resolved.type != TYPE_ERR) {
+        fprintf(out, "  [→ ");
+        val_print(&resolved, out);
+        fprintf(out, "]");
+      }
+      val_free(&resolved);
+    }
+  } else if (n_children > 0) {
+    /* Container node with children: show count so user knows to recurse */
+    fprintf(out, "  (%d keys)", n_children);
   }
+
+  /* IPC queue indicator */
+  if (k->queue) {
+    int pending = k->queue->use_pipe ? -1 : k->queue->count;
+    if (pending >= 0)
+      fprintf(out, "  [Q:%d/%d]", pending, k->queue->max_count);
+    else
+      fprintf(out, "  [Q:pipe]");
+  }
+
   fprintf(out, "\n");
   if (recursive) {
     for (RegKey *c = k->children; c; c = c->next)
@@ -356,10 +397,12 @@ void reg_ls(const char *path, FILE *out) {
   RegKey *k = reg_lookup(path);
   if (!k) { fprintf(out, "Path '%s' not found\n", path); return; }
   fprintf(out, "\n[REGISTRY] %s\n", path);
-  fprintf(out, "%-24s  %-6s  %s\n", "PATH", "TYPE", "VALUE");
-  fprintf(out, "-----------------------------------------------\n");
+  fprintf(out, "%-28s  %-6s  %s\n", "PATH", "TYPE", "VALUE");
+  fprintf(out, "---------------------------------------------------\n");
+  /* Always recurse one level (direct children) with their own children
+   * shown as count — full recursion via :reg command */
   for (RegKey *c = k->children; c; c = c->next)
-    reg_ls_node(c, out, 0, 0);
+    reg_ls_node(c, out, 0, 1);
   fprintf(out, "\n");
 }
 
