@@ -175,7 +175,9 @@ Token lexer_next(Lexer *lex) {
 
     while (lex->pos < lex->len &&
            (isalnum((unsigned char)lex->src[lex->pos]) ||
-            lex->src[lex->pos] == '_' || lex->src[lex->pos] == '/') &&
+            lex->src[lex->pos] == '_' || lex->src[lex->pos] == '/' ||
+            lex->src[lex->pos] == '.' || lex->src[lex->pos] == ':' ||
+            lex->src[lex->pos] == '-') &&
            i < MAX_STR_LEN - 1) {
       buf[i++] = lex->src[lex->pos++];
     }

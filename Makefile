@@ -16,7 +16,8 @@ INCS = \
   -Isys/include \
   -Iruntime/include \
   -Icompiler/include \
-  -Ihal/include
+  -Ihal/include \
+  -Ifs/include
 
 # Production flags
 CFLAGS = -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter $(INCS)
@@ -46,6 +47,11 @@ SRCS = \
   compiler/codegen.c \
   compiler/driver.c \
   compiler/dep_scan.c \
+  fs/ufs_block.c \
+  fs/ufs_perm.c \
+  fs/ufs_tree.c \
+  fs/ufs_partition.c \
+  fs/ufs_9p.c \
   hal/bc/nexs_hal_bc.c \
   hal/hal_hosted.c
 
@@ -70,6 +76,11 @@ BAREMETAL_SRCS = \
   compiler/codegen.c \
   compiler/driver.c \
   compiler/dep_scan.c \
+  fs/ufs_block.c \
+  fs/ufs_perm.c \
+  fs/ufs_tree.c \
+  fs/ufs_partition.c \
+  fs/ufs_9p.c \
   hal/bc/nexs_hal_bc.c
 
 OBJS = $(SRCS:.c=.o)
@@ -239,6 +250,11 @@ baremetal-amd64: $(TARGET)
 	  echo "x86_64-elf-gcc not found, skipping baremetal-amd64"; \
 	fi
 
+baremetal-amd64-minios: $(TARGET)
+	@mkdir -p build/baremetal-amd64
+	./$(TARGET) --standalone-program example/minios/boot.nx --target baremetal-amd64 -o build/baremetal-amd64/nexs.elf
+	scripts/make-iso.sh
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -251,7 +267,7 @@ run: $(TARGET)
 # Clean
 # ─────────────────────────────────────────────────────────────────────────────
 clean:
-	rm -f $(TARGET) $(TARGET)_dbg $(OBJS)
-	rm -rf build/linux-amd64 build/linux-arm64 \
-	       build/baremetal-arm64 build/baremetal-amd64
+	rm -f $(TARGET) $(TARGET)_dbg
+	find . -name "*.o" -type f -delete
+	rm -rf build/
 	@echo "Clean done"

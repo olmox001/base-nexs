@@ -206,10 +206,19 @@ static ASTNode *parse_primary(Parser *p) {
     return n;
   }
   case TK_REGPATH: {
-    ASTNode *n = ast_alloc(AST_REG_ACCESS, t);
-    strncpy(n->path, t.text, REG_PATH_MAX - 1);
-    n->path[REG_PATH_MAX - 1] = '\0';
+    ASTNode *n;
     parser_advance(p);
+    if (p->cur.kind == TK_EQ) {
+      parser_advance(p);
+      n = ast_alloc(AST_REG_SET, t);
+      strncpy(n->path, t.text, REG_PATH_MAX - 1);
+      n->path[REG_PATH_MAX - 1] = '\0';
+      n->left = parse_expr(p);
+    } else {
+      n = ast_alloc(AST_REG_ACCESS, t);
+      strncpy(n->path, t.text, REG_PATH_MAX - 1);
+      n->path[REG_PATH_MAX - 1] = '\0';
+    }
     return n;
   }
   case TK_LPAREN: {

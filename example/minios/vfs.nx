@@ -40,16 +40,96 @@ fn vfs_read(nome_file) {
   ret val
 }
 
-fn vfs_ls() {
+fn vfs_ls(dir) {
+  if dir == "" {
+    dir = "/"
+  }
+  if substr(dir 0 1) != "/" {
+    dir = "/" + dir
+  }
+  
+  prefix_reg = "/mnt/krnl/registry"
+  plen_reg = len(prefix_reg)
+  if substr(dir 0 plen_reg) == prefix_reg {
+    reg_path = "/"
+    if len(dir) > plen_reg {
+      reg_path = substr(dir plen_reg len(dir))
+    }
+    out "  === VFS [Registry: " + reg_path + "] ==="
+    keys_arr = keys(reg_path)
+    klen = len(keys_arr)
+    i = 0
+    loop {
+      if i >= klen { break }
+      key_name = keys_arr[i]
+      out "  [DIR]  " + key_name
+      i = i + 1
+    }
+    ret nil
+  }
+  
   count = reg /sys/vfs/count
-  out "  === VFS — " + str(count) + " file nel registro NEXS ==="
+  out "  === VFS [" + dir + "] — " + str(count) + " file ==="
+  
+  # Clear tracking state in registry
+  reg_del("/tmp/ls")
+  
   i = 0
   loop {
     if i >= count { break }
     nome = reg_get("/sys/vfs/idx/" + str(i))
-    contenuto = reg_get("/sys/vfs/files/" + nome)
-    dim = len(contenuto)
-    out "  [" + str(i) + "] " + nome + "  (" + str(dim) + " byte)  @ /sys/vfs/files/" + nome
+    
+    full_name = nome
+    if substr(full_name 0 1) != "/" {
+      full_name = "/" + full_name
+    }
+    
+    item_name = ""
+    is_match = 0
+    
+    if dir == "/" {
+      sub_name = substr(full_name 1 len(full_name))
+      has_slash = contains(sub_name "/")
+      if has_slash {
+        parts = split(sub_name "/")
+        item_name = parts[0] + "/"
+      } else {
+        item_name = sub_name
+      }
+      is_match = 1
+    } else {
+      prefix = dir + "/"
+      plen = len(prefix)
+      if substr(full_name 0 plen) == prefix {
+        sub_name = substr(full_name plen len(full_name))
+        has_slash = contains(sub_name "/")
+        if has_slash {
+          parts = split(sub_name "/")
+          item_name = parts[0] + "/"
+        } else {
+          item_name = sub_name
+        }
+        is_match = 1
+      }
+    }
+    
+    if is_match == 1 {
+      if item_name != "" {
+        # Use registry as a Set to deduplicate
+        track_key = "/tmp/ls/" + item_name
+        exists = reg_get(track_key)
+        if type(exists) == "err" {
+          reg_set(track_key 1)
+          if contains(item_name "/") {
+            out "  [DIR]  " + item_name
+          } else {
+            contenuto = reg_get("/sys/vfs/files/" + nome)
+            dim = len(contenuto)
+            out "  [FILE] " + item_name + " (" + str(dim) + " byte)"
+          }
+        }
+      }
+    }
     i = i + 1
   }
 }

@@ -59,6 +59,17 @@ int vsnprintf(char *str, size_t size, const char *format, va_list ap) {
     while (*format && remain > 1) {
         if (*format == '%') {
             format++;
+            int left_align = 0;
+            int width = 0;
+            if (*format == '-') {
+                left_align = 1;
+                format++;
+            }
+            while (*format >= '0' && *format <= '9') {
+                width = width * 10 + (*format - '0');
+                format++;
+            }
+            
             int is_long_long = 0;
             if (*format == 'l') {
                 format++;
@@ -67,6 +78,7 @@ int vsnprintf(char *str, size_t size, const char *format, va_list ap) {
                     is_long_long = 1;
                 }
             }
+            
             if (*format == 'd') {
                 if (is_long_long) {
                     print_int(&out, &remain, va_arg(ap, long long), 10);
@@ -82,7 +94,20 @@ int vsnprintf(char *str, size_t size, const char *format, va_list ap) {
             } else if (*format == 's') {
                 const char *s = va_arg(ap, const char *);
                 if (!s) s = "(null)";
+                int len = 0;
+                while (s[len]) len++;
+                
+                if (!left_align && width > len) {
+                    for (int j = 0; j < width - len && remain > 1; j++) {
+                        *out++ = ' '; remain--;
+                    }
+                }
                 while (*s && remain > 1) { *out++ = *s++; remain--; }
+                if (left_align && width > len) {
+                    for (int j = 0; j < width - len && remain > 1; j++) {
+                        *out++ = ' '; remain--;
+                    }
+                }
             } else if (*format == 'c') {
                 *out++ = (char)va_arg(ap, int); remain--;
             } else {
@@ -172,6 +197,23 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream) {
                         line_buf[line_buf_len++] = '\n';
                         nexs_hal_print("\r\n");
                         break;
+                    } else if (ch == 0x1B) {
+                        /* Handle ANSI escape sequence */
+                        int ch2 = -1, ch3 = -1, ch4 = -1;
+                        while (ch2 == -1) ch2 = nexs_hal_getc();
+                        if (ch2 == '[') {
+                            while (ch3 == -1) ch3 = nexs_hal_getc();
+                            if (ch3 == '3') {
+                                while (ch4 == -1) ch4 = nexs_hal_getc();
+                                if (ch4 == '~') {
+                                    /* Delete key \033[3~ */
+                                    if (line_buf_len > 0) {
+                                        line_buf_len--;
+                                        nexs_hal_print("\b \b");
+                                    }
+                                }
+                            }
+                        }
                     } else if (ch == 0x08 || ch == 0x7F) {
                         if (line_buf_len > 0) {
                             line_buf_len--;
@@ -378,8 +420,31 @@ int toupper(int c) { return (c >= 'a' && c <= 'z') ? c - 32 : c; }
    POSIX Stubs
    ========================================================= */
 
-ssize_t read(int fd, void *buf, size_t count) { (void)fd; (void)buf; (void)count; return -1; }
-ssize_t write(int fd, const void *buf, size_t count) { (void)fd; (void)buf; (void)count; return -1; }
+ssize_t read(int fd, void *buf, size_t count) {
+  if (fd == STDIN_FILENO || fd == 0) {
+    if (count == 0) return 0;
+    char *ptr = (char *)buf;
+    int c;
+    while ((c = nexs_hal_getc()) == -1) {
+      /* wait for character */
+    }
+    ptr[0] = (char)c;
+    return 1;
+  }
+  return -1;
+}
+ssize_t write(int fd, const void *buf, size_t count) {
+  if (fd == STDOUT_FILENO || fd == STDERR_FILENO || fd == 1 || fd == 2) {
+    if (count == 0) return 0;
+    const char *ptr = (const char *)buf;
+    for (size_t i = 0; i < count; i++) {
+      if (ptr[i] == '\n') nexs_hal_putc('\r');
+      nexs_hal_putc(ptr[i]);
+    }
+    return count;
+  }
+  return -1;
+}
 int close(int fd) { (void)fd; return -1; }
 int pipe(int pipefd[2]) { (void)pipefd; return -1; }
 int isatty(int fd) { (void)fd; return 0; }

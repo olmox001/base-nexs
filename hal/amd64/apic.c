@@ -62,15 +62,6 @@ static inline void ioapic_write(uint8_t reg, uint32_t val) {
     s_ioapic[IOAPIC_REGWIN / 4] = val;
 }
 
-/* Route IOAPIC IRQ → LAPIC vector.
- * dest_apic_id=0 → CPU 0. Delivery=fixed. Active low, edge. */
-static void ioapic_route(uint8_t irq, uint8_t vec, uint8_t apic_id) {
-    uint32_t lo = (uint32_t)vec;            /* fixed delivery, edge, active high */
-    uint32_t hi = ((uint32_t)apic_id) << 24;
-    ioapic_write((uint8_t)(IOAPIC_REDTBL(irq)),     lo);
-    ioapic_write((uint8_t)(IOAPIC_REDTBL(irq) + 1), hi);
-}
-
 /* ── Disable legacy PIC (8259) ────────────────────────────── */
 static void pic_disable(void) {
     /* Mask all IRQs on both PICs */

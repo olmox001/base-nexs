@@ -4,13 +4,32 @@
 # ===================================================================
 
 fn input(prompt) {
-  out prompt
+  write(1 prompt)
+  rawon()
   buffer = ""
   loop {
-    ch = read(0 1)
-    if ch == "" || ch == "\n" { break }
-    buffer = buffer + ch
+    cp = readbyte()
+    if cp <= 0 { break }
+    if cp == 4 {
+      break
+    }
+    if cp == 10 || cp == 13 {
+      write(1 "\n")
+      break
+    }
+    if cp == 8 || cp == 127 {
+      blen = len(buffer)
+      if blen > 0 {
+        write(1 "\b \b")
+        buffer = substr(buffer 0 blen - 1)
+      }
+    } else {
+      ch = chr(cp)
+      write(1 ch)
+      buffer = buffer + ch
+    }
   }
+  rawoff()
   ret buffer
 }
 
@@ -20,43 +39,97 @@ fn shell_loop() {
   out "---------------------------------------------------"
   
   loop {
-    cmd = input("nexs-os> ")
+    write(1 "\033[s\033[24;1H\033[1;37;44m NEXS OS v0.2.0 | PID 101: Shell | VFS: / | Reg: OK \033[0K\033[u")
+    cmd_full = input("nexs-os> \033[5m_\033[0m\b")
+    parts = split(cmd_full " ")
+    parts_len = len(parts)
+    if parts_len == 0 {
+      continue
+    }
+    
+    cmd = parts[0]
+    arg = ""
+    if parts_len > 1 {
+      arg = parts[1]
+    }
     
     if cmd == "exit" {
       out "Esecuzione sequenza di spegnimento..."
       break
     }
     if cmd == "help" {
-      out "  Comandi supportati:"
-      out "  ls     - Mostra i file nel VFS"
-      out "  ps     - Mostra i processi allocati"
-      out "  cat    - Legge il file di benvenuto"
-      out "  runvm  - Esegue il bytecode Wasm di test"
-      out "  exit   - Spegne il sistema"
+      out "  Comandi standard:"
+      out "  ls [dir]      - Mostra i file nel VFS"
+      out "  ps            - Mostra i processi allocati"
+      out "  cat file      - Legge un file dal VFS"
+      out "  devtree       - Mostra il Device Tree hardware"
+      out "  fm [dir]      - Avvia il Plan 9 File Manager"
+      out "  runvm         - Esegue il bytecode Wasm di test"
+      out "  exit          - Spegne il sistema"
+      out ""
+      out "  Funzioni del Registry:"
+      out "  keys(path)             - Elenca chiavi del registro"
+      out "  reg_get(path)          - Legge una chiave"
+      out "  reg_set(path val)      - Scrive una chiave"
+      out "  reg_del(path)          - Rimuove una chiave"
+      out ""
+      out "  Funzioni IPC / Pointers:"
+      out "  sendmessage(q msg)     - Invia un messaggio IPC"
+      out "  receivemessage(q)      - Riceve un messaggio IPC"
+      out "  msgpending(q)          - Messaggi in coda"
+      out "  mkptr(p)               - Crea un puntatore"
+      out "  deref(p)               - Dereferenzia un puntatore"
     }
     if cmd == "ls" {
-      vfs_ls()
+      vfs_ls(arg)
     }
     if cmd == "ps" {
       pm_ps()
     }
+    if cmd == "devtree" {
+      hw_dt_dump()
+    }
+    if cmd == "fm" {
+      p9_file_manager(arg)
+    }
     if cmd == "cat" {
-      out vfs_read("motd.txt")
+      if arg == "" {
+        out "Uso: cat <file>"
+      } else {
+        out vfs_read(arg)
+      }
     }
     if cmd == "runvm" {
-      # Assegnazione riga per riga per l'interprete NEXS
       bytecode[0] = 0
       bytecode[1] = 10
       bytecode[2] = 0
       bytecode[3] = 20
-      bytecode[4] = 1  # ADD
+      bytecode[4] = 1
       bytecode[5] = 0
       bytecode[6] = 2
-      bytecode[7] = 2  # MUL
-      bytecode[8] = 3  # PRINT
-      bytecode[9] = 4  # HALT
-      
+      bytecode[7] = 2
+      bytecode[8] = 3
+      bytecode[9] = 4
       vm_run(bytecode 10)
+    }
+
+    # Fallback: Valuta come codice NEXS puro
+    if cmd != "exit" {
+      if cmd != "help" {
+        if cmd != "ls" {
+          if cmd != "ps" {
+            if cmd != "devtree" {
+              if cmd != "fm" {
+                if cmd != "cat" {
+                  if cmd != "runvm" {
+                    eval(cmd_full)
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

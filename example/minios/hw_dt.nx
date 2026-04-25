@@ -1,0 +1,39 @@
+# ===================================================================
+# DEVICE TREE (hw_dt.nx)
+# Hardware Topology and Simulated Platform Drivers
+# ===================================================================
+
+fn hw_dt_init() {
+  out "[HW] Scansione dell'hardware e popolamento del Device Tree..."
+
+  # CPU Topology
+  reg /sys/hw/cpu/vendor = "AuthenticAMD"
+  reg /sys/hw/cpu/model = "NeXs AMD64 Core"
+  reg /sys/hw/cpu/cores = 4
+  reg /sys/hw/cpu/frequency = 2400
+
+  # Memory Map
+  reg /sys/hw/mem/pool_size = 4096
+  reg /sys/hw/mem/base = "0x00100000"
+  reg /sys/hw/mem/limit = "0x004FFFFF"
+
+  # Buses & Controllers
+  reg /sys/hw/bus/pci/00:00.0/device = "Host Bridge"
+  reg /sys/hw/bus/pci/00:01.0/device = "VGA Controller (VESA)"
+  reg /sys/hw/bus/pci/00:02.0/device = "Ethernet (RTL8139)"
+  reg /sys/hw/bus/pci/00:03.0/device = "Storage (SATA AHCI)"
+
+  # Peripherals
+  reg /sys/hw/dev/tty0/status = "active"
+  reg /sys/hw/dev/com1/io_port = "0x3F8"
+  reg /sys/hw/dev/com2/io_port = "0x2F8"
+
+  out "[HW] Trovati 10 nodi nel Device Tree."
+}
+
+fn hw_dt_dump() {
+  out "=== NEXS DEVICE TREE ==="
+  out "CPU: " + reg /sys/hw/cpu/vendor + " - " + str(reg /sys/hw/cpu/cores) + " core"
+  out "RAM: " + str(reg /sys/hw/mem/pool_size) + " KB"
+  out "UART: COM1 ad " + reg /sys/hw/dev/com1/io_port
+}

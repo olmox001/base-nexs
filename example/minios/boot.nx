@@ -10,10 +10,14 @@ out "[INIT] Fase 1: Caricamento Driver (Librerie Dinamiche)..."
 
 exec("example/minios/vfs.nx")
 exec("example/minios/pm.nx")
+exec("example/minios/hw_dt.nx")
+exec("example/minios/p9_mnt.nx")
 exec("example/minios/wasm_vm.nx")
 exec("example/minios/shell.nx")
 
 out "[INIT] Fase 2: Inizializzazione Sottosistemi..."
+hw_dt_init()
+p9_mnt_init()
 pid_vfs = pm_spawn("VFS_Daemon")
 pm_alloc(pid_vfs 2)
 
@@ -23,6 +27,7 @@ pm_alloc(pid_shell 1)
 out "[INIT] Fase 3: Popolamento Root FS..."
 vfs_write("motd.txt" "Benvenuti nel super-sistema NEXS! Tutto gira nel Registry.")
 vfs_write("kernel.sys" "BINARY_DATA_CORRUPTED_DO_NOT_READ")
+vfs_write("home/olmo/test.nx" "out(\"Ciao dal test\")")
 
 out "==================================================="
 out " [INIT] Boot completato. Cessione controllo alla UI."

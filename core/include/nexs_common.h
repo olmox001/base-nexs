@@ -61,9 +61,9 @@ extern "C" {
    BUDDY ALLOCATOR
    ========================================================= */
 
-#define POOL_SIZE  (4 * 1024 * 1024)       /* 4 MB */
+#define POOL_SIZE  (64 * 1024 * 1024)       /* 64 MB */
 #define MIN_BLOCK  32                      /* minimum block 32 bytes */
-#define NUM_LEAVES (POOL_SIZE / MIN_BLOCK) /* 131072 leaves */
+#define NUM_LEAVES (POOL_SIZE / MIN_BLOCK) /* 2097152 leaves */
 #define TREE_NODES (2 * NUM_LEAVES - 1)   /* total nodes */
 
 /* =========================================================
@@ -78,7 +78,7 @@ extern "C" {
    DYNARRAY
    ========================================================= */
 
-#define MAX_ARRAYS 64
+#define MAX_ARRAYS 1024
 #define NAME_LEN   64
 
 /* =========================================================

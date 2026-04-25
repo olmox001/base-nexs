@@ -7,13 +7,13 @@
  * codegen-generated wrapper (compiled scripts).
  */
 
-#include "include/nexs_runtime.h"
 #include "../core/include/nexs_alloc.h"
-#include "../core/include/nexs_value.h"
 #include "../core/include/nexs_common.h"
-#include "../registry/include/nexs_registry.h"
+#include "../core/include/nexs_value.h"
 #include "../lang/include/nexs_fn.h"
+#include "../registry/include/nexs_registry.h"
 #include "../sys/include/nexs_sys.h"
+#include "include/nexs_runtime.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -26,7 +26,8 @@ extern void builtins_register_all(void);
 
 void nexs_print_version(FILE *out) {
   fprintf(out,
-          "\033[1;36mNEXS\033[0m v%d.%d.%d — Buddy/Registry Runtime + Plan 9 Syscalls\n"
+          "\033[1;36mNEXS\033[0m v%d.%d.%d — Buddy/Registry Runtime + Plan 9 "
+          "Syscalls\n"
           "  Pool: %dKB  MinBlock: %dB  FnTable: %d slots\n"
           "  Syscalls: open create close read write seek stat pipe rfork exec\n"
           "  Inspired by: Thompson · Ritchie · Pike · Rashid\n\n",
@@ -41,7 +42,7 @@ void nexs_print_version(FILE *out) {
 void nexs_runtime_init(void) {
   /* 1. Clear buddy pool and tree */
   memset(memory_pool, 0, sizeof(memory_pool));
-  memset(buddy_tree,  0, sizeof(buddy_tree));
+  memset(buddy_tree, 0, sizeof(buddy_tree));
   g_array_count = 0;
 
   /* 2. Initialise fn_table */

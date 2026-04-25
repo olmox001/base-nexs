@@ -9,6 +9,10 @@ ENTRY(_start)
 SECTIONS {
     . = 1M;
 
+    .trampoline : {
+        *(.trampoline)
+    }
+
     .multiboot : {
         *(.multiboot)
     }

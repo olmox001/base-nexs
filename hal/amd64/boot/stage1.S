@@ -1,20 +1,20 @@
-/* ============================================================
- * hal/amd64/boot/stage1.S — NEXS Stage1 MBR Bootloader
- * ============================================================
- * Exactly 446 bytes of code (+ 64-byte PT + 2-byte signature = 512).
- * Assembled with: nasm -f bin -o stage1.bin stage1.S
- *
- * Responsibilities:
- *   1. Enter real mode with clean segment state
- *   2. Load 62 sectors (stage2, ~31 KB) from LBA 1 → 0x0000:0x7E00
- *      via BIOS int 0x13/AH=0x42 (LBA extended read)
- *   3. Jump to stage2 at 0x7E00
- *
- * Layout on disk:
- *   Sector 0  (LBA 0): stage1.bin     (this file, 512 bytes)
- *   Sectors 1–62 (LBA 1–62): stage2   (~31 KB)
- *   Sector 63+: kernel image
- * ============================================================ */
+; ============================================================
+; hal/amd64/boot/stage1.S — NEXS Stage1 MBR Bootloader
+; ============================================================
+; Exactly 446 bytes of code (+ 64-byte PT + 2-byte signature = 512).
+; Assembled with: nasm -f bin -o stage1.bin stage1.S
+;
+; Responsibilities:
+;   1. Enter real mode with clean segment state
+;   2. Load 62 sectors (stage2, ~31 KB) from LBA 1 → 0x0000:0x7E00
+;      via BIOS int 0x13/AH=0x42 (LBA extended read)
+;   3. Jump to stage2 at 0x7E00
+;
+; Layout on disk:
+;   Sector 0  (LBA 0): stage1.bin     (this file, 512 bytes)
+;   Sectors 1–62 (LBA 1–62): stage2   (~31 KB)
+;   Sector 63+: kernel image
+; ============================================================
 
 BITS 16
 ORG  0x7C00

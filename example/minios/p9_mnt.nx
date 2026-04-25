@@ -1,0 +1,39 @@
+# ===================================================================
+# Plan 9 Namespace Mounts (p9_mnt.nx)
+# Representing logical resource namespaces as paths
+# ===================================================================
+
+fn p9_mnt_init() {
+  out "[P9] Montaggio delle gerarchie di sistema..."
+
+  # Setup logical nodes in VFS
+  vfs_write("mnt/krnl/registry/type"   "Plan 9 Virtual Kernel Registry")
+  vfs_write("mnt/krnl/registry/status" "active")
+  
+  vfs_write("mnt/system/services"     "VFS_Daemon, Shell_TTY, Wasm_VM")
+  vfs_write("mnt/system/config"       "INIT_MODE=STANDALONE\nFS=Plan9")
+  
+  vfs_write("mnt/driver/tty0"         "COM1 Serial Terminal")
+  vfs_write("mnt/driver/ram"          "Dynamic Micro-kernel Memory Pool")
+  
+  # SD storage (machine maps)
+  vfs_write("mnt/sd00/boot.nx"        "exec(\"example/minios/boot.nx\")")
+  vfs_write("mnt/sd00/os.sys"         "NEXS CORE KERNEL BLOCK")
+  vfs_write("mnt/sd00/machine.id"     "NEXS-NODE-00")
+  
+  vfs_write("mnt/sd01/user.id"        "User-1-Root")
+  vfs_write("mnt/sd01/home/root.txt"  "Root workspace")
+
+  vfs_write("mnt/sd02/user.id"        "User-2-Olmo")
+  vfs_write("mnt/sd02/home/olmo.txt"  "Ciao Olmo! Benvenuto.")
+
+  vfs_write("mnt/sd99/user.id"        "User-Guest")
+  vfs_write("mnt/sd99/tmp/test"       "Temporary guest cache")
+
+  out "[P9] Hierarchy mounted successfully via 9P bindings."
+}
+
+fn p9_file_manager(dir) {
+  out "=== NEXS P9 FILE MANAGER [" + dir + "] ==="
+  vfs_ls(dir)
+}

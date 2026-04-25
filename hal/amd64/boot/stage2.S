@@ -1,46 +1,47 @@
-/* ============================================================
- * hal/amd64/boot/stage2.S — NEXS Stage2: Real→Protected→Long Mode
- * ============================================================
- * Loaded by stage1 at 0x7E00, runs in 16-bit real mode.
- * Assembled into a flat binary (nasm -f bin) and padded to
- * exactly 62 sectors (31,744 bytes) to match stage1's load count.
- *
- * Memory map after stage2 sets up:
- *   0x0500–0x7BFF  stack (grows down from 0x7C00)
- *   0x7E00–0xFFFF  stage2 code/data
- *   0x8000–0x87FF  E820 memory map (up to 128 entries × 24 bytes)
- *   0x9000         PML4 table         (4 KB, 512 × 8-byte entries)
- *   0xA000         PDPT (identity)    (4 KB)
- *   0xB000         PD   (identity)    (4 KB, 512 × 2MB pages → 1 GB)
- *   0x100000       kernel ELF (loaded by stage2 if FAT/disk present;
- *                  for QEMU -kernel this code is not used)
- *
- * Transition sequence:
- *   1. A20 line enable (BIOS method + port 0x92 fallback)
- *   2. E820 memory map via int 0x15/EAX=0xE820
- *   3. Load GDT32 → enter 32-bit protected mode
- *   4. Build PML4 identity-map page tables (0 → 512 GB with 2MB pages)
- *   5. Enable PAE (CR4.PAE)
- *   6. Load PML4 address into CR3
- *   7. Set EFER.LME via MSR 0xC0000080
- *   8. Enable paging (CR0.PG=1)
- *   9. Long-jump to 64-bit code segment
- *  10. Load GDT64, set segment registers, setup 64-bit stack
- *  11. Call nexs_hal_init() and nexs_main_baremetal()
- * ============================================================ */
+; ============================================================
+; hal/amd64/boot/stage2.S — NEXS Stage2: Real→Protected→Long Mode
+; ============================================================
+; Loaded by stage1 at 0x7E00, runs in 16-bit real mode.
+; Assembled into a flat binary (nasm -f bin) and padded to
+; exactly 62 sectors (31,744 bytes) to match stage1's load count.
+;
+; Memory map after stage2 sets up:
+;   0x0500–0x7BFF  stack (grows down from 0x7C00)
+;   0x7E00–0xFFFF  stage2 code/data
+;   0x8000–0x87FF  E820 memory map (up to 128 entries × 24 bytes)
+;   0x9000         PML4 table         (4 KB, 512 × 8-byte entries)
+;   0xA000         PDPT (identity)    (4 KB)
+;   0xB000         PD   (identity)    (4 KB, 512 × 2MB pages → 1 GB)
+;   0x100000       kernel ELF (loaded by stage2 if FAT/disk present;
+;                  for QEMU -kernel this code is not used)
+;
+; Transition sequence:
+;   1. A20 line enable (BIOS method + port 0x92 fallback)
+;   2. E820 memory map via int 0x15/EAX=0xE820
+;   3. Load GDT32 → enter 32-bit protected mode
+;   4. Build PML4 identity-map page tables (0 → 512 GB with 2MB pages)
+;   5. Enable PAE (CR4.PAE)
+;   6. Load PML4 address into CR3
+;   7. Set EFER.LME via MSR 0xC0000080
+;   8. Enable paging (CR0.PG=1)
+;   9. Long-jump to 64-bit code segment
+;  10. Load GDT64, set segment registers, setup 64-bit stack
+;  11. Call nexs_hal_init() and nexs_main_baremetal()
+; ============================================================
 
 BITS 16
 ORG  0x7E00
 
 ;; ── CONSTANTS ────────────────────────────────────────────────
-PML4_ADDR   equ 0x9000
-PDPT_ADDR   equ 0xA000
-PD_ADDR     equ 0xB000
-E820_ADDR   equ 0x8000
+PML4_ADDR   equ 0x1000
+PDPT_ADDR   equ 0x2000
+PD_ADDR     equ 0x3000
+E820_ADDR   equ 0x4000
 KERNEL_STACK equ 0x200000    ; 2 MB virtual stack top (64-bit)
 
 stage2_entry:
     cli
+    mov  [boot_drive], dl
     xor  ax, ax
     mov  ds, ax
     mov  es, ax
@@ -48,6 +49,44 @@ stage2_entry:
     mov  sp, 0x7C00
     sti
 
+    ; ── 0. Load kernel binary from disk (512 sectors total, read in 64-sector chunks) ──
+    mov  word [dap_kernel + 2], 64     ; read 64 sectors at a time
+    mov  word [dap_kernel + 4], 0x0000 ; dest offset
+    mov  word [dap_kernel + 6], 0x2000 ; dest segment
+    mov  dword [dap_kernel + 8], 63     ; LBA start
+    mov  dword [dap_kernel + 12], 0    ; LBA high
+
+.read_chunk_loop:
+    mov  si, dap_kernel
+    mov  ah, 0x42
+    mov  dl, [boot_drive]
+    int  0x13
+    jnc  .chunk_ok
+
+    ; Disk error fallback
+    mov  si, msg_disk_err
+.print_loop:
+    lodsb
+    test al, al
+    jz   .hang
+    mov  ah, 0x0E
+    int  0x10
+    jmp  .print_loop
+.hang:
+    hlt
+    jmp  .hang
+
+.chunk_ok:
+    ; Advance LBA by 64
+    add  dword [dap_kernel + 8], 64
+    ; Advance segment by 0x0800 (64 sectors * 512 bytes = 32 KB = 0x8000 absolute, segment +0x800)
+    add  word [dap_kernel + 6], 0x0800
+
+    ; Check if we have read 512 sectors
+    cmp  dword [dap_kernel + 8], 63 + 512
+    jl   .read_chunk_loop
+
+.disk_ok:
     ; ── 1. Enable A20 ─────────────────────────────────────────
     ; Try BIOS method first
     mov  ax, 0x2401
@@ -104,6 +143,16 @@ collect_e820:
     pop  es
     ret
 
+boot_drive: db 0
+msg_disk_err: db "Stage2: kernel disk error", 0x0D, 0x0A, 0
+dap_kernel:
+    dw 0x0010      ; packet size
+    dw 512         ; sectors to read (256 KB)
+    dw 0x0000      ; dest offset
+    dw 0x2000      ; dest segment (0x2000:0x0000 = absolute 0x20000)
+    dd 63          ; LBA start
+    dd 0           ; LBA high
+
 ;; ────────────────────────────────────────────────────────────
 ;; GDT32 — temporary flat 32-bit GDT
 ;; ────────────────────────────────────────────────────────────
@@ -134,6 +183,12 @@ pm32_entry:
     mov  gs, ax
     mov  ss, ax
     mov  esp, 0x7C00
+
+    ; ── 3b. Copy kernel from low buffer (0x20000) to 1MB (0x100000) ──
+    mov  esi, 0x20000
+    mov  edi, 0x100000
+    mov  ecx, (512 * 512) / 4   ; 256 KB total buffer size in dwords
+    rep  movsd
 
     ; ── 4. Build page tables (identity map 0 → 512 GB via 2MB pages) ──
     ; Clear tables
@@ -224,12 +279,10 @@ lm64_entry:
     popfq
 
     ; ── 10. Jump into C kernel ────────────────────────────────
-    ; nexs_hal_init() and nexs_main_baremetal() are provided by
-    ; hal/amd64/uart.c and runtime/main.c compiled into the kernel ELF.
-    extern nexs_hal_init
-    extern nexs_main_baremetal
-    call nexs_hal_init
-    call nexs_main_baremetal
+    ; In raw hardware boot, we load the kernel ELF from disk and jump
+    ; directly to its entry point (typically 0x100000 or defined in ELF).
+    mov rax, 0x100000
+    jmp rax
 
 .hang64:
     hlt

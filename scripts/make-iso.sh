@@ -22,6 +22,9 @@ if [ ! -f "$KERNEL" ]; then
     exit 1
 fi
 
+echo "Extracting flat binary from kernel ELF..."
+/usr/local/opt/x86_64-elf-binutils/bin/x86_64-elf-objcopy -O binary "$KERNEL" build/nexs.bin
+
 echo "Assembling stage1..."
 nasm -f bin -o build/stage1.bin "$STAGE1"
 
@@ -45,7 +48,7 @@ dd if=build/stage1.bin of="$OUT_IMG" bs=512 seek=0 conv=notrunc 2>/dev/null
 dd if=build/stage2.bin of="$OUT_IMG" bs=512 seek=1 conv=notrunc 2>/dev/null
 
 # Write kernel at sector 63
-dd if="$KERNEL" of="$OUT_IMG" bs=512 seek=63 conv=notrunc 2>/dev/null
+dd if=build/nexs.bin of="$OUT_IMG" bs=512 seek=63 conv=notrunc 2>/dev/null
 
 echo "Created raw image: $OUT_IMG"
 

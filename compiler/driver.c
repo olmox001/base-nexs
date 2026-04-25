@@ -112,6 +112,8 @@ int nexs_compile_file_ex(const char *src_path,
                   " lang/eval.c lang/builtins.c"
                   " sys/sysio.c sys/sysproc.c"
                   " runtime/runtime.c"
+                  " fs/ufs_block.c fs/ufs_perm.c fs/ufs_tree.c"
+                  " fs/ufs_partition.c fs/ufs_9p.c"
                   " hal/bc/nexs_hal_bc.c",
                   script_c);
 
@@ -133,10 +135,10 @@ int nexs_compile_file_ex(const char *src_path,
 
     if (strcmp(tc->name, "baremetal-arm64") == 0) {
       pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
-                      " hal/arm64/boot.S hal/arm64/uart.c");
+                      " kernel/proc.c kernel/sched.c hal/arm64/boot.S hal/arm64/exc_vectors.S hal/arm64/exc_handler.c hal/arm64/uart.c hal/arm64/mmu.c hal/arm64/gic.c hal/arm64/timer.c hal/arm64/fdt.c kernel/ctx_arm64.S");
     } else if (strcmp(tc->name, "baremetal-amd64") == 0) {
       pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
-                      " hal/amd64/boot.S hal/amd64/uart.c");
+                      " kernel/proc.c kernel/sched.c hal/amd64/boot.S hal/amd64/isr_stubs.S hal/amd64/uart.c hal/amd64/gdt.c hal/amd64/idt.c hal/amd64/apic.c hal/amd64/mmu.c hal/amd64/acpi.c kernel/ctx_amd64.S");
     }
   }
 

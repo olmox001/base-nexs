@@ -27,8 +27,15 @@
 .set MULTIBOOT1_FLAGS,  0x00000003 /* ALIGN + MEMINFO */
 .set MULTIBOOT1_CHECKSUM, -(MULTIBOOT1_MAGIC + MULTIBOOT1_FLAGS)
 
+/* ── Trampoline for Raw Disk Boot ────────────────────────── */
+.section .trampoline, "ax"
+.code64
+.global trampoline_start
+trampoline_start:
+    jmp _start64
+
 /* ── Multiboot1 & Multiboot2 Headers ──────────────────────── */
-.section .multiboot
+.section .multiboot, "a"
 .align 4
 multiboot1_header:
     .long  MULTIBOOT1_MAGIC
@@ -146,6 +153,14 @@ _start64:
     movw  %ax,  %fs
     movw  %ax,  %gs
     movw  %ax,  %ss
+
+    /* Clear BSS */
+    movq  $(_bss_start), %rdi
+    movq  $(_bss_end),   %rcx
+    subq  %rdi, %rcx
+    shrq  $3, %rcx
+    xorq  %rax, %rax
+    rep stosq
 
     /* Enable SSE */
     movq  %cr0, %rax

@@ -402,7 +402,7 @@ void reg_ls(const char *path, FILE *out) {
   /* Always recurse one level (direct children) with their own children
    * shown as count — full recursion via :reg command */
   for (RegKey *c = k->children; c; c = c->next)
-    reg_ls_node(c, out, 0, 1);
+    reg_ls_node(c, out, 0, 0);
   fprintf(out, "\n");
 }
 

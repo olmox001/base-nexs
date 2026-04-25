@@ -81,7 +81,8 @@ static int acpi_checksum(const void *p, uint32_t len) {
 /* ── Find RSDP in BIOS area ───────────────────────────────── */
 static const Rsdp *find_rsdp(void) {
     /* Search EBDA first (first 1 KB at 0x40E << 4) */
-    uint16_t ebda_seg = *(volatile uint16_t *)0x40E;
+    uint16_t ebda_seg;
+    __asm__ volatile("movw 0x40E, %0" : "=r"(ebda_seg));
     uint64_t ebda = (uint64_t)ebda_seg << 4;
     for (uint64_t a = ebda; a < ebda + 1024; a += 16) {
         if (memcmp((void *)a, "RSD PTR ", 8) == 0 &&

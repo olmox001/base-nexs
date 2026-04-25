@@ -40,6 +40,26 @@ static void register_builtin_sig(const char *name, BuiltinFn fn,
 }
 
 /* =========================================================
+   EVAL BUILT-IN
+   ========================================================= */
+
+static Value builtin_eval(Value *args, int n) {
+  if (n < 1) return val_err(4, "eval: requires a string argument");
+  if (args[0].type != TYPE_STR || !args[0].data)
+    return val_err(4, "eval: argument must be a string");
+
+  EvalCtx ctx;
+  eval_ctx_init(&ctx);
+  ctx.out = nexs_g_eval_ctx ? nexs_g_eval_ctx->out : stdout;
+  ctx.err = nexs_g_eval_ctx ? nexs_g_eval_ctx->err : stderr;
+
+  EvalResult r = eval_str(&ctx, (char *)args[0].data);
+  Value ret = val_clone(&r.ret_val);
+  val_free(&r.ret_val);
+  return ret;
+}
+
+/* =========================================================
    STANDARD BUILT-INS
    ========================================================= */
 
@@ -419,7 +439,9 @@ static Value nexs_builtin_deref(Value *args, int n) {
 #define SIG(s) s " \xe2\x86\x92 "
 
 void builtins_register_all(void) {
-  /* Core type conversion */
+  /* Core type conversion / execution */
+  register_builtin_sig("eval",        builtin_eval,
+    SIG("eval(src str)") "value");
   register_builtin_sig("str",         builtin_str,
     SIG("str(value)") "str");
   register_builtin_sig("int",         builtin_int_,

@@ -28,8 +28,11 @@
    CONTEXT INIT
    ========================================================= */
 
+EvalCtx *nexs_g_eval_ctx = NULL;
+
 void eval_ctx_init(EvalCtx *ctx) {
   if (!ctx) return;
+  nexs_g_eval_ctx = ctx;
   strncpy(ctx->scope, REG_LOCAL, REG_PATH_MAX - 1);
   ctx->scope[REG_PATH_MAX - 1] = '\0';
   ctx->call_depth = 0;
@@ -476,6 +479,7 @@ EvalResult eval_str(EvalCtx *ctx, const char *src) {
 
 EvalResult eval_file(EvalCtx *ctx, const char *fpath) {
   if (!ctx || !fpath) return err_result("NULL ctx or fpath");
+
   FILE *f = fopen(fpath, "r");
   if (!f) {
     char msg[256];

@@ -138,7 +138,7 @@ void nexs_repl(void) {
       continue;
     }
 
-    if (strcmp(line, ":help") == 0) {
+    if (strcmp(line, ":help") == 0 || strcmp(line, "help") == 0) {
       fprintf(stdout,
               "NEXS — Syntax:\n"
               "  x = 42                # integer variable\n"
@@ -209,7 +209,7 @@ void nexs_main_baremetal(void) {
   nexs_runtime_init();
   EvalCtx ctx;
   eval_ctx_init(&ctx);
-  ctx.out = NULL; /* use nexs_hal_print instead of fprintf */
+  ctx.out = stdout; /* libc_stub maps stdout to nexs_hal_print */
 
   nexs_hal_print("NEXS v" NEXS_VERSION_STR " baremetal\n");
 
@@ -269,8 +269,8 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  /* --compile <file.nx> [--target <t>] [-o <out>] [--no-dep] [--dep-only] */
-  if (strcmp(argv[1], "--compile") == 0) {
+  /* --compile or --standalone-program <file.nx> [--target <t>] [-o <out>] [--no-dep] [--dep-only] */
+  if (strcmp(argv[1], "--compile") == 0 || strcmp(argv[1], "--standalone-program") == 0) {
     if (argc < 3) {
       fprintf(stderr, "nexs: --compile requires a source file\n");
       return 1;
