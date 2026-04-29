@@ -31,11 +31,13 @@ __attribute__((weak)) const char *nexs_embedded_lookup(const char *path) {
    SYSCALL IMPLEMENTATIONS
    ========================================================= */
 
+#ifndef NEXS_BAREMETAL
 int nexs_sleep(int msec) {
   if (msec <= 0) return 0;
   usleep((useconds_t)msec * 1000);
   return 0;
 }
+#endif
 
 int nexs_exec(EvalCtx *ctx, const char *path) {
   if (!ctx || !path) return -1;
@@ -65,6 +67,7 @@ void nexs_exits(const char *status) {
   exit(1);
 }
 
+#ifndef NEXS_BAREMETAL
 int nexs_alarm(int msec) {
   unsigned int secs = (msec > 0) ? (unsigned int)((msec + 999) / 1000) : 0;
   unsigned int old = alarm(secs);
@@ -97,15 +100,18 @@ int nexs_await(char *buf, int nbuf) {
   int exit_status = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
   return snprintf(buf, (size_t)nbuf, "%d %d", (int)pid, exit_status);
 }
+#endif
 
 /* =========================================================
    BUILT-IN WRAPPERS
    ========================================================= */
 
+#ifndef NEXS_BAREMETAL
 static Value bi_sleep(Value *args, int n) {
   if (n < 1) return val_err(4, "sleep: requires milliseconds");
   return val_int(nexs_sleep((int)val_to_int(&args[0])));
 }
+#endif
 
 static Value bi_exec(Value *args, int n) {
   if (n < 1) return val_err(4, "exec: requires a path");
@@ -124,6 +130,7 @@ static Value bi_exits(Value *args, int n) {
   return val_nil();
 }
 
+#ifndef NEXS_BAREMETAL
 static Value bi_alarm(Value *args, int n) {
   if (n < 1) return val_err(4, "alarm: requires milliseconds");
   return val_int(nexs_alarm((int)val_to_int(&args[0])));
@@ -153,6 +160,7 @@ static Value bi_getwd(Value *args, int n) {
   if (!getcwd(buf, sizeof(buf))) return val_err(4, "getwd: failed");
   return val_str(buf);
 }
+#endif
 
 /* =========================================================
    REGISTRATION
@@ -161,12 +169,14 @@ static Value bi_getwd(Value *args, int n) {
 #define SIG(s) s " \xe2\x86\x92 "
 
 void sysproc_register_builtins(void) {
-  fn_register_builtin_sig("sleep",  bi_sleep,
-    SIG("sleep(msec int)") "nil");
   fn_register_builtin_sig("exec",   bi_exec,
     SIG("exec(path str)") "nil");
   fn_register_builtin_sig("exits",  bi_exits,
     SIG("exits(status str)") "nil");
+
+#ifndef NEXS_BAREMETAL
+  fn_register_builtin_sig("sleep",  bi_sleep,
+    SIG("sleep(msec int)") "nil");
   fn_register_builtin_sig("alarm",  bi_alarm,
     SIG("alarm(msec int)") "int");
   fn_register_builtin_sig("rfork",  bi_rfork,
@@ -193,6 +203,21 @@ void sysproc_register_builtins(void) {
       }
     }
   }
+#else
+  /* Only register baremetal builtins */
+  {
+    static const char *names[] = { "exec", "exits" };
+    char path[REG_PATH_MAX];
+    for (int _i = 0; _i < 2; _i++) {
+      NexsFnDef *def = fn_lookup(names[_i]);
+      if (def) {
+        int idx = (int)(def - g_fn_table);
+        snprintf(path, sizeof(path), "/sys/%s", names[_i]);
+        reg_set(path, val_fn_idx(idx), RK_READ | RK_EXEC);
+      }
+    }
+  }
+#endif
 
   reg_set("/sys/rfork/RFPROC",   val_int(NEXS_RFPROC),   RK_READ);
   reg_set("/sys/rfork/RFNOWAIT", val_int(NEXS_RFNOWAIT), RK_READ);

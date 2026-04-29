@@ -84,7 +84,7 @@ int nexs_compile_file_ex(const char *src_path,
   char script_c[256];
   snprintf(script_c, sizeof(script_c), "/tmp/nexs_build_%d.c", (int)getpid());
 
-  if (nexs_codegen_ex(src_path, script_c, no_dep) != 0) {
+  if (nexs_codegen_ex(src_path, script_c, no_dep, tc->is_baremetal) != 0) {
     fprintf(stderr, "nexs: codegen failed for '%s'\n", src_path);
     return -1;
   }
@@ -112,8 +112,16 @@ int nexs_compile_file_ex(const char *src_path,
                   " lang/eval.c lang/builtins.c"
                   " sys/sysio.c sys/sysproc.c"
                   " runtime/runtime.c"
-                  " hal/bc/nexs_hal_bc.c hal/hal_hosted.c",
+                  " hal/bc/nexs_hal_bc.c",
                   script_c);
+
+  if (tc->is_baremetal) {
+    pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
+                    " kernel/libc_stub.c");
+  } else {
+    pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
+                    " hal/hal_hosted.c");
+  }
 
   /* Bare-metal extras */
   if (tc->is_baremetal) {
@@ -121,7 +129,7 @@ int nexs_compile_file_ex(const char *src_path,
       pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
                       " -T %s", tc->ld_script);
     pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
-                    " -nostdlib -nostartfiles");
+                    " -nostdlib -nostartfiles -ffreestanding -Ikernel/include");
 
     if (strcmp(tc->name, "baremetal-arm64") == 0) {
       pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,

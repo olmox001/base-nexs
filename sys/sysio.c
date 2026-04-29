@@ -13,6 +13,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <termios.h>
 
 /* =========================================================
    GLOBAL STATE
@@ -400,6 +401,66 @@ static Value bi_unmount(Value *args, int n) {
   return val_int(reg_unmount(src, dst));
 }
 
+/* =========================================================
+   TERMINAL SYSCALLS (rawon / rawoff / readbyte / chr)
+   ========================================================= */
+
+static struct termios s_orig_term;
+static int            s_raw_active = 0;
+
+static Value bi_rawon(Value *args, int n) {
+  (void)args; (void)n;
+  if (s_raw_active) return val_int(0);
+  if (!isatty(STDIN_FILENO)) return val_int(-1);
+  if (tcgetattr(STDIN_FILENO, &s_orig_term) != 0) return val_int(-1);
+  struct termios raw = s_orig_term;
+  raw.c_iflag &= ~(tcflag_t)(ICRNL | IXON | BRKINT | ISTRIP | INPCK);
+  raw.c_lflag &= ~(tcflag_t)(ECHO | ICANON | IEXTEN | ISIG);
+  raw.c_cflag |= CS8;
+  raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0;
+  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) != 0) return val_int(-1);
+  s_raw_active = 1;
+  return val_int(0);
+}
+
+static Value bi_rawoff(Value *args, int n) {
+  (void)args; (void)n;
+  if (!s_raw_active) return val_int(0);
+  tcsetattr(STDIN_FILENO, TCSAFLUSH, &s_orig_term);
+  s_raw_active = 0;
+  return val_int(0);
+}
+
+static Value bi_readbyte(Value *args, int n) {
+  (void)args; (void)n;
+  unsigned char c;
+  ssize_t r = read(STDIN_FILENO, &c, 1);
+  if (r <= 0) return val_int(-1);
+  return val_int((int64_t)c);
+}
+
+static Value bi_chr(Value *args, int n) {
+  if (n < 1) return val_str("");
+  int64_t cp = val_to_int(&args[0]);
+  char buf[5] = {0};
+  if (cp < 0x80) {
+    buf[0] = (char)cp;
+  } else if (cp < 0x800) {
+    buf[0] = (char)(0xC0 | (cp >> 6));
+    buf[1] = (char)(0x80 | (cp & 0x3F));
+  } else if (cp < 0x10000) {
+    buf[0] = (char)(0xE0 | (cp >> 12));
+    buf[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+    buf[2] = (char)(0x80 | (cp & 0x3F));
+  } else {
+    buf[0] = (char)(0xF0 | (cp >> 18));
+    buf[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+    buf[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+    buf[3] = (char)(0x80 | (cp & 0x3F));
+  }
+  return val_str(buf);
+}
+
 /* Arrow UTF-8 → (U+2192) */
 #define SIG(s) s " \xe2\x86\x92 "
 
@@ -428,12 +489,20 @@ void sysio_register_builtins(void) {
     SIG("fstat(path str)") "str");
   fn_register_builtin_sig("chdir",   bi_chdir,
     SIG("chdir(path str)") "int");
-  fn_register_builtin_sig("mount",   bi_mount,
+  fn_register_builtin_sig("mount",    bi_mount,
     SIG("mount(src str, dst str, flags int)") "int");
-  fn_register_builtin_sig("bind",    bi_bind,
+  fn_register_builtin_sig("bind",     bi_bind,
     SIG("bind(src str, dst str, flags int)") "int");
-  fn_register_builtin_sig("unmount", bi_unmount,
+  fn_register_builtin_sig("unmount",  bi_unmount,
     SIG("unmount(src str, dst str)") "int");
+  fn_register_builtin_sig("rawon",    bi_rawon,
+    SIG("rawon()") "int");
+  fn_register_builtin_sig("rawoff",   bi_rawoff,
+    SIG("rawoff()") "int");
+  fn_register_builtin_sig("readbyte", bi_readbyte,
+    SIG("readbyte()") "int");
+  fn_register_builtin_sig("chr",      bi_chr,
+    SIG("chr(codepoint int)") "str");
 
   /* Store actual fn_table indices in /sys/<name> for val_print and eval resolution */
   {
@@ -443,6 +512,8 @@ void sysio_register_builtins(void) {
       {"dup",bi_dup},{"fd2path",bi_fd2path},{"remove",bi_remove},
       {"pipe",bi_pipe},{"fstat",bi_fstat},{"chdir",bi_chdir},
       {"mount",bi_mount},{"bind",bi_bind},{"unmount",bi_unmount},
+      {"rawon",bi_rawon},{"rawoff",bi_rawoff},
+      {"readbyte",bi_readbyte},{"chr",bi_chr},
     };
     char path[REG_PATH_MAX];
     for (int _i = 0; _i < (int)(sizeof(t)/sizeof(t[0])); _i++) {
