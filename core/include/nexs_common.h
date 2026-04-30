@@ -35,17 +35,17 @@ extern "C" {
    ========================================================= */
 
 #ifndef NEXS_API
-#  if defined(_WIN32) || defined(__CYGWIN__)
-#    ifdef NEXS_BUILDING
-#      define NEXS_API __declspec(dllexport)
-#    else
-#      define NEXS_API __declspec(dllimport)
-#    endif
-#  elif defined(__GNUC__) && __GNUC__ >= 4
-#    define NEXS_API __attribute__((visibility("default")))
-#  else
-#    define NEXS_API
-#  endif
+#if defined(_WIN32) || defined(__CYGWIN__)
+#ifdef NEXS_BUILDING
+#define NEXS_API __declspec(dllexport)
+#else
+#define NEXS_API __declspec(dllimport)
+#endif
+#elif defined(__GNUC__) && __GNUC__ >= 4
+#define NEXS_API __attribute__((visibility("default")))
+#else
+#define NEXS_API
+#endif
 #endif
 
 /* =========================================================
@@ -55,90 +55,90 @@ extern "C" {
 #define NEXS_VERSION_MAJOR 0
 #define NEXS_VERSION_MINOR 2
 #define NEXS_VERSION_PATCH 0
-#define NEXS_VERSION_STR   "0.2.0"
+#define NEXS_VERSION_STR "0.1.3"
 
 /* =========================================================
    BUDDY ALLOCATOR & DYNAMIC LIMITS
    ========================================================= */
 
 #if defined(POOL_16MB)
-  #define POOL_SIZE          (16 * 1024 * 1024)
-  #define LARGE_POOL_PAGES   4096 /* 16MB */
-  #define MIN_BLOCK          128
-  #define MAX_STR_LEN        8192
-  #define MAX_TOKENS         16384
-  #define REG_PATH_MAX       512
-  #define MAX_ARRAYS         1024
-  #define NAME_LEN           64
-  #define MAX_PARAMS         16
-  #define MAX_FN_DEFS        1024
+#define POOL_SIZE (16 * 1024 * 1024)
+#define LARGE_POOL_PAGES 4096 /* 16MB */
+#define MIN_BLOCK 128
+#define MAX_STR_LEN 8192
+#define MAX_TOKENS 16384
+#define REG_PATH_MAX 512
+#define MAX_ARRAYS 1024
+#define NAME_LEN 64
+#define MAX_PARAMS 16
+#define MAX_FN_DEFS 1024
 #elif defined(POOL_4MB)
-  #define POOL_SIZE          (4 * 1024 * 1024)
-  #define LARGE_POOL_PAGES   1024 /* 4MB */
-  #define MIN_BLOCK          32
-  #define MAX_STR_LEN        4096
-  #define MAX_TOKENS         8192
-  #define REG_PATH_MAX       512
-  #define MAX_ARRAYS         512
-  #define NAME_LEN           64
-  #define MAX_PARAMS         16
-  #define MAX_FN_DEFS        512
+#define POOL_SIZE (4 * 1024 * 1024)
+#define LARGE_POOL_PAGES 1024 /* 4MB */
+#define MIN_BLOCK 32
+#define MAX_STR_LEN 4096
+#define MAX_TOKENS 8192
+#define REG_PATH_MAX 512
+#define MAX_ARRAYS 512
+#define NAME_LEN 64
+#define MAX_PARAMS 16
+#define MAX_FN_DEFS 512
 #elif defined(POOL_512KB)
-  #define POOL_SIZE          (512 * 1024)
-  #define LARGE_POOL_PAGES   128 /* 512KB */
-  #define MIN_BLOCK          16
-  #define MAX_STR_LEN        2048
-  #define MAX_TOKENS         1024
-  #define REG_PATH_MAX       256
-  #define MAX_ARRAYS         128
-  #define NAME_LEN           64
-  #define MAX_PARAMS         16
-  #define MAX_FN_DEFS        256
+#define POOL_SIZE (512 * 1024)
+#define LARGE_POOL_PAGES 128 /* 512KB */
+#define MIN_BLOCK 16
+#define MAX_STR_LEN 2048
+#define MAX_TOKENS 1024
+#define REG_PATH_MAX 256
+#define MAX_ARRAYS 128
+#define NAME_LEN 64
+#define MAX_PARAMS 16
+#define MAX_FN_DEFS 256
 #elif defined(POOL_32KB)
-  #define POOL_SIZE          (32 * 1024)
-  #define LARGE_POOL_PAGES   8 /* 32KB */
-  #define MIN_BLOCK          16
-  #define MAX_STR_LEN        512
-  #define MAX_TOKENS         128
-  #define REG_PATH_MAX       128
-  #define MAX_ARRAYS         16
-  #define NAME_LEN           32
-  #define MAX_PARAMS         8
-  #define MAX_FN_DEFS        64
+#define POOL_SIZE (32 * 1024)
+#define LARGE_POOL_PAGES 8 /* 32KB */
+#define MIN_BLOCK 16
+#define MAX_STR_LEN 512
+#define MAX_TOKENS 128
+#define REG_PATH_MAX 128
+#define MAX_ARRAYS 16
+#define NAME_LEN 32
+#define MAX_PARAMS 8
+#define MAX_FN_DEFS 64
 #elif defined(POOL_16KB)
-  #define POOL_SIZE          (16 * 1024)
-  #define LARGE_POOL_PAGES   4 /* 16KB */
-  #define MIN_BLOCK          16
-  #define MAX_STR_LEN        256
-  #define MAX_TOKENS         64
-  #define REG_PATH_MAX       64
-  #define MAX_ARRAYS         8
-  #define NAME_LEN           24
-  #define MAX_PARAMS         4
-  #define MAX_FN_DEFS        32
+#define POOL_SIZE (16 * 1024)
+#define LARGE_POOL_PAGES 4 /* 16KB */
+#define MIN_BLOCK 16
+#define MAX_STR_LEN 256
+#define MAX_TOKENS 64
+#define REG_PATH_MAX 64
+#define MAX_ARRAYS 8
+#define NAME_LEN 24
+#define MAX_PARAMS 4
+#define MAX_FN_DEFS 32
 #elif defined(POOL_4KB)
-  #define POOL_SIZE          (4 * 1024)
-  #define LARGE_POOL_PAGES   1 /* 4KB */
-  #define MIN_BLOCK          16
-  #define MAX_STR_LEN        128
-  #define MAX_TOKENS         32
-  #define REG_PATH_MAX       32
-  #define MAX_ARRAYS         4
-  #define NAME_LEN           16
-  #define MAX_PARAMS         4
-  #define MAX_FN_DEFS        16
+#define POOL_SIZE (4 * 1024)
+#define LARGE_POOL_PAGES 1 /* 4KB */
+#define MIN_BLOCK 16
+#define MAX_STR_LEN 128
+#define MAX_TOKENS 32
+#define REG_PATH_MAX 32
+#define MAX_ARRAYS 4
+#define NAME_LEN 16
+#define MAX_PARAMS 4
+#define MAX_FN_DEFS 16
 #else
-  /* Default (16MB) - Optimized for stability */
-  #define POOL_SIZE          (16 * 1024 * 1024)
-  #define LARGE_POOL_PAGES   4096
-  #define MIN_BLOCK          128
-  #define MAX_STR_LEN        8192
-  #define MAX_TOKENS         16384
-  #define REG_PATH_MAX       512
-  #define MAX_ARRAYS         1024
-  #define NAME_LEN           64
-  #define MAX_PARAMS         16
-  #define MAX_FN_DEFS        1024
+/* Default (16MB) - Optimized for stability */
+#define POOL_SIZE (16 * 1024 * 1024)
+#define LARGE_POOL_PAGES 4096
+#define MIN_BLOCK 128
+#define MAX_STR_LEN 8192
+#define MAX_TOKENS 16384
+#define REG_PATH_MAX 512
+#define MAX_ARRAYS 1024
+#define NAME_LEN 64
+#define MAX_PARAMS 16
+#define MAX_FN_DEFS 1024
 #endif
 
 #define NUM_LEAVES (POOL_SIZE / MIN_BLOCK)
@@ -148,37 +148,38 @@ extern "C" {
    PAGE ALLOCATOR
    ========================================================= */
 
-#define NEXS_PAGE_SIZE       4096
-#define MAX_PAGE_ALLOCS      256
-#define LARGE_ALLOC_THRESH   (512 * 1024)  /* bytes above which page alloc is used */
+#define NEXS_PAGE_SIZE 4096
+#define MAX_PAGE_ALLOCS 256
+#define LARGE_ALLOC_THRESH                                                     \
+  (512 * 1024) /* bytes above which page alloc is used */
 
 /* =========================================================
    DYNARRAY
    ========================================================= */
 
-#define MAX_ARRAYS_GLOBAL    64  /* Registry-based global arrays limit */
+#define MAX_ARRAYS_GLOBAL 64 /* Registry-based global arrays limit */
 
 /* =========================================================
    REGISTRY
    ========================================================= */
 
 #define REG_CHILDREN 16
-#define REG_ROOT     "/"
+#define REG_ROOT "/"
 
 /* Registry access rights (capability style) */
-#define RK_READ  (1 << 0)
+#define RK_READ (1 << 0)
 #define RK_WRITE (1 << 1)
-#define RK_EXEC  (1 << 2)
+#define RK_EXEC (1 << 2)
 #define RK_ADMIN (1 << 3)
-#define RK_ALL   (RK_READ | RK_WRITE | RK_EXEC | RK_ADMIN)
+#define RK_ALL (RK_READ | RK_WRITE | RK_EXEC | RK_ADMIN)
 
 /* Standard registry paths */
 #define REG_LOCAL "/local"
-#define REG_FN    "/fn"
-#define REG_SYS   "/sys"
-#define REG_MOD   "/mod"
-#define REG_ENV   "/env"
-#define REG_TYPE  "/type"
+#define REG_FN "/fn"
+#define REG_SYS "/sys"
+#define REG_MOD "/mod"
+#define REG_ENV "/env"
+#define REG_TYPE "/type"
 
 /* =========================================================
    IPC / MESSAGE QUEUE
@@ -200,20 +201,20 @@ extern "C" {
 #define NEXS_MAX_FDS 64
 
 /* Plan 9-style open flags */
-#define NEXS_OREAD   0
-#define NEXS_OWRITE  1
-#define NEXS_ORDWR   2
-#define NEXS_OTRUNC  16
+#define NEXS_OREAD 0
+#define NEXS_OWRITE 1
+#define NEXS_ORDWR 2
+#define NEXS_OTRUNC 16
 
 /* =========================================================
    RFORK FLAGS
    ========================================================= */
 
-#define NEXS_RFPROC   (1 << 0)
+#define NEXS_RFPROC (1 << 0)
 #define NEXS_RFNOWAIT (1 << 1)
-#define NEXS_RFNAMEG  (1 << 2)
-#define NEXS_RFMEM    (1 << 3)
-#define NEXS_RFFDG    (1 << 4)
+#define NEXS_RFNAMEG (1 << 2)
+#define NEXS_RFMEM (1 << 3)
+#define NEXS_RFFDG (1 << 4)
 
 /* =========================================================
    UTILITY MACROS
