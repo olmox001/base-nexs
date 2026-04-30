@@ -36,8 +36,13 @@ void eval_ctx_init(EvalCtx *ctx) {
   ctx->scope[REG_PATH_MAX - 1] = '\0';
   ctx->call_depth = 0;
   ctx->debug      = 0;
+#ifdef NEXS_BAREMETAL
+  ctx->out        = NULL;
+  ctx->err        = NULL;
+#else
   ctx->out        = stdout;
   ctx->err        = stderr;
+#endif
 }
 
 /* =========================================================
@@ -220,7 +225,7 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
     EvalResult vr = eval_node(ctx, n->left);
     if (vr.sig != CTRL_NONE) return vr;
     val_print(&vr.ret_val, ctx->out);
-    fprintf(ctx->out, "\n");
+    nexs_fprintf(ctx->out, "\n");
     val_free(&vr.ret_val);
     return ok(val_nil());
   }
@@ -465,7 +470,7 @@ EvalResult eval_str(EvalCtx *ctx, const char *src) {
   ASTNode *prog = parse_program(&par);
   if (par.had_error) {
     if (ctx->err)
-      fprintf(ctx->err, "\033[1;31m[PARSE ERR]\033[0m %s\n", par.error_msg);
+      nexs_fprintf(ctx->err, "\033[1;31m[PARSE ERR]\033[0m %s\n", par.error_msg);
     ast_free(prog);
     return err_result(par.error_msg);
   }

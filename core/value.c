@@ -7,6 +7,7 @@
 #include "include/nexs_value.h"
 #include "include/nexs_alloc.h"
 #include "include/nexs_common.h"
+#include "include/nexs_utils.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -149,35 +150,35 @@ double val_to_float(const Value *v) {
    ========================================================= */
 
 void val_print(const Value *v, FILE *out) {
-  if (!v || !out) return;
+  if (!v) return;
   switch (v->type) {
   case TYPE_NIL:
-    fprintf(out, "nil");
+    nexs_fprintf(out, "nil");
     break;
   case TYPE_BOOL:
-    fprintf(out, "%s", v->ival ? "true" : "false");
+    nexs_fprintf(out, "%s", v->ival ? "true" : "false");
     break;
   case TYPE_INT:
-    fprintf(out, "%lld", (long long)v->ival);
+    nexs_fprintf(out, "%lld", (long long)v->ival);
     break;
   case TYPE_FLOAT:
-    fprintf(out, "%g", v->fval);
+    nexs_fprintf(out, "%g", v->fval);
     break;
   case TYPE_STR:
-    fprintf(out, "%s", v->data ? (char *)v->data : "");
+    nexs_fprintf(out, "%s", v->data ? (char *)v->data : "");
     break;
   case TYPE_ARR: {
     DynArray *arr = (DynArray *)v->data;
     if (!arr) {
-      fprintf(out, "[]");
+      nexs_fprintf(out, "[]");
     } else {
-      fprintf(out, "[");
+      nexs_fprintf(out, "[");
       for (size_t i = 0; i < arr->size; i++) {
         val_print(&arr->items[i], out);
         if (i < arr->size - 1)
-          fprintf(out, ", ");
+          nexs_fprintf(out, ", ");
       }
-      fprintf(out, "]");
+      nexs_fprintf(out, "]");
     }
     break;
   }
@@ -185,16 +186,16 @@ void val_print(const Value *v, FILE *out) {
     if (nexs_val_fn_print)
       nexs_val_fn_print(v->ival, out);
     else
-      fprintf(out, "<fn #%lld>", (long long)v->ival);
+      nexs_fprintf(out, "<fn #%lld>", (long long)v->ival);
     break;
   case TYPE_REF:
-    fprintf(out, "<ref:%s>", v->data ? (char *)v->data : "?");
+    nexs_fprintf(out, "<ref:%s>", v->data ? (char *)v->data : "?");
     break;
   case TYPE_PTR:
-    fprintf(out, "<ptr:%s>", v->data ? (char *)v->data : "?");
+    nexs_fprintf(out, "<ptr:%s>", v->data ? (char *)v->data : "?");
     break;
   case TYPE_ERR:
-    fprintf(out, "ERR(%d: %s)", v->err_code, v->err_msg ? v->err_msg : "");
+    nexs_fprintf(out, "ERR(%d: %s)", v->err_code, v->err_msg ? v->err_msg : "");
     break;
   }
 }
@@ -239,17 +240,19 @@ Value val_clone(const Value *v) {
 
 Value val_add(const Value *a, const Value *b) {
   if (a->type == TYPE_STR || b->type == TYPE_STR) {
-    char buf_a[MAX_STR_LEN], buf_b[MAX_STR_LEN];
+    char *buf_a = (char *)xmalloc(MAX_STR_LEN);
+    char *buf_b = (char *)xmalloc(MAX_STR_LEN);
+
     if (a->type == TYPE_STR && a->data) {
       strncpy(buf_a, (char *)a->data, MAX_STR_LEN - 1);
       buf_a[MAX_STR_LEN - 1] = '\0';
     } else {
       switch (a->type) {
-      case TYPE_INT:   snprintf(buf_a, sizeof(buf_a), "%lld", (long long)a->ival); break;
-      case TYPE_FLOAT: snprintf(buf_a, sizeof(buf_a), "%g", a->fval); break;
-      case TYPE_BOOL:  snprintf(buf_a, sizeof(buf_a), "%s", a->ival ? "true" : "false"); break;
-      case TYPE_NIL:   snprintf(buf_a, sizeof(buf_a), "nil"); break;
-      default:         snprintf(buf_a, sizeof(buf_a), "<%s>", val_type_name(a->type)); break;
+      case TYPE_INT:   snprintf(buf_a, MAX_STR_LEN, "%lld", (long long)a->ival); break;
+      case TYPE_FLOAT: snprintf(buf_a, MAX_STR_LEN, "%g", a->fval); break;
+      case TYPE_BOOL:  snprintf(buf_a, MAX_STR_LEN, "%s", a->ival ? "true" : "false"); break;
+      case TYPE_NIL:   snprintf(buf_a, MAX_STR_LEN, "nil"); break;
+      default:         snprintf(buf_a, MAX_STR_LEN, "<%s>", val_type_name(a->type)); break;
       }
     }
     if (b->type == TYPE_STR && b->data) {
@@ -257,16 +260,23 @@ Value val_add(const Value *a, const Value *b) {
       buf_b[MAX_STR_LEN - 1] = '\0';
     } else {
       switch (b->type) {
-      case TYPE_INT:   snprintf(buf_b, sizeof(buf_b), "%lld", (long long)b->ival); break;
-      case TYPE_FLOAT: snprintf(buf_b, sizeof(buf_b), "%g", b->fval); break;
-      case TYPE_BOOL:  snprintf(buf_b, sizeof(buf_b), "%s", b->ival ? "true" : "false"); break;
-      case TYPE_NIL:   snprintf(buf_b, sizeof(buf_b), "nil"); break;
-      default:         snprintf(buf_b, sizeof(buf_b), "<%s>", val_type_name(b->type)); break;
+      case TYPE_INT:   snprintf(buf_b, MAX_STR_LEN, "%lld", (long long)b->ival); break;
+      case TYPE_FLOAT: snprintf(buf_b, MAX_STR_LEN, "%g", b->fval); break;
+      case TYPE_BOOL:  snprintf(buf_b, MAX_STR_LEN, "%s", b->ival ? "true" : "false"); break;
+      case TYPE_NIL:   snprintf(buf_b, MAX_STR_LEN, "nil"); break;
+      default:         snprintf(buf_b, MAX_STR_LEN, "<%s>", val_type_name(b->type)); break;
       }
     }
-    char result[MAX_STR_LEN * 2];
-    snprintf(result, sizeof(result), "%s%s", buf_a, buf_b);
-    return val_str(result);
+    
+    char *result_buf = (char *)xmalloc(MAX_STR_LEN * 2);
+    snprintf(result_buf, MAX_STR_LEN * 2, "%s%s", buf_a, buf_b);
+    Value res = val_str(result_buf);
+
+    xfree(buf_a);
+    xfree(buf_b);
+    xfree(result_buf);
+    /* Note: res.data points to a copy created by val_str, which will be freed by val_free later */
+    return res;
   }
   if (a->type == TYPE_FLOAT || b->type == TYPE_FLOAT)
     return val_float(val_to_float(a) + val_to_float(b));

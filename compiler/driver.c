@@ -95,53 +95,58 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
     return -1;
   }
 
-  for (int i = 0; i < profile_count; i++) {
-    char test_bin[256], build_cmd[1024], run_cmd[1024];
-    snprintf(test_bin, sizeof(test_bin), "/tmp/nexs_prof_test_%d.bin",
-             (int)getpid());
+  if (tc->is_baremetal) {
+    /* Skip host profiling for bare-metal targets - avoid infinite loops/alarms */
+    best_profile_idx = profile_count - 1;
+  } else {
+    for (int i = 0; i < profile_count; i++) {
+      char test_bin[256], build_cmd[1024], run_cmd[1024];
+      snprintf(test_bin, sizeof(test_bin), "/tmp/nexs_prof_test_%d.bin",
+               (int)getpid());
 
-    snprintf(
-        build_cmd, sizeof(build_cmd),
-        "gcc -O2 -std=c11 -Icore/include -Iregistry/include -Ilang/include "
-        "-Isys/include -Iruntime/include -Icompiler/include -Ihal/include "
-        "-D%s %s core/buddy.c core/pager.c core/value.c core/dynarray.c "
-        "core/utils.c registry/registry.c registry/reg_ipc.c lang/fn_table.c "
-        "lang/lexer.c lang/parser.c lang/eval.c lang/builtins.c sys/sysio.c "
-        "sys/sysproc.c runtime/runtime.c runtime/nexs_line.c "
-        "hal/bc/nexs_hal_bc.c hal/hal_hosted.c -o %s >/dev/null 2>&1",
-        profiles[i], test_c, test_bin);
+      snprintf(
+          build_cmd, sizeof(build_cmd),
+          "gcc -O2 -std=c11 -Icore/include -Iregistry/include -Ilang/include "
+          "-Isys/include -Iruntime/include -Icompiler/include -Ihal/include "
+          "-D%s %s core/buddy.c core/pager.c core/value.c core/dynarray.c "
+          "core/utils.c registry/registry.c registry/reg_ipc.c lang/fn_table.c "
+          "lang/lexer.c lang/parser.c lang/eval.c lang/builtins.c sys/sysio.c "
+          "sys/sysproc.c runtime/runtime.c runtime/nexs_line.c "
+          "hal/bc/nexs_hal_bc.c hal/hal_hosted.c -o %s >/dev/null 2>&1",
+          profiles[i], test_c, test_bin);
 
-    if (system(build_cmd) != 0) {
-      continue;
-    }
-
-    char out_path[256];
-    snprintf(out_path, sizeof(out_path), "/tmp/nexs_prof_out_%d.txt",
-             (int)getpid());
-
-    /* Use perl to set a cross-platform 1-second timeout */
-    snprintf(run_cmd, sizeof(run_cmd),
-             "perl -e 'alarm 1; exec \"%s\"' > %s 2>&1", test_bin, out_path);
-    system(run_cmd);
-
-    FILE *fout = fopen(out_path, "r");
-    int failed = 0;
-    if (fout) {
-      char line[1024];
-      while (fgets(line, sizeof(line), fout)) {
-        if (strstr(line, "Buddy alloc failed")) {
-          failed = 1;
-          break;
-        }
+      if (system(build_cmd) != 0) {
+        continue;
       }
-      fclose(fout);
-    }
-    unlink(out_path);
-    unlink(test_bin);
 
-    if (!failed) {
-      best_profile_idx = i;
-      break;
+      char out_path[256];
+      snprintf(out_path, sizeof(out_path), "/tmp/nexs_prof_out_%d.txt",
+               (int)getpid());
+
+      /* Use perl to set a cross-platform 1-second timeout */
+      snprintf(run_cmd, sizeof(run_cmd),
+               "perl -e 'alarm 1; exec \"%s\"' > %s 2>&1", test_bin, out_path);
+      system(run_cmd);
+
+      FILE *fout = fopen(out_path, "r");
+      int failed = 0;
+      if (fout) {
+        char line[1024];
+        while (fgets(line, sizeof(line), fout)) {
+          if (strstr(line, "Buddy alloc failed")) {
+            failed = 1;
+            break;
+          }
+        }
+        fclose(fout);
+      }
+      unlink(out_path);
+      unlink(test_bin);
+
+      if (!failed) {
+        best_profile_idx = i;
+        break;
+      }
     }
   }
   unlink(test_c);

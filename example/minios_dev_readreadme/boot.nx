@@ -65,10 +65,11 @@ loop {
 }
 out "[INIT] Moduli pubblicati. Usa 'modules' o 'ls sys/modules' per visualizzarli."
 
-# Fase 2.5: Registra processo init nel namespace /proc/ (seL4-style)
-reg /proc/1/name = "init"
-reg /proc/1/state = "running"
-reg /proc/1/pid = 1
+# Fase 2.5: Registra processo init nel namespace /sys/pm/procs/ (seL4-style)
+reg /sys/pm/procs/1/name = "init"
+reg /sys/pm/procs/1/state = "running"
+reg /sys/pm/procs/1/pid = 1
+reg /sys/pm/procs/1/mem = 0
 
 # Avvia il loop dell'interprete utente
 shell_loop()

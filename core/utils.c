@@ -4,16 +4,21 @@
  * Path manipulation, string trimming.
  */
 
-#include "include/nexs_utils.h"
 #include "include/nexs_alloc.h"
 #include "include/nexs_common.h"
+#include "include/nexs_utils.h"
+
+#ifdef NEXS_BAREMETAL
+#include "../hal/include/nexs_hal.h"
+#endif
 
 #include <ctype.h>
 #include <stdarg.h>
 #include <string.h>
 
 void nexs_trim(char *s) {
-  if (!s) return;
+  if (!s)
+    return;
   char *p = s;
   while (isspace((unsigned char)*p))
     p++;
@@ -23,7 +28,8 @@ void nexs_trim(char *s) {
 }
 
 void nexs_path_join(char *buf, size_t bufsz, ...) {
-  if (!buf || bufsz == 0) return;
+  if (!buf || bufsz == 0)
+    return;
   va_list ap;
   va_start(ap, bufsz);
   buf[0] = '\0';
@@ -42,13 +48,15 @@ void nexs_path_join(char *buf, size_t bufsz, ...) {
 }
 
 const char *nexs_path_basename(const char *path) {
-  if (!path) return "";
+  if (!path)
+    return "";
   const char *last = strrchr(path, '/');
   return last ? last + 1 : path;
 }
 
 void nexs_path_dirname(const char *path, char *out, size_t outsz) {
-  if (!path || !out || outsz == 0) return;
+  if (!path || !out || outsz == 0)
+    return;
   const char *last = strrchr(path, '/');
   if (!last || last == path) {
     strncpy(out, "/", outsz);
@@ -56,7 +64,26 @@ void nexs_path_dirname(const char *path, char *out, size_t outsz) {
     return;
   }
   size_t len = (size_t)(last - path);
-  if (len >= outsz) len = outsz - 1;
+  if (len >= outsz)
+    len = outsz - 1;
   memcpy(out, path, len);
   out[len] = '\0';
+}
+
+void nexs_fprintf(FILE *out, const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  if (out) {
+    vfprintf(out, fmt, ap);
+  } else {
+#ifdef NEXS_BAREMETAL
+    char buf[1024];
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    nexs_hal_print(buf);
+#else
+    /* Fallback for hosted if out is NULL, though it shouldn't happen there */
+    vfprintf(stdout, fmt, ap);
+#endif
+  }
+  va_end(ap);
 }

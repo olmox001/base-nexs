@@ -29,7 +29,7 @@ int errno = 0;
    Console Output / Formatting
    ========================================================= */
 
-static void print_uint(char **buf, size_t *remain, unsigned long long val, int base) {
+static void print_uint(char **buf, size_t *remain, unsigned long long val, int base, int width, int zero_pad) {
     char tmp[64];
     int i = 0;
     if (val == 0) tmp[i++] = '0';
@@ -37,6 +37,12 @@ static void print_uint(char **buf, size_t *remain, unsigned long long val, int b
         int r = val % base;
         tmp[i++] = r < 10 ? '0' + r : 'a' + r - 10;
         val /= base;
+    }
+    int len = i;
+    while (len < width && *remain > 1) {
+        *(*buf)++ = zero_pad ? '0' : ' ';
+        (*remain)--;
+        width--;
     }
     while (i > 0) {
         if (*remain > 1) {
@@ -46,12 +52,12 @@ static void print_uint(char **buf, size_t *remain, unsigned long long val, int b
     }
 }
 
-static void print_int(char **buf, size_t *remain, long long val, int base) {
+static void print_int(char **buf, size_t *remain, long long val, int base, int width, int zero_pad) {
     if (val < 0) {
-        if (*remain > 1) { *(*buf)++ = '-'; (*remain)--; }
+        if (*remain > 1) { *(*buf)++ = '-'; (*remain)--; width--; }
         val = -val;
     }
-    print_uint(buf, remain, (unsigned long long)val, base);
+    print_uint(buf, remain, (unsigned long long)val, base, width, zero_pad);
 }
 
 int vsnprintf(char *str, size_t size, const char *format, va_list ap) {
@@ -62,15 +68,47 @@ int vsnprintf(char *str, size_t size, const char *format, va_list ap) {
         if (*format == '%') {
             format++;
             int left_align = 0;
+            int zero_pad = 0;
             int width = 0;
+            int precision = -1;
+
+            if (*format == '\0') {
+                /* Trailing % - just ignore it or handle as needed. 
+                   We must not advance further. */
+                break; 
+            }
+
             if (*format == '-') {
                 left_align = 1;
                 format++;
             }
-            while (*format >= '0' && *format <= '9') {
-                width = width * 10 + (*format - '0');
+            if (*format == '0') {
+                zero_pad = 1;
                 format++;
             }
+            if (*format == '*') {
+                width = va_arg(ap, int);
+                format++;
+            } else {
+                while (*format >= '0' && *format <= '9') {
+                    width = width * 10 + (*format - '0');
+                    format++;
+                }
+            }
+            if (*format == '.') {
+                format++;
+                if (*format == '*') {
+                    precision = va_arg(ap, int);
+                    format++;
+                } else {
+                    precision = 0;
+                    while (*format >= '0' && *format <= '9') {
+                        precision = precision * 10 + (*format - '0');
+                        format++;
+                    }
+                }
+            }
+
             int is_long = 0;
             int is_long_long = 0;
             if (*format == 'l') {
@@ -83,38 +121,37 @@ int vsnprintf(char *str, size_t size, const char *format, va_list ap) {
             }
             if (*format == 'd') {
                 if (is_long_long || is_long) {
-                    print_int(&out, &remain, va_arg(ap, long long), 10);
+                    print_int(&out, &remain, va_arg(ap, long long), 10, width, zero_pad);
                 } else {
-                    print_int(&out, &remain, va_arg(ap, int), 10);
+                    print_int(&out, &remain, va_arg(ap, int), 10, width, zero_pad);
                 }
             } else if (*format == 'u') {
                 if (is_long_long || is_long) {
-                    print_uint(&out, &remain, va_arg(ap, unsigned long long), 10);
+                    print_uint(&out, &remain, va_arg(ap, unsigned long long), 10, width, zero_pad);
                 } else {
-                    print_uint(&out, &remain, va_arg(ap, unsigned int), 10);
+                    print_uint(&out, &remain, va_arg(ap, unsigned int), 10, width, zero_pad);
                 }
             } else if (*format == 'x') {
                 if (is_long_long || is_long) {
-                    print_uint(&out, &remain, va_arg(ap, unsigned long long), 16);
+                    print_uint(&out, &remain, va_arg(ap, unsigned long long), 16, width, zero_pad);
                 } else {
-                    print_uint(&out, &remain, va_arg(ap, unsigned int), 16);
+                    print_uint(&out, &remain, va_arg(ap, unsigned int), 16, width, zero_pad);
                 }
             } else if (*format == 'o') {
-                /* octal — usato da nexs_stat() con %o */
                 if (is_long_long || is_long) {
-                    print_uint(&out, &remain, va_arg(ap, unsigned long long), 8);
+                    print_uint(&out, &remain, va_arg(ap, unsigned long long), 8, width, zero_pad);
                 } else {
-                    print_uint(&out, &remain, va_arg(ap, unsigned int), 8);
+                    print_uint(&out, &remain, va_arg(ap, unsigned int), 8, width, zero_pad);
                 }
             } else if (*format == 'f' || *format == 'g') {
-                /* float — approssimato a 4 decimali */
                 double fv = va_arg(ap, double);
                 long long ip = (long long)fv;
                 double fp_part = fv - (double)ip;
                 if (fp_part < 0.0) fp_part = -fp_part;
-                print_int(&out, &remain, ip, 10);
+                print_int(&out, &remain, ip, 10, 0, 0);
                 if (remain > 1) { *out++ = '.'; remain--; }
-                for (int _d = 0; _d < 4 && remain > 1; _d++) {
+                int prec = (precision >= 0) ? precision : 4;
+                for (int _d = 0; _d < prec && remain > 1; _d++) {
                     fp_part *= 10.0;
                     int d = (int)fp_part;
                     if (remain > 1) { *out++ = '0' + d; remain--; }
@@ -124,14 +161,14 @@ int vsnprintf(char *str, size_t size, const char *format, va_list ap) {
                 const char *s = va_arg(ap, const char *);
                 if (!s) s = "(null)";
                 size_t len = 0;
-                while (s[len]) len++;
+                while (s[len] && (precision < 0 || len < (size_t)precision)) len++;
                 if (!left_align) {
                     while (width > (int)len && remain > 1) {
                         *out++ = ' '; remain--; width--;
                     }
                 }
-                while (*s && remain > 1) {
-                    *out++ = *s++; remain--; width--;
+                for (size_t i = 0; i < len && remain > 1; i++) {
+                    *out++ = s[i]; remain--; width--;
                 }
                 if (left_align) {
                     while (width > 0 && remain > 1) {
@@ -140,16 +177,20 @@ int vsnprintf(char *str, size_t size, const char *format, va_list ap) {
                 }
             } else if (*format == 'c') {
                 *out++ = (char)va_arg(ap, int); remain--;
+            } else if (*format == '%') {
+                if (remain > 1) { *out++ = '%'; remain--; }
             } else {
-                *out++ = *format; remain--;
+                /* Unknown specifier, just print the character */
+                if (remain > 1) { *out++ = *format; remain--; }
             }
+            if (*format != '\0') format++;
         } else {
-            *out++ = *format; remain--;
+            if (remain > 1) { *out++ = *format; remain--; }
+            format++;
         }
-        format++;
     }
-    *out = '\0';
-    return out - str;
+    if (remain > 0) *out = '\0';
+    return (int)(out - str);
 }
 
 int snprintf(char* buffer, size_t count, const char* format, ...) {

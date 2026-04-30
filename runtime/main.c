@@ -46,8 +46,8 @@ void nexs_repl(void) {
   EvalCtx ctx;
   eval_ctx_init(&ctx);
 
-  nexs_print_version(stdout);
-  fprintf(stdout,
+  nexs_print_version(ctx.out);
+  nexs_fprintf(ctx.out,
           "Special commands: :exit :help :ls [path] :reg [path] :debug :version\n"
           "                  :fn  :ptr /path  :ipc /path  :ast\n"
           "Syntax: x=42 | arr[0]=10 | fn add(a b){ret a+b} | out add(1 2)\n\n");
@@ -65,17 +65,17 @@ void nexs_repl(void) {
     if (strcmp(line, ":exit") == 0 || strcmp(line, ":q") == 0) break;
 
 
-    if (strcmp(line, ":version") == 0) { nexs_print_version(stdout); continue; }
+    if (strcmp(line, ":version") == 0) { nexs_print_version(ctx.out); continue; }
 
     if (strcmp(line, ":debug") == 0) {
       ctx.debug = !ctx.debug;
-      fprintf(stdout, "Debug: %s\n", ctx.debug ? "ON" : "OFF");
+      nexs_fprintf(ctx.out, "Debug: %s\n", ctx.debug ? "ON" : "OFF");
       continue;
     }
 
     if (strcmp(line, ":ast") == 0) {
       g_ast_debug = !g_ast_debug;
-      fprintf(stdout, "AST debug: %s\n", g_ast_debug ? "ON" : "OFF");
+      nexs_fprintf(ctx.out, "AST debug: %s\n", g_ast_debug ? "ON" : "OFF");
       continue;
     }
 

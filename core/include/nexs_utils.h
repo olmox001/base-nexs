@@ -30,6 +30,11 @@ NEXS_API void        nexs_path_dirname(const char *path, char *out, size_t outsz
 /* Duplicate string into buddy pool — caller must xfree() result */
 NEXS_API char       *buddy_strdup(const char *s);
 
+/* Safe printf that handles NULL out by using nexs_hal_print on baremetal */
+#include <stdio.h>
+#include <stdarg.h>
+NEXS_API void        nexs_fprintf(FILE *out, const char *fmt, ...);
+
 #ifdef __cplusplus
 }
 #endif
