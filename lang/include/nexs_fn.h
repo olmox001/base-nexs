@@ -52,7 +52,7 @@ typedef struct {
    GLOBAL TABLE
    ========================================================= */
 
-extern NexsFnDef g_fn_table[NEXS_MAX_FN_DEFS];
+extern NexsFnDef g_fn_table[MAX_FN_DEFS];
 extern int       g_fn_count;
 
 /* =========================================================

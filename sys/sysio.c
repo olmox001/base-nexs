@@ -522,7 +522,7 @@ static Value bi_readkey(Value *args, int n) {
     if (c == -1) return val_str("");
 
     if (c == 27) { /* ESC */
-        int c2, c3, c4;
+        int c2, c3;
         /* Peek con poll: se non arriva niente entro 50ms → bare ESC */
 #ifndef NEXS_BAREMETAL
         struct pollfd _pf = { STDIN_FILENO, POLLIN, 0 };
@@ -549,7 +549,7 @@ static Value bi_readkey(Value *args, int n) {
             if (c3 == 'F') return val_str("KEY_END");
             /* ESC [ N ~ sequences */
             if (c3 >= '1' && c3 <= '6') {
-                c4 = nexs_read_byte(); /* consume '~' */
+                (void)nexs_read_byte(); /* consume '~' */
                 if (c3 == '1') return val_str("KEY_HOME");
                 if (c3 == '3') return val_str("KEY_DELETE");
                 if (c3 == '4') return val_str("KEY_END");

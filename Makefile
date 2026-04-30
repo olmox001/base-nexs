@@ -209,14 +209,16 @@ baremetal-arm64: $(TARGET)
 baremetal-amd64: $(TARGET)
 	@if command -v x86_64-elf-gcc >/dev/null 2>&1; then \
 		mkdir -p build/baremetal-amd64 && \
-		x86_64-elf-gcc -march=x86-64 -mno-red-zone -DNEXS_BAREMETAL -DPOOL_$(POOL_PROFILE) \
+		x86_64-elf-gcc -march=x86-64 -DNEXS_BAREMETAL -DPOOL_$(POOL_PROFILE) \
 			-O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
+			-fno-stack-protector -fno-pic -mno-red-zone \
 			-nostdlib -nostartfiles -ffreestanding \
+			-Wl,--no-warn-rwx-segments \
 			-T hal/amd64/nexs.ld \
 			$(INCS) -Ikernel/include -Ihal/include \
 			$(BAREMETAL_SRCS) $(KERNEL_SRCS) $(AMD64_HAL_SRCS) \
 			-o build/baremetal-amd64/nexs.elf; \
-		echo "Cross-compiled -> build/baremetal-amd64/nexs.elf"; \
+		echo "[+] Baremetal ELF creato con strap header."; \
 	else \
 		echo "x86_64-elf-gcc not found, skipping baremetal-amd64"; \
 	fi
@@ -246,5 +248,5 @@ clean:
 	rm -f $(TARGET) $(TARGET)_dbg $(OBJS)
 	rm -rf build/linux-amd64 build/linux-arm64 \
 	       build/baremetal-arm64 build/baremetal-amd64 \
-	       build/iso_stage build/nexs-amd64.iso
+	       build/iso_root build/nexs-amd64.iso
 	@echo "Clean done"

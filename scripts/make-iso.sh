@@ -1,64 +1,58 @@
 #!/bin/bash
 # =============================================================================
-# scripts/make-iso.sh — NEXS ISO Generator (Strict Build-Path Edition)
+# scripts/make-iso.sh — NEXS ISO Packager (Limine Protocol)
 # =============================================================================
 set -e
 
-# Percorsi assoluti basati sulla tua struttura
 KERNEL="build/baremetal-amd64/nexs.elf"
 OUT_ISO="build/nexs-amd64.iso"
-ISO_STAGE="build/iso_stage"
+ISO_ROOT="build/iso_stage"
 
-echo "--- Generazione ISO NEXS (Target: build/) ---"
-
-# 1. Verifica Kernel
 if [ ! -f "$KERNEL" ]; then
-    echo "Errore: $KERNEL non trovato."
+    echo "Errore: Kernel non trovato in $KERNEL"
     exit 1
 fi
 
-# 2. Localizzazione Limine (Homebrew)
 BREW_PREFIX=$(brew --prefix)
 LIMINE_SHARE="$BREW_PREFIX/share/limine"
 LIMINE_BIN="$BREW_PREFIX/bin/limine"
 
-# 3. Preparazione staging esclusivamente dentro build/
-rm -rf "$ISO_STAGE"
-mkdir -p "$ISO_STAGE"
+# Pulizia
+rm -rf "$ISO_ROOT"
+mkdir -p "$ISO_ROOT/limine"
 
-# 4. Copia dei file necessari per il boot
-cp "$KERNEL" "$ISO_STAGE/nexs.elf"
-cp "$LIMINE_SHARE/limine-bios.sys" "$ISO_STAGE/"
-cp "$LIMINE_SHARE/limine-bios-cd.bin" "$ISO_STAGE/"
-cp "$LIMINE_SHARE/limine-uefi-cd.bin" "$ISO_STAGE/"
+# Copia file
+cp "$KERNEL" "$ISO_ROOT/nexs.elf"
+cp "$LIMINE_SHARE/limine-bios.sys"    "$ISO_ROOT/"          # root
+cp "$LIMINE_SHARE/limine-bios.sys"    "$ISO_ROOT/limine/"
+cp "$LIMINE_SHARE/limine-bios-cd.bin" "$ISO_ROOT/limine/"
 
-# 5. Generazione automatica limine.conf (Root della ISO)
-# Configurato per seriale 38400 baud per il tuo driver UART
-cat > "$ISO_STAGE/limine.conf" << EOF
+# limine.conf
+cat > "$ISO_ROOT/limine/limine.conf" << EOF
 TIMEOUT=0
 SERIAL=yes
-INTERFACE_SETTING=38400,8,n,1
+INTERFACE=serial
+VERBOSE=yes
 
 :NEXS OS
-    PROTOCOL=multiboot2
+    PROTOCOL=limine
     KERNEL_PATH=boot:///nexs.elf
 EOF
 
-echo "[*] Creazione ISO: $OUT_ISO"
+echo "[*] Creazione ISO con xorriso..."
 
-# 6. xorriso: punta tutto al contenuto di iso_stage
-xorriso -as mkisofs -b limine-bios-cd.bin \
-        -no-emul-boot -boot-load-size 4 -boot-info-table \
-        --efi-boot limine-uefi-cd.bin \
-        -efi-boot-part --efi-boot-image --protective-msdos-label \
-        "$ISO_STAGE" -o "$OUT_ISO" 2>/dev/null
+xorriso -as mkisofs \
+    -R -J -V "NEXS_BOOT" \
+    -b limine/limine-bios-cd.bin \
+    -no-emul-boot \
+    -boot-load-size 4 \
+    -boot-info-table \
+    -o "$OUT_ISO" \
+    "$ISO_ROOT"
 
-# 7. Installazione MBR per SeaBIOS
-"$LIMINE_BIN" bios-install "$OUT_ISO" 2>/dev/null
+echo "[*] Installazione Limine BIOS..."
+"$LIMINE_BIN" bios-install "$OUT_ISO"
 
-# Pulizia temporanea
-rm -rf "$ISO_STAGE"
-
-echo "----------------------------------------------------"
-echo "ISO pronta in: $OUT_ISO"
-echo "----------------------------------------------------"
+echo "[*] Contenuto ISO:"
+xorriso -indev "$OUT_ISO" -ls / 2>/dev/null || true
+echo "[+] ISO creata con successo: $OUT_ISO ($(du -sh "$OUT_ISO" | cut -f1))"
