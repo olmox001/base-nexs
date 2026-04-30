@@ -31,7 +31,7 @@ void nexs_print_version(FILE *out) {
           "  Syscalls: open create close read write seek stat pipe rfork exec\n"
           "  Inspired by: Thompson · Ritchie · Pike · Rashid\n\n",
           NEXS_VERSION_MAJOR, NEXS_VERSION_MINOR, NEXS_VERSION_PATCH,
-          POOL_SIZE / 1024, MIN_BLOCK, NEXS_MAX_FN_DEFS);
+          POOL_SIZE / 1024, MIN_BLOCK, MAX_FN_DEFS);
 }
 
 /* =========================================================

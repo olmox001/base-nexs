@@ -4,6 +4,7 @@
  */
 
 #include "include/nexs_sys.h"
+#include "nexs_hal.h"
 #include "../registry/include/nexs_registry.h"
 #include "../lang/include/nexs_fn.h"
 #include "../core/include/nexs_alloc.h"
@@ -14,13 +15,21 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <termios.h>
+#include <poll.h>
+#include "include/nexs_keymap.h"
+
+#ifndef NEXS_BAREMETAL
+#include <sys/ioctl.h>
+#endif
+
+extern const char *nexs_embedded_lookup(const char *path);
 
 /* =========================================================
    GLOBAL STATE
    ========================================================= */
 
 NexsFd g_fd_table[NEXS_MAX_FDS];
-static char g_errstr[256] = "";
+static char g_errstr[REG_PATH_MAX] = "";
 
 /* =========================================================
    INITIALISATION
@@ -78,9 +87,29 @@ int nexs_open(const char *path, int mode) {
   case NEXS_ORDWR:  fmode = trunc ? "w+" : "r+"; break;
   default: set_errstr("open: invalid mode"); return -1;
   }
+
+  /* 1. Prova embedded virtual files se il file non è su FS (o se in baremetal) */
+  const char *emb = nexs_embedded_lookup(path);
+  if (emb) {
+      g_fd_table[fd].fp = NULL;
+      g_fd_table[fd].emb_src = emb;
+      g_fd_table[fd].emb_pos = 0;
+      strncpy(g_fd_table[fd].path, path, REG_PATH_MAX - 1);
+      g_fd_table[fd].path[REG_PATH_MAX - 1] = '\0';
+      g_fd_table[fd].in_use = 1;
+      g_fd_table[fd].flags  = mode;
+      char regpath[REG_PATH_MAX];
+      snprintf(regpath, sizeof(regpath), "/sys/fd/%d", fd);
+      reg_set(regpath, val_str(path), RK_READ);
+      return fd;
+  }
+
+  /* 2. Fallback al FS reale (in baremetal fallirà) */
   FILE *fp = fopen(path, fmode);
   if (!fp) { set_errstr("open: cannot open file"); return -1; }
   g_fd_table[fd].fp = fp;
+  g_fd_table[fd].emb_src = NULL;
+  g_fd_table[fd].emb_pos = 0;
   strncpy(g_fd_table[fd].path, path, REG_PATH_MAX - 1);
   g_fd_table[fd].path[REG_PATH_MAX - 1] = '\0';
   g_fd_table[fd].in_use = 1;
@@ -107,6 +136,8 @@ int nexs_create(const char *path, int mode, int perm) {
   FILE *fp = fopen(path, fmode);
   if (!fp) { set_errstr("create: cannot create file"); return -1; }
   g_fd_table[fd].fp = fp;
+  g_fd_table[fd].emb_src = NULL;
+  g_fd_table[fd].emb_pos = 0;
   strncpy(g_fd_table[fd].path, path, REG_PATH_MAX - 1);
   g_fd_table[fd].path[REG_PATH_MAX - 1] = '\0';
   g_fd_table[fd].in_use = 1;
@@ -135,6 +166,18 @@ int nexs_pread(int fd, char *buf, int n, int64_t offset) {
   if (fd < 0 || fd >= NEXS_MAX_FDS || !g_fd_table[fd].in_use)
     { set_errstr("pread: invalid fd"); return -1; }
   if (!buf || n <= 0) { set_errstr("pread: invalid params"); return -1; }
+
+  if (g_fd_table[fd].emb_src) {
+      size_t len = strlen(g_fd_table[fd].emb_src);
+      size_t pos = (offset >= 0) ? (size_t)offset : g_fd_table[fd].emb_pos;
+      if (pos >= len) return 0;
+      size_t to_read = len - pos;
+      if (to_read > (size_t)n) to_read = (size_t)n;
+      memcpy(buf, g_fd_table[fd].emb_src + pos, to_read);
+      if (offset < 0) g_fd_table[fd].emb_pos += to_read;
+      return (int)to_read;
+  }
+
   FILE *fp = g_fd_table[fd].fp;
   if (!fp) { set_errstr("pread: NULL fp"); return -1; }
   if (offset >= 0 && fseek(fp, (long)offset, SEEK_SET) != 0)
@@ -158,6 +201,22 @@ int nexs_pwrite(int fd, const char *buf, int n, int64_t offset) {
 int64_t nexs_seek(int fd, int64_t offset, int whence) {
   if (fd < 0 || fd >= NEXS_MAX_FDS || !g_fd_table[fd].in_use)
     { set_errstr("seek: invalid fd"); return -1; }
+
+  if (g_fd_table[fd].emb_src) {
+      size_t len = strlen(g_fd_table[fd].emb_src);
+      int64_t newpos = 0;
+      switch (whence) {
+      case 0: newpos = offset; break;
+      case 1: newpos = (int64_t)g_fd_table[fd].emb_pos + offset; break;
+      case 2: newpos = (int64_t)len + offset; break;
+      default: set_errstr("seek: invalid whence"); return -1;
+      }
+      if (newpos < 0) newpos = 0;
+      if (newpos > (int64_t)len) newpos = (int64_t)len;
+      g_fd_table[fd].emb_pos = (size_t)newpos;
+      return newpos;
+  }
+
   FILE *fp = g_fd_table[fd].fp;
   if (!fp) { set_errstr("seek: NULL fp"); return -1; }
   int w;
@@ -245,15 +304,31 @@ int nexs_chdir(const char *path) {
   return 0;
 }
 
+static int s_key_lookahead = -1;
+
 void nexs_errstr(char *buf, int nbuf) {
   if (!buf || nbuf <= 0) return;
-  char tmp[256];
+  char tmp[REG_PATH_MAX];
+  /* Salva errore corrente */
   strncpy(tmp, g_errstr, sizeof(tmp) - 1);
   tmp[sizeof(tmp) - 1] = '\0';
+  /* Imposta nuovo errore dal buffer dell'utente */
   strncpy(g_errstr, buf, sizeof(g_errstr) - 1);
   g_errstr[sizeof(g_errstr) - 1] = '\0';
+  /* Ritorna il vecchio errore all'utente */
   strncpy(buf, tmp, (size_t)(nbuf - 1));
   buf[nbuf - 1] = '\0';
+}
+
+static int nexs_read_byte(void) {
+  if (s_key_lookahead != -1) {
+    int c = s_key_lookahead;
+    s_key_lookahead = -1;
+    return c;
+  }
+  unsigned char c;
+  if (read(STDIN_FILENO, &c, 1) <= 0) return -1;
+  return (int)c;
 }
 
 /* =========================================================
@@ -431,6 +506,150 @@ static Value bi_rawoff(Value *args, int n) {
   return val_int(0);
 }
 
+static char s_key_layout[16] = "us";
+
+static Value bi_set_layout(Value *args, int n) {
+    if (n < 1 || args[0].type != TYPE_STR || !args[0].data)
+        return val_err(4, "set_layout: requires string layout name");
+    strncpy(s_key_layout, (char *)args[0].data, sizeof(s_key_layout) - 1);
+    s_key_layout[sizeof(s_key_layout) - 1] = '\0';
+    return val_int(0);
+}
+
+static Value bi_readkey(Value *args, int n) {
+    (void)args; (void)n;
+    int c = nexs_read_byte();
+    if (c == -1) return val_str("");
+
+    if (c == 27) { /* ESC */
+        int c2, c3;
+        /* Peek con poll: se non arriva niente entro 50ms → bare ESC */
+#ifndef NEXS_BAREMETAL
+        struct pollfd _pf = { STDIN_FILENO, POLLIN, 0 };
+        if (poll(&_pf, 1, 50) <= 0) return val_str("ESC");
+#endif
+        c2 = nexs_read_byte();
+        if (c2 == -1) return val_str("ESC");
+
+        /* CSI sequences: ESC [ ... */
+        if (c2 == '[') {
+            c3 = nexs_read_byte();
+            if (c3 == -1) return val_str("ESC");
+            if (c3 == 'A') return val_str("KEY_UP");
+            if (c3 == 'B') return val_str("KEY_DOWN");
+            if (c3 == 'C') return val_str("KEY_RIGHT");
+            if (c3 == 'D') return val_str("KEY_LEFT");
+            /* Aliases */
+            if (c3 == 'A') return val_str("UP");
+            if (c3 == 'B') return val_str("DOWN");
+            if (c3 == 'C') return val_str("RIGHT");
+            if (c3 == 'D') return val_str("LEFT");
+
+            if (c3 == 'H') return val_str("KEY_HOME");
+            if (c3 == 'F') return val_str("KEY_END");
+            /* ESC [ N ~ sequences */
+            if (c3 >= '1' && c3 <= '6') {
+                (void)nexs_read_byte(); /* consume '~' */
+                if (c3 == '1') return val_str("KEY_HOME");
+                if (c3 == '3') return val_str("KEY_DELETE");
+                if (c3 == '4') return val_str("KEY_END");
+                if (c3 == '5') return val_str("KEY_PGUP");
+                if (c3 == '6') return val_str("KEY_PGDN");
+            }
+        }
+        /* SS3 sequences: ESC O ... (xterm, macOS Terminal) */
+        if (c2 == 'O') {
+            c3 = nexs_read_byte();
+            if (c3 == -1) return val_str("ESC");
+            if (c3 == 'A') return val_str("KEY_UP");
+            if (c3 == 'B') return val_str("KEY_DOWN");
+            if (c3 == 'C') return val_str("KEY_RIGHT");
+            if (c3 == 'D') return val_str("KEY_LEFT");
+            /* Aliases */
+            if (c3 == 'A') return val_str("UP");
+            if (c3 == 'B') return val_str("DOWN");
+            if (c3 == 'C') return val_str("RIGHT");
+            if (c3 == 'D') return val_str("LEFT");
+
+            if (c3 == 'H') return val_str("KEY_HOME");
+            if (c3 == 'F') return val_str("KEY_END");
+        }
+        return val_str("ESC");
+    }
+
+    if (c == 127 || c == 8)  return val_str("BACKSPACE");
+    if (c == 10  || c == 13) return val_str("ENTER");
+    if (c == 24)             return val_str("CTRL_X");
+    if (c == 1)              return val_str("CTRL_A");
+    if (c == 5)              return val_str("CTRL_E");
+    if (c == 11)             return val_str("CTRL_K");
+    if (c == 21)             return val_str("CTRL_U");
+    if (c == 23)             return val_str("CTRL_W");
+    if (c == 9)              return val_str("TAB");
+    if (c < 32)              return val_str(""); /* altri ctrl — ignora */
+
+    const char *translated = translate_key_layout(s_key_layout, (char)c);
+    return val_str((char *)translated);
+}
+
+/* readkey_nb(ms) → str: readkey non-bloccante con timeout in ms */
+static Value bi_readkey_nb(Value *args, int n) {
+    int ms = (n >= 1) ? (int)val_to_int(&args[0]) : 50;
+#ifndef NEXS_BAREMETAL
+    struct pollfd pfd = { STDIN_FILENO, POLLIN, 0 };
+    if (poll(&pfd, 1, ms) <= 0) return val_str("");
+#else
+    /* Baremetal: check if a byte is available without blocking */
+    if (s_key_lookahead == -1) {
+        s_key_lookahead = nexs_hal_getc();
+    }
+    if (s_key_lookahead == -1) return val_str("");
+    (void)ms;
+#endif
+    return bi_readkey(NULL, 0);
+}
+
+static Value bi_term_at(Value *args, int n) {
+    if (n < 3) return val_err(4, "term_at: requires y, x, str");
+    int y = (int)val_to_int(&args[0]);
+    int x = (int)val_to_int(&args[1]);
+    const char *s = (args[2].type == TYPE_STR) ? (const char *)args[2].data : "";
+    char buf[64];
+    snprintf(buf, sizeof(buf), "\033[%d;%dH", y, x);
+    nexs_hal_print(buf);
+    nexs_hal_print(s);
+    return val_nil();
+}
+
+static Value bi_term_cls(Value *args, int n) {
+    (void)args; (void)n;
+    nexs_hal_print("\033[2J\033[H");
+    return val_nil();
+}
+
+static Value bi_term_cursor_move(Value *args, int n) {
+    if (n < 2) return val_err(4, "term_cursor_move: requires y, x");
+    int y = (int)val_to_int(&args[0]);
+    int x = (int)val_to_int(&args[1]);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "\033[%d;%dH", y, x);
+    nexs_hal_print(buf);
+    return val_nil();
+}
+
+static Value bi_term_erase_eol(Value *args, int n) {
+    (void)args; (void)n;
+    nexs_hal_print("\033[K");
+    return val_nil();
+}
+
+static Value bi_term_cursor_show(Value *args, int n) {
+    if (n < 1) return val_err(4, "term_cursor_show: requires bool");
+    int show = (int)val_to_int(&args[0]);
+    nexs_hal_print(show ? "\033[?25h" : "\033[?25l");
+    return val_nil();
+}
+
 static Value bi_readbyte(Value *args, int n) {
   (void)args; (void)n;
   unsigned char c;
@@ -503,6 +722,22 @@ void sysio_register_builtins(void) {
     SIG("readbyte()") "int");
   fn_register_builtin_sig("chr",      bi_chr,
     SIG("chr(codepoint int)") "str");
+  fn_register_builtin_sig("set_layout", bi_set_layout,
+    SIG("set_layout(name str)") "int");
+  fn_register_builtin_sig("readkey",    bi_readkey,
+    SIG("readkey()") "str");
+  fn_register_builtin_sig("readkey_nb", bi_readkey_nb,
+    SIG("readkey_nb(ms int)") "str");
+  fn_register_builtin_sig("term_at",   bi_term_at,
+    SIG("term_at(y int, x int, s str)") "nil");
+  fn_register_builtin_sig("term_cls",  bi_term_cls,
+    SIG("term_cls()") "nil");
+  fn_register_builtin_sig("term_cursor_move", bi_term_cursor_move,
+    SIG("term_cursor_move(y int, x int)") "nil");
+  fn_register_builtin_sig("term_erase_eol",   bi_term_erase_eol,
+    SIG("term_erase_eol()") "nil");
+  fn_register_builtin_sig("term_cursor_show", bi_term_cursor_show,
+    SIG("term_cursor_show(bool)") "nil");
 
   /* Store actual fn_table indices in /sys/<name> for val_print and eval resolution */
   {
@@ -514,6 +749,10 @@ void sysio_register_builtins(void) {
       {"mount",bi_mount},{"bind",bi_bind},{"unmount",bi_unmount},
       {"rawon",bi_rawon},{"rawoff",bi_rawoff},
       {"readbyte",bi_readbyte},{"chr",bi_chr},
+      {"set_layout",bi_set_layout},{"readkey",bi_readkey},
+      {"readkey_nb",bi_readkey_nb},{"term_at",bi_term_at},
+      {"term_cls",bi_term_cls},{"term_cursor_move",bi_term_cursor_move},
+      {"term_erase_eol",bi_term_erase_eol},{"term_cursor_show",bi_term_cursor_show},
     };
     char path[REG_PATH_MAX];
     for (int _i = 0; _i < (int)(sizeof(t)/sizeof(t[0])); _i++) {

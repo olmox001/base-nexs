@@ -1,44 +1,45 @@
 /*
- * hal/amd64/nexs.ld — x86-64 Multiboot2 Linker Script
+ * hal/amd64/nexs.ld — x86-64 Multiboot2/Limine Linker Script
  * ======================================================
- * Load address 1 MB (0x100000) — standard for Multiboot kernels.
  */
 
-ENTRY(_start)
+OUTPUT_FORMAT("elf64-x86-64")
+ENTRY(_strap_entry)
 
 SECTIONS {
+    /* Mappiamo il kernel a 1MB per compatibilità Multiboot */
     . = 1M;
 
-    .multiboot : {
-        *(.multiboot)
+    .multiboot2 : {
+        KEEP(*(.multiboot2))
     }
 
-    .note.pvh : {
-        *(.note.pvh)
+    .limine_req : {
+        KEEP(*(.limine_req))
+    }
+
+    .strap : {
+        KEEP(*(.strap))
     }
 
     .text : {
+        *(.text.boot)
         *(.text*)
     }
 
-    .rodata : {
-        *(.rodata*)
-    }
-
-    .data : {
-        *(.data*)
-    }
-
-    .bss : {
+    .rodata : { *(.rodata*) }
+    .data   : { *(.data*) }
+    .bss    : {
+        . = ALIGN(16);
         _bss_start = .;
         *(.bss*)
         *(COMMON)
         _bss_end = .;
     }
 
-    /* Stack area */
+    /* Stack statico */
     . = ALIGN(4096);
     _stack_bottom = .;
-    . += 0x4000;       /* 16 KB stack */
+    . += 0x8000;
     _stack_top = .;
 }

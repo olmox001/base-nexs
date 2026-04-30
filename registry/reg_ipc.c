@@ -240,10 +240,8 @@ static Value pipe_deserialize_value(int rfd) {
     break;
   }
   case TYPE_ARR: {
-    /* Build a temporary array name from the pointer */
-    char arr_name[NAME_LEN];
-    snprintf(arr_name, sizeof(arr_name), "__pipe_arr_%p__", (void *)&result);
-    DynArray *arr = arr_get_or_create(arr_name);
+    /* Use an anonymous array for deserialized data */
+    DynArray *arr = arr_create_anon();
     for (uint32_t i = 0; i < arr_len; i++) {
       Value elem = pipe_deserialize_value(rfd);
       arr_set(arr, (size_t)i, elem);

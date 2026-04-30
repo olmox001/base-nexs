@@ -28,6 +28,8 @@ typedef struct {
   char  path[REG_PATH_MAX];
   int   in_use;
   int   flags;
+  const char *emb_src;
+  size_t      emb_pos;
 } NexsFd;
 
 extern NexsFd g_fd_table[NEXS_MAX_FDS];

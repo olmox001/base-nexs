@@ -77,9 +77,7 @@ void page_free(void *ptr, size_t n_pages) {
    ========================================================= */
 
 #else /* NEXS_BAREMETAL */
-
-#define NEXS_LARGE_POOL_PAGES 4096
-static uint8_t large_pool[NEXS_LARGE_POOL_PAGES * NEXS_PAGE_SIZE]
+static uint8_t large_pool[LARGE_POOL_PAGES * NEXS_PAGE_SIZE]
     __attribute__((aligned(NEXS_PAGE_SIZE)));
 static size_t large_brk = 0;
 

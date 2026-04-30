@@ -281,8 +281,12 @@ int reg_set(const char *path, Value val, uint8_t rights) {
   RegKey *k = reg_lookup(path);
   if (!k) k = reg_mkpath(path, rights);
   if (!k) return -1;
-  val_free(&k->val);
+  
+  /* Save old value for safe replacement (self-assignment protection) */
+  Value old = k->val;
   k->val = val_clone(&val);
+  val_free(&old);
+  
   k->rights = rights;
   return 0;
 }
@@ -471,8 +475,9 @@ int reg_mount(const char *src_path, const char *dst_path, int before) {
     RegKey *existing = regkey_find_child(dst, child->name);
     if (existing) {
       if (before) {
-        val_free(&existing->val);
+        Value old = existing->val;
         existing->val = val_clone(&child->val);
+        val_free(&old);
         existing->rights = child->rights;
       }
     } else {
@@ -546,8 +551,9 @@ int reg_bind(const char *src_path, const char *dst_path, int flag) {
       child = next;
     }
     dst->children = NULL;
-    val_free(&dst->val);
+    Value old = dst->val;
     dst->val = val_clone(&src->val);
+    val_free(&old);
     dst->rights = src->rights;
     return reg_mount(src_path, dst_path, 1);
   }

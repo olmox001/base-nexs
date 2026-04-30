@@ -25,6 +25,16 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifndef NEXS_BAREMETAL
+#include <sys/ioctl.h>
+#include <unistd.h>
+#define nexs_sleep_ms(ms) usleep((ms) * 1000)
+#else
+#include "../hal/include/nexs_timer.h"
+#define nexs_sleep_ms(ms) hal_timer_sleep_ms(ms)
+#endif
+#include <string.h>
+
 /* =========================================================
    HELPER — register into both fn_table and registry /sys/
    ========================================================= */
@@ -52,6 +62,7 @@ static Value builtin_str(Value *args, int n) {
   case TYPE_BOOL:  snprintf(buf, sizeof(buf), "%s",   args[0].ival ? "true" : "false"); break;
   case TYPE_STR:   return val_clone(&args[0]);
   case TYPE_NIL:   return val_str("nil");
+  case TYPE_ERR:   return val_str(args[0].err_msg ? args[0].err_msg : "unknown error");
   default:         snprintf(buf, sizeof(buf), "<%s>", val_type_name(args[0].type));
   }
   return val_str(buf);
@@ -92,6 +103,7 @@ static Value builtin_errstr(Value *args, int n) {
   (void)args; (void)n;
   extern void nexs_errstr(char *buf, int nbuf);
   char buf[256];
+  buf[0] = '\0'; /* Importante: inizializza a stringa vuota se vogliamo solo leggere */
   nexs_errstr(buf, sizeof(buf));
   return val_str(buf);
 }
@@ -197,10 +209,7 @@ static Value builtin_split(Value *args, int n) {
   size_t seplen   = strlen(sep);
 
   /* Build a temporary array */
-  static int split_counter = 0;
-  char arr_name[NAME_LEN];
-  snprintf(arr_name, sizeof(arr_name), "__split_%d__", split_counter++);
-  DynArray *arr = arr_get_or_create(arr_name);
+  DynArray *arr = arr_create_anon();
 
   if (seplen == 0) {
     /* Split into individual characters */
@@ -303,6 +312,44 @@ static Value builtin_max(Value *args, int n) {
  * Returns an array of the direct child key names under the registry path.
  * Plan 9 style: "ls as a value". Lets scripts iterate the registry.
  */
+/* lines_of(str) → arr: split su \n, ritorna array nativo */
+static Value builtin_lines_of(Value *args, int n) {
+  if (n < 1 || args[0].type != TYPE_STR || !args[0].data)
+    return val_err(4, "lines_of: requires string");
+  
+  const char *src = (const char *)args[0].data;
+  DynArray *arr = arr_create_anon();
+  
+  char *copy = buddy_strdup(src);
+  char *p = copy;
+  char *line = p;
+  size_t idx = 0;
+  
+  while (*p) {
+    if (*p == '\n') {
+      *p = '\0';
+      arr_set(arr, idx++, val_str(line));
+      line = p + 1;
+    }
+    p++;
+  }
+  /* Last part */
+  if (*line || p > line) {
+    arr_set(arr, idx++, val_str(line));
+  }
+  
+  xfree(copy);
+  
+  Value v;
+  v.type = TYPE_ARR;
+  v.data = arr;
+  v.ival = 0;
+  v.fval = 0;
+  v.err_code = 0;
+  v.err_msg = NULL;
+  return v;
+}
+
 static Value builtin_keys(Value *args, int n) {
   if (n < 1) return val_err(4, "keys: requires a path string");
   if (args[0].type != TYPE_STR || !args[0].data)
@@ -311,10 +358,7 @@ static Value builtin_keys(Value *args, int n) {
   RegKey *k = reg_lookup((char *)args[0].data);
   if (!k) return val_err(4, "keys: path not found");
 
-  static int keys_counter = 0;
-  char arr_name[NAME_LEN];
-  snprintf(arr_name, sizeof(arr_name), "__keys_%d__", keys_counter++);
-  DynArray *arr = arr_get_or_create(arr_name);
+  DynArray *arr = arr_create_anon();
 
   size_t idx = 0;
   for (RegKey *c = k->children; c; c = c->next)
@@ -358,6 +402,88 @@ static Value builtin_reg_del(Value *args, int n) {
     return val_err(4, "reg_del: argument must be a string path");
   reg_delete((char *)args[0].data);
   return val_nil();
+}
+
+/* =========================================================
+   ARRAY/STRING BUILT-INS (arr_join, arr_ins, arr_del)
+   ========================================================= */
+
+static Value builtin_term_size(Value *args, int n) {
+    int cols = 80, rows = 24;
+#ifndef NEXS_BAREMETAL
+    struct winsize w;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != -1) {
+        cols = w.ws_col;
+        rows = w.ws_row;
+    }
+#endif
+    DynArray *arr = arr_create_anon();
+    
+    arr_ensure_cap(arr, 2);
+    arr_set(arr, 0, val_int(cols));
+    arr_set(arr, 1, val_int(rows));
+    
+    Value v;
+    v.type = TYPE_ARR; v.data = arr; v.ival = 0;
+    v.fval = 0; v.err_code = 0; v.err_msg = NULL;
+    return v;
+}
+
+/* arr_join(arr sep) → str: concatena elementi arr separati da sep (es. "\n") */
+static Value builtin_arr_join(Value *args, int n) {
+    if (n < 1 || args[0].type != TYPE_ARR || !args[0].data)
+        return val_err(4, "arr_join: requires arr");
+    DynArray *arr = (DynArray *)args[0].data;
+    const char *sep = (n >= 2 && args[1].type == TYPE_STR && args[1].data) ? (const char *)args[1].data : "\n";
+    size_t seplen = strlen(sep);
+    int count = (int)arr->size;
+    /* Estimate total size */
+    char result[MAX_STR_LEN * 2];
+    int pos = 0;
+    for (int i = 0; i < count && pos < (int)sizeof(result) - 2; i++) {
+        Value *v = &arr->items[i];
+        const char *s = (v->type == TYPE_STR && v->data) ? (char *)v->data : "";
+        int slen = (int)strlen(s);
+        if (pos + slen + seplen >= sizeof(result) - 1) slen = (int)(sizeof(result) - pos - seplen - 1);
+        memcpy(result + pos, s, (size_t)slen); pos += slen;
+        if (i < count - 1) {
+            memcpy(result + pos, sep, seplen); pos += seplen;
+        }
+    }
+    result[pos] = '\0';
+    return val_str(result);
+}
+
+/* arr_ins(arr idx val) → nil: inserisce val a idx, shift right */
+static Value builtin_arr_ins(Value *args, int n) {
+    if (n < 3 || args[0].type != TYPE_ARR || !args[0].data)
+        return val_err(4, "arr_ins: arr, idx, val");
+    DynArray *arr = (DynArray *)args[0].data;
+    size_t idx = (size_t)val_to_int(&args[1]);
+    Value newval = val_clone(&args[2]);
+    /* Grow array by 1 */
+    arr_ensure_cap(arr, arr->size);
+    /* Shift right from idx */
+    for (size_t j = arr->size; j > idx; j--)
+        arr->items[j] = arr->items[j - 1];
+    arr->items[idx] = newval;
+    arr->size++;
+    return val_nil();
+}
+
+/* arr_del(arr idx) → nil: rimuove elemento a idx, shift left */
+static Value builtin_arr_del(Value *args, int n) {
+    if (n < 2 || args[0].type != TYPE_ARR || !args[0].data)
+        return val_err(4, "arr_del: arr, idx");
+    DynArray *arr = (DynArray *)args[0].data;
+    size_t idx = (size_t)val_to_int(&args[1]);
+    if (idx >= arr->size) return val_nil();
+    val_free(&arr->items[idx]);
+    /* Shift left */
+    for (size_t j = idx; j < arr->size - 1; j++)
+        arr->items[j] = arr->items[j + 1];
+    arr->size--;
+    return val_nil();
 }
 
 /* =========================================================
@@ -411,6 +537,38 @@ static Value nexs_builtin_deref(Value *args, int n) {
   return reg_get_deref((char *)args[0].data);
 }
 
+static Value builtin_eval_builtin(Value *args, int n) {
+  if (n < 1) return val_err(4, "eval: requires a string argument");
+  if (args[0].type != TYPE_STR || !args[0].data)
+    return val_err(4, "eval: argument must be a string");
+
+  const char *src = (const char *)args[0].data;
+  EvalCtx local_ctx;
+  EvalCtx *ctx = nexs_g_eval_ctx;
+  if (!ctx) {
+    eval_ctx_init(&local_ctx);
+    local_ctx.out = NULL;
+    ctx = &local_ctx;
+  }
+
+  EvalCtx *old_ctx = nexs_g_eval_ctx;
+  EvalResult r = eval_str(ctx, src);
+  nexs_g_eval_ctx = old_ctx;
+
+  if (r.sig == CTRL_ERR) {
+    val_free(&r.ret_val);
+    return val_err(4, "eval: execution failed");
+  }
+  return r.ret_val;
+}
+
+static Value builtin_sleep(Value *args, int n) {
+    if (n < 1) return val_err(4, "sleep: requires ms");
+    int ms = (int)val_to_int(&args[0]);
+    nexs_sleep_ms(ms);
+    return val_nil();
+}
+
 /* =========================================================
    REGISTRATION
    ========================================================= */
@@ -434,6 +592,9 @@ void builtins_register_all(void) {
     SIG("buddy_stats()") "nil");
   register_builtin_sig("errstr",      builtin_errstr,
     SIG("errstr()") "str");
+  register_builtin_sig("eval",        builtin_eval_builtin,
+    SIG("eval(src str)") "value");
+
 
   /* String manipulation */
   register_builtin_sig("substr",   builtin_substr,
@@ -466,8 +627,16 @@ void builtins_register_all(void) {
     SIG("reg_set(path str, value)") "nil");
   register_builtin_sig("reg_del",  builtin_reg_del,
     SIG("reg_del(path str)") "nil");
+  register_builtin_sig("arr_join", builtin_arr_join,
+    SIG("arr_join(arr, sep str)") "str");
+  register_builtin_sig("arr_ins",  builtin_arr_ins,
+    SIG("arr_ins(arr, idx int, val)") "nil");
+  register_builtin_sig("arr_del",  builtin_arr_del,
+    SIG("arr_del(arr, idx int)") "nil");
   register_builtin_sig("keys",     builtin_keys,
     SIG("keys(path str)") "arr");
+  register_builtin_sig("lines_of",  builtin_lines_of,
+    SIG("lines_of(s str)") "arr");
 
   /* IPC — fn-call forms; keyword forms use AST_SEND_MSG / AST_RECV_MSG */
   register_builtin_sig("sendmessage",    nexs_builtin_sendmsg,
@@ -482,6 +651,13 @@ void builtins_register_all(void) {
     SIG("mkptr(path str)") "ptr");
   register_builtin_sig("deref",  nexs_builtin_deref,
     SIG("deref(path str)") "value");
+
+  register_builtin_sig("sleep", builtin_sleep,
+    SIG("sleep(ms int)") "nil");
+
+  /* Term Size */
+  register_builtin_sig("term_size", builtin_term_size,
+    SIG("term_size()") "arr");
 }
 
 #undef SIG

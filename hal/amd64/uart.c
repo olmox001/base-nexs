@@ -69,3 +69,8 @@ void nexs_hal_memory_map(NexsMemMap *map) {
   map->ram_size    = 4 * 1024 * 1024;         /* conservative 4 MB */
   map->uart_base   = (uintptr_t)COM1_PORT;
 }
+
+void nexs_hal_halt(void) {
+  __asm__ volatile("cli");
+  while (1) { __asm__ volatile("hlt"); }
+}

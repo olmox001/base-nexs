@@ -18,7 +18,7 @@
    GLOBAL STATE
    ========================================================= */
 
-NexsFnDef g_fn_table[NEXS_MAX_FN_DEFS];
+NexsFnDef g_fn_table[MAX_FN_DEFS];
 int       g_fn_count = 0;
 
 /* =========================================================
@@ -92,7 +92,7 @@ int fn_register(const char *name,
     }
   }
 
-  if (g_fn_count >= NEXS_MAX_FN_DEFS) return -1;
+  if (g_fn_count >= MAX_FN_DEFS) return -1;
 
   int idx = g_fn_count++;
   strncpy(g_fn_table[idx].name, name, NAME_LEN - 1);
@@ -132,7 +132,7 @@ int fn_register_builtin_sig(const char *name, BuiltinFn fn, const char *sig) {
     }
   }
 
-  if (g_fn_count >= NEXS_MAX_FN_DEFS) return -1;
+  if (g_fn_count >= MAX_FN_DEFS) return -1;
 
   int idx = g_fn_count++;
   strncpy(g_fn_table[idx].name, name, NAME_LEN - 1);

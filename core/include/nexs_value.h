@@ -64,6 +64,7 @@ typedef struct {
   Value *items;    /* buddy_alloc'd */
   size_t size;
   size_t capacity;
+  int    refcount; /* Mach-style refcounting */
 } DynArray;
 
 /* Global array table (for compatibility with base REPL) */
@@ -133,6 +134,9 @@ NEXS_API Value val_clone(const Value *v);  /* deep copy — buddy_alloc's new da
 
 NEXS_API DynArray *arr_get_or_create(const char *name);
 NEXS_API DynArray *arr_get(const char *name);
+NEXS_API DynArray *arr_create_anon(void);
+NEXS_API void      arr_ref(DynArray *arr);
+NEXS_API void      arr_unref(DynArray *arr);
 NEXS_API void      arr_ensure_cap(DynArray *arr, size_t index);
 NEXS_API void      arr_set(DynArray *arr, size_t index, Value val);
 NEXS_API Value     arr_get_at(DynArray *arr, size_t index);

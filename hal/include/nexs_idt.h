@@ -30,4 +30,7 @@ void idt_set_handler(uint8_t vec, void *fn, uint8_t dpl);
 /* Called from common_isr_handler (isr_stubs.S) */
 void nexs_isr_dispatch(IsrFrame *f);
 
+/* Register a handler for a specific interrupt vector */
+void nexs_isr_register(uint8_t vec, void (*fn)(IsrFrame *));
+
 #endif

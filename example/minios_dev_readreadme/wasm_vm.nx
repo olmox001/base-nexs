@@ -1,0 +1,51 @@
+# ===================================================================
+# Modulo VM (WebAssembly-style Stack Machine)
+# Opcode: 0=PUSH, 1=ADD, 2=MUL, 3=PRINT, 4=HALT
+# ===================================================================
+
+fn vm_run(bytecode_arr lunghezza) {
+  # Lo stack della VM
+  sp = 0
+  ip = 0
+  
+  out "[VM] Avvio esecuzione bytecode..."
+  
+  loop {
+    if ip >= lunghezza { break }
+    
+    op = bytecode_arr[ip]
+    
+    if op == 0 { # PUSH
+      ip = ip + 1
+      val = bytecode_arr[ip]
+      stack[sp] = val
+      sp = sp + 1
+    }
+    if op == 1 { # ADD
+      sp = sp - 1
+      b = stack[sp]
+      sp = sp - 1
+      a = stack[sp]
+      stack[sp] = a + b
+      sp = sp + 1
+    }
+    if op == 2 { # MUL
+      sp = sp - 1
+      b = stack[sp]
+      sp = sp - 1
+      a = stack[sp]
+      stack[sp] = a * b
+      sp = sp + 1
+    }
+    if op == 3 { # PRINT
+      sp = sp - 1
+      out "[VM-STDOUT] Risultato cima stack: " + str(stack[sp])
+    }
+    if op == 4 { # HALT
+      out "[VM] Halt incontrato. Arresto."
+      break
+    }
+    
+    ip = ip + 1
+  }
+}

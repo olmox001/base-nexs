@@ -22,9 +22,9 @@ fn shell_loop() {
   loop {
     cmd = input("nexs-os> ")
     
-    if cmd == "exit" {
+    if cmd == "exit" || cmd == ":exit" {
       out "Esecuzione sequenza di spegnimento..."
-      break
+      exits("")
     }
     if cmd == "help" {
       out "  Comandi supportati:"

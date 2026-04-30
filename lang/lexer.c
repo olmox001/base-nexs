@@ -58,8 +58,8 @@ static Token make_tok(TokenKind k, const char *text, int line) {
   t.col  = 0;
   t.ival = 0;
   t.fval = 0.0;
-  strncpy(t.text, text ? text : "", MAX_STR_LEN - 1);
-  t.text[MAX_STR_LEN - 1] = '\0';
+  strncpy(t.text, text ? text : "", NAME_LEN - 1);
+  t.text[NAME_LEN - 1] = '\0';
   return t;
 }
 
@@ -78,6 +78,7 @@ static struct {
   {"loop",           TK_KW_LOOP},
   {"break",          TK_KW_BREAK},
   {"cont",           TK_KW_CONT},
+  {"continue",       TK_KW_CONT},   /* alias — fix nxed_editor.nx */
   {"del",            TK_KW_DEL},
   {"out",            TK_KW_OUT},
   {"reg",            TK_KW_REG},
@@ -134,10 +135,14 @@ Token lexer_next(Lexer *lex) {
       if (ch == '\\' && lex->pos < lex->len) {
         ch = lex->src[lex->pos++];
         if      (ch == 'n')  ch = '\n';
+        else if (ch == 'r')  ch = '\r';
+        else if (ch == 'b')  ch = '\b';
+        else if (ch == 'e')  ch = '\x1b';
         else if (ch == 't')  ch = '\t';
         else if (ch == '\\') ch = '\\';
         else if (ch == '"')  ch = '"';
         else if (ch == '0')  ch = '\0';
+
       }
       buf[i++] = ch;
     }

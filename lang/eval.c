@@ -28,6 +28,8 @@
    CONTEXT INIT
    ========================================================= */
 
+EvalCtx *nexs_g_eval_ctx = NULL;
+
 void eval_ctx_init(EvalCtx *ctx) {
   if (!ctx) return;
   strncpy(ctx->scope, REG_LOCAL, REG_PATH_MAX - 1);
@@ -454,6 +456,8 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
 
 EvalResult eval_str(EvalCtx *ctx, const char *src) {
   if (!ctx || !src) return err_result("NULL ctx or src");
+  nexs_g_eval_ctx = ctx;
+
   Lexer  lex;
   Parser par;
   lexer_init(&lex, src);

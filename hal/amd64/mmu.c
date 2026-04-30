@@ -1,7 +1,7 @@
 /*
  * hal/amd64/mmu.c — x86-64 Page Tables
  * =======================================
- * STEP 03: PML4 identity map + kernel high mapping.
+ * PML4 identity map + kernel high mapping.
  *
  * Layout:
  *   PML4  at KERNEL_PML4_PHYS (0x1000)  — shared kernel PML4
@@ -15,6 +15,7 @@
 
 #include "../include/nexs_mmu.h"
 #include "../include/nexs_idt.h"
+#include "../include/nexs_hal.h"
 #include "../../registry/include/nexs_registry.h"
 #include "../../core/include/nexs_value.h"
 #include <stdint.h>
@@ -49,6 +50,29 @@ static uint64_t phys_alloc_page(void) {
     /* Zero the new page */
     memset((void *)p, 0, 4096);
     return p;
+}
+
+/* ── Walk PML4 → PT read-only; returns PTE address or 0 ─────── */
+static uint64_t pml4_walk_readonly(uint64_t pml4_phys, vaddr_t virt) {
+    uint16_t pml4i = (uint16_t)((virt >> 39) & 0x1FF);
+    uint16_t pdpti = (uint16_t)((virt >> 30) & 0x1FF);
+    uint16_t pdi   = (uint16_t)((virt >> 21) & 0x1FF);
+    uint16_t pti   = (uint16_t)((virt >> 12) & 0x1FF);
+
+    volatile uint64_t *pml4e = pte_at(pml4_phys, pml4i);
+    if (!(*pml4e & PTE_P)) return 0;
+    uint64_t pdpt_phys = PTE_ADDR(*pml4e);
+
+    volatile uint64_t *pdpte = pte_at(pdpt_phys, pdpti);
+    if (!(*pdpte & PTE_P)) return 0;
+    uint64_t pd_phys = PTE_ADDR(*pdpte);
+
+    volatile uint64_t *pde = pte_at(pd_phys, pdi);
+    if (!(*pde & PTE_P)) return 0;
+    if (*pde & PTE_PS) return 0; /* 2MB huge page — can't unmap 4KB granule */
+    uint64_t pt_phys = PTE_ADDR(*pde);
+
+    return pt_phys + (uint64_t)pti * 8;
 }
 
 /* ── Walk / allocate PML4 → PDPT → PD → PT ──────────────── */
@@ -94,7 +118,6 @@ void mmu_init(void) {
      * page fault handler, then flush to ensure consistency. */
 
     /* Register page fault handler */
-    extern void nexs_isr_register(uint8_t, void (*)(IsrFrame *));
     void pf_isr(IsrFrame *f);
     nexs_isr_register(14, pf_isr);
 
@@ -125,8 +148,8 @@ int mmu_map_page(uint32_t pid, vaddr_t virt, paddr_t phys, uint32_t flags) {
 
 int mmu_unmap_page(uint32_t pid, vaddr_t virt) {
     (void)pid;
-    uint64_t pte_addr = pml4_walk_alloc(KERNEL_PML4_PHYS, virt);
-    if (!pte_addr) return -1;
+    uint64_t pte_addr = pml4_walk_readonly(KERNEL_PML4_PHYS, virt);
+    if (!pte_addr) return 0; /* already unmapped */
     *(volatile uint64_t *)pte_addr = 0;
     mmu_flush_tlb(virt);
     return 0;
@@ -174,9 +197,44 @@ void pf_isr(IsrFrame *f) {
 
     /* For kernel faults: halt */
     if (!(f->err & (1ULL << 2))) {
-        extern void nexs_hal_print(const char *);
         nexs_hal_print("\r\n*** KERNEL PAGE FAULT ***\r\n");
         __asm__ volatile("cli; hlt");
     }
     /* User fault: kill process (future: send signal via IPC) */
+}
+
+/* ── Memory block system ──────────────────────────────────── */
+
+int mm_alloc_page(uint32_t pid, vaddr_t virt, uint32_t flags) {
+    paddr_t phys = s_phys_bump;
+    s_phys_bump += 4096;
+    /* Track in registry */
+    char path[128];
+    snprintf(path, sizeof(path), "/mem/virt/%u/0x%llx/phys",
+             pid, (unsigned long long)virt);
+    reg_set(path, val_int((int64_t)phys), RK_READ | RK_WRITE);
+    snprintf(path, sizeof(path), "/mem/virt/%u/0x%llx/flags",
+             pid, (unsigned long long)virt);
+    reg_set(path, val_int((int64_t)flags), RK_READ | RK_WRITE);
+    return mmu_map_page(pid, virt, phys, flags);
+}
+
+int mm_free_page(uint32_t pid, vaddr_t virt) {
+    char path[128];
+    snprintf(path, sizeof(path), "/mem/virt/%u/0x%llx/phys",
+             pid, (unsigned long long)virt);
+    reg_delete(path);
+    snprintf(path, sizeof(path), "/mem/virt/%u/0x%llx/flags",
+             pid, (unsigned long long)virt);
+    reg_delete(path);
+    return mmu_unmap_page(pid, virt);
+}
+
+int mm_map_range(uint32_t pid, vaddr_t virt, paddr_t phys,
+                 uint32_t pages, uint32_t flags) {
+    for (uint32_t i = 0; i < pages; i++) {
+        if (mmu_map_page(pid, virt + i * 4096, phys + i * 4096, flags) != 0)
+            return -1;
+    }
+    return 0;
 }

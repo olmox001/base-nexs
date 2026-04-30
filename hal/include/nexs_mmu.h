@@ -27,4 +27,13 @@ paddr_t mmu_virt_to_phys(vaddr_t virt);
 /* Page fault handler — called from IDT vector 14 */
 void    mmu_page_fault(vaddr_t fault_addr, uint64_t err);
 
+/* Memory block system */
+#define MEM_BLOCK_FAST_SIZE   (128ULL * 1024 * 1024)   /* 128 MB fast blocks */
+#define MEM_BLOCK_IO_SIZE     (256ULL * 1024 * 1024)   /* 256 MB I/O buffer  */
+
+int     mm_alloc_page(uint32_t pid, vaddr_t virt, uint32_t flags);
+int     mm_free_page(uint32_t pid, vaddr_t virt);
+int     mm_map_range(uint32_t pid, vaddr_t virt, paddr_t phys,
+                     uint32_t pages, uint32_t flags);
+
 #endif
