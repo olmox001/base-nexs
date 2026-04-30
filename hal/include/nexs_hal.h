@@ -48,6 +48,9 @@ NEXS_API void nexs_hal_print(const char *s);
 /* Fill in the platform memory map */
 NEXS_API void nexs_hal_memory_map(NexsMemMap *map);
 
+/* Halt the CPU (disable interrupts, spin with HLT/WFI) — does not return */
+NEXS_API void nexs_hal_halt(void) __attribute__((noreturn));
+
 #ifdef __cplusplus
 }
 #endif

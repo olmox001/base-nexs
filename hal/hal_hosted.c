@@ -10,6 +10,7 @@
 
 #include "include/nexs_hal.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 void nexs_hal_init(void) { /* no-op in hosted mode */ }
 
@@ -33,6 +34,10 @@ void nexs_hal_memory_map(NexsMemMap *map) {
     map->ram_size    = 0;
     map->uart_base   = 0;
   }
+}
+
+void nexs_hal_halt(void) {
+  _Exit(0);
 }
 
 #endif /* !NEXS_BAREMETAL */

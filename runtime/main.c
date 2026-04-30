@@ -231,8 +231,8 @@ void nexs_main_baremetal(void) {
   } else {
     nexs_repl();
   }
-  /* Spin forever */
-  while (1) {}
+  __asm__ volatile("cli");
+  while (1) { __asm__ volatile("hlt"); }
 }
 #endif /* NEXS_BAREMETAL */
 

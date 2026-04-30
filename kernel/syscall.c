@@ -11,7 +11,6 @@
 #include "include/nexs_vfs.h"
 #include "../registry/include/nexs_registry.h"
 #include "../core/include/nexs_value.h"
-#include "../core/include/nexs_alloc.h"
 #include "../lang/include/nexs_eval.h"
 #include <string.h>
 #include <stdio.h>
@@ -30,7 +29,7 @@ static int caller_has_admin(uint32_t pid) {
 }
 
 static Value err_eperm(void) {
-    return val_err("EPERM");
+    return val_err(1, "EPERM");
 }
 
 /* =========================================================
@@ -49,7 +48,7 @@ static Value sys_read(const KernelMsg *m, uint32_t pid) {
     int fd = (int)m->n;
     char buf[1024];
     int n = vfs_read(fd, buf, sizeof(buf) - 1);
-    if (n < 0) return val_err("read failed");
+    if (n < 0) return val_err(1, "read failed");
     buf[n] = '\0';
     return val_str(buf);
 }
@@ -71,7 +70,7 @@ static Value sys_stat(const KernelMsg *m, uint32_t pid) {
     (void)pid;
     VfsInode ino;
     int rc = vfs_stat(m->arg0, &ino);
-    if (rc < 0) return val_err("stat failed");
+    if (rc < 0) return val_err(1, "stat failed");
     char buf[64];
     snprintf(buf, sizeof(buf), "ino:%llu size:%llu",
              (unsigned long long)ino.ino,
@@ -95,7 +94,7 @@ static Value sys_fork(const KernelMsg *m, uint32_t sender_pid) {
     (void)m;
     /* Copy /proc/<parent>/ subtree to /proc/<child>/ */
     NexsProc *child = proc_create("fork_child", NULL, NULL);
-    if (!child) return val_err("fork failed");
+    if (!child) return val_err(1, "fork failed");
 
     /* Copy parent caps to child */
     char parent_caps[REG_PATH_MAX], child_caps[REG_PATH_MAX];
@@ -169,10 +168,11 @@ static Value sys_remove(const KernelMsg *m, uint32_t pid) {
 }
 
 static Value sys_pipe(const KernelMsg *m, uint32_t pid) {
-    (void)m; (void)pid;
+    (void)m;
+    Value seq_v = reg_get("/sys/pipe_seq");
     char path[REG_PATH_MAX];
-    snprintf(path, sizeof(path), "/proc/%u/pipe/%lld",
-             pid, (long long)reg_get("/sys/pipe_seq").ival);
+    snprintf(path, sizeof(path), "/proc/%u/pipe/%lld", pid, (long long)seq_v.ival);
+    val_free(&seq_v);
     reg_ipc_init_queue(path, 64);
     return val_str(path);
 }
@@ -246,5 +246,5 @@ Value kmsg_handle(const KernelMsg *m) {
     }
     char buf[64];
     snprintf(buf, sizeof(buf), "unknown syscall: %s", m->verb);
-    return val_err(buf);
+    return val_err(1, buf);
 }

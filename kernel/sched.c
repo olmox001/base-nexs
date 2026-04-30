@@ -142,16 +142,11 @@ void sched_unblock_waiting(const char *path) {
     for (int lvl = 0; lvl < SCHED_LEVELS; lvl++) {
         NexsProc *p = s_queues[lvl];
         while (p) {
-            char buf[REG_PATH_MAX];
-            snprintf(buf, sizeof(buf), "%s/wait_path", p->reg_path);
-            Value v = reg_get(buf);
-            if (v.type == TYPE_STR && v.data &&
-                strcmp((char *)v.data, path) == 0 &&
-                p->state == PROC_BLOCKED) {
+            if (p->state == PROC_BLOCKED &&
+                strcmp(p->wait_path, path) == 0) {
                 p->state = PROC_READY;
-                reg_set(buf, val_str(""), RK_READ);
+                p->wait_path[0] = '\0';
             }
-            val_free(&v);
             p = p->next;
         }
     }

@@ -38,23 +38,18 @@ int kmsg_decode(const Value *v, KernelMsg *out) {
     char *p = tmp;
     char *tok;
 
-    /* verb */
     tok = strtok(p, ":"); if (!tok) return -1;
     strncpy(out->verb, tok, sizeof(out->verb) - 1);
 
-    /* arg0 */
     tok = strtok(NULL, ":"); if (!tok) return -1;
     strncpy(out->arg0, tok, sizeof(out->arg0) - 1);
 
-    /* arg1 */
     tok = strtok(NULL, ":"); if (!tok) return -1;
     strncpy(out->arg1, tok, sizeof(out->arg1) - 1);
 
-    /* n */
     tok = strtok(NULL, ":"); if (!tok) return -1;
     out->n = (int64_t)atoll(tok);
 
-    /* sender_pid */
     tok = strtok(NULL, ":"); if (!tok) return -1;
     out->sender_pid = (uint32_t)atoi(tok);
 
@@ -76,7 +71,6 @@ void kmsg_dispatch_loop(void) {
         Value msg = val_nil();
         if (reg_ipc_recv(inbox, &msg) != 0 || msg.type == TYPE_NIL) {
             val_free(&msg);
-            /* Yield until a message arrives */
             if (g_current_proc) proc_block(inbox);
             continue;
         }

@@ -29,14 +29,12 @@ cp "$LIMINE_SHARE/limine-bios-cd.bin" "$ISO_ROOT/limine/"
 
 # limine.conf
 cat > "$ISO_ROOT/limine/limine.conf" << EOF
-TIMEOUT=0
-SERIAL=yes
-INTERFACE=serial
-VERBOSE=yes
+timeout: 0
+serial: yes
 
-:NEXS OS
-    PROTOCOL=limine
-    KERNEL_PATH=boot:///nexs.elf
+/NEXS OS
+    protocol: multiboot2
+    path: boot():/nexs.elf
 EOF
 
 echo "[*] Creazione ISO con xorriso..."

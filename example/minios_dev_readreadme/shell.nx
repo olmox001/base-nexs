@@ -43,9 +43,9 @@ fn shell_loop() {
     arg2 = ""
     if parts_len > 2 { arg2 = parts[2] }
 
-    if cmd == "exit" {
+    if cmd == "exit" || cmd == ":exit" {
       out "Esecuzione sequenza di spegnimento..."
-      break
+      exits("")
     }
 
     handled = 0

@@ -47,22 +47,19 @@ typedef struct {
    WALK + SAVE
    ========================================================= */
 
-static int count_keys;
-static FILE *save_fp;
-static uint32_t save_crc;
+typedef struct { int count; FILE *fp; uint32_t crc; } RegfsSaveCtx;
 
-static void save_key(RegKey *k) {
-    if (!k || !save_fp) return;
+static void save_key(RegKey *k, RegfsSaveCtx *ctx) {
+    if (!k || !ctx->fp) return;
     char path_buf[REGFS_PATH_MAX] = {0};
     strncpy(path_buf, k->path, REGFS_PATH_MAX - 1);
-    fwrite(path_buf, 1, REGFS_PATH_MAX, save_fp);
+    fwrite(path_buf, 1, REGFS_PATH_MAX, ctx->fp);
 
     uint8_t type   = (uint8_t)k->val.type;
     uint8_t rights = k->rights;
-    fwrite(&type,   1, 1, save_fp);
-    fwrite(&rights, 1, 1, save_fp);
+    fwrite(&type,   1, 1, ctx->fp);
+    fwrite(&rights, 1, 1, ctx->fp);
 
-    /* Serialize value data */
     char data_buf[REGFS_DATA_MAX] = {0};
     uint32_t data_len = 0;
     if (k->val.type == TYPE_INT) {
@@ -77,21 +74,18 @@ static void save_key(RegKey *k) {
         if (data_len >= REGFS_DATA_MAX) data_len = REGFS_DATA_MAX - 1;
         memcpy(data_buf, k->val.data, data_len);
     }
-    fwrite(&data_len, 4, 1, save_fp);
-    if (data_len > 0) fwrite(data_buf, 1, data_len, save_fp);
+    fwrite(&data_len, 4, 1, ctx->fp);
+    if (data_len > 0) fwrite(data_buf, 1, data_len, ctx->fp);
 
-    count_keys++;
-
-    /* Update CRC */
+    ctx->count++;
     for (size_t i = 0; i < REGFS_PATH_MAX; i++)
-        save_crc = crc32_byte(save_crc, (uint8_t)path_buf[i]);
-    save_crc = crc32_byte(save_crc, type);
-    save_crc = crc32_byte(save_crc, rights);
+        ctx->crc = crc32_byte(ctx->crc, (uint8_t)path_buf[i]);
+    ctx->crc = crc32_byte(ctx->crc, type);
+    ctx->crc = crc32_byte(ctx->crc, rights);
 
-    /* Recurse into children */
     RegKey *child = k->children;
     while (child) {
-        save_key(child);
+        save_key(child, ctx);
         child = child->next;
     }
 }
@@ -103,26 +97,21 @@ int regfs_save(const char *reg_path, const char *file_path) {
     FILE *fp = fopen(file_path, "wb");
     if (!fp) return -1;
 
-    /* Write placeholder header */
     RegfsHeader hdr;
     memset(&hdr, 0, sizeof(hdr));
     memcpy(hdr.magic, REGFS_MAGIC, 8);
     hdr.version = REGFS_VERSION;
     fwrite(&hdr, sizeof(hdr), 1, fp);
 
-    count_keys = 0;
-    save_fp    = fp;
-    save_crc   = 0xFFFFFFFFUL;
-    save_key(root);
+    RegfsSaveCtx ctx = { 0, fp, 0xFFFFFFFFUL };
+    save_key(root, &ctx);
 
-    /* Rewrite header with real n_keys and crc */
-    hdr.n_keys = (uint32_t)count_keys;
-    hdr.crc32  = save_crc ^ 0xFFFFFFFFUL;
+    hdr.n_keys = (uint32_t)ctx.count;
+    hdr.crc32  = ctx.crc ^ 0xFFFFFFFFUL;
     fseek(fp, 0, SEEK_SET);
     fwrite(&hdr, sizeof(hdr), 1, fp);
 
     fclose(fp);
-    save_fp = NULL;
     return 0;
 }
 

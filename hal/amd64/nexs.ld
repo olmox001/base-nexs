@@ -10,6 +10,10 @@ SECTIONS {
     /* Mappiamo il kernel a 1MB per compatibilità Multiboot */
     . = 1M;
 
+    .multiboot2 : {
+        KEEP(*(.multiboot2))
+    }
+
     .limine_req : {
         KEEP(*(.limine_req))
     }

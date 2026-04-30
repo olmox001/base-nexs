@@ -54,6 +54,12 @@ static BlkDev *blk_find_dev(uint32_t dev_id) {
    LRU CACHE HELPERS
    ========================================================= */
 
+static void flush_buf(BlkBuf *b) {
+    if (!b->valid || !b->dirty) return;
+    BlkDev *d = blk_find_dev(b->dev_id);
+    if (d && d->write) d->write(b->dev_id, b->lba, b->data);
+}
+
 static BlkBuf *cache_find(uint32_t dev, uint64_t lba) {
     for (int i = 0; i < BLK_CACHE; i++) {
         if (s_cache[i].valid && s_cache[i].dev_id == dev &&
@@ -102,10 +108,7 @@ int blk_read(uint32_t dev, uint64_t lba, void *buf) {
 
     /* Insert into cache */
     b = cache_evict();
-    if (b->valid && b->dirty && blk_find_dev(b->dev_id)) {
-        BlkDev *dd = blk_find_dev(b->dev_id);
-        if (dd && dd->write) dd->write(b->dev_id, b->lba, b->data);
-    }
+    flush_buf(b);
     b->dev_id      = dev;
     b->lba         = lba;
     b->dirty       = 0;
@@ -119,10 +122,7 @@ int blk_write(uint32_t dev, uint64_t lba, const void *buf) {
     BlkBuf *b = cache_find(dev, lba);
     if (!b) {
         b = cache_evict();
-        if (b->valid && b->dirty) {
-            BlkDev *dd = blk_find_dev(b->dev_id);
-            if (dd && dd->write) dd->write(b->dev_id, b->lba, b->data);
-        }
+        flush_buf(b);
         b->dev_id = dev;
         b->lba    = lba;
         b->valid  = 1;

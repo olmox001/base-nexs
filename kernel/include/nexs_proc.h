@@ -24,6 +24,7 @@ typedef struct NexsProc {
     uint8_t    priority;                 /* 0=highest, 255=lowest */
     uint64_t   timeslice_us;
     uint64_t   ticks_used;
+    char       wait_path[REG_PATH_MAX];  /* non-empty when PROC_BLOCKED */
     struct NexsProc *next;
 } NexsProc;
 

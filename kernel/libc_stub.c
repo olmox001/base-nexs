@@ -430,7 +430,7 @@ double atof(const char *nptr) {
 }
 int atoi(const char *nptr) { return (int)atoll(nptr); }
 int system(const char *command) { (void)command; return -1; }
-void exit(int status) { (void)status; while(1); }
+void exit(int status) { (void)status; __asm__ volatile("cli"); while(1) { __asm__ volatile("hlt"); } }
 
 int isspace(int c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f'; }
 int isdigit(int c) { return c >= '0' && c <= '9'; }

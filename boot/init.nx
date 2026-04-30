@@ -1,0 +1,33 @@
+reg /sys/init/status = "booting"
+reg /sys/init/pid    = 1
+
+exec("boot/stdlib.nx")
+
+out "[init] NEXS PID 1 starting..."
+
+# Mount namespaces
+reg /sys/ns/reg/status = "active"
+reg /sys/ns/sd00/type  = "drivers"
+reg /sys/ns/sd01/type  = "system"
+
+# Start drivers
+reg /sys/init/status = "drivers"
+
+# Start shell
+reg /sys/init/status = "running"
+out "[init] System running."
+
+# Wait loop — PID 1 never exits
+loop {
+  msg = receivemessage /proc/1/inbox
+  if msg == "shutdown" {
+    out "[init] Shutdown received."
+    reg /sys/init/status = "shutdown"
+    exits "shutdown"
+  }
+  if msg == "reboot" {
+    out "[init] Reboot received."
+    reg /sys/init/status = "reboot"
+    exits "reboot"
+  }
+}

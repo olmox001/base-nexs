@@ -1,20 +1,36 @@
 /* ============================================================
- * hal/amd64/boot.S — NEXS Bootstrapper (Limine + PVH)
+ * hal/amd64/boot.S — NEXS Bootstrapper (Limine + PVH + Multiboot2)
  * ============================================================
- * Supporta:
- * 1. Protocollo Limine (nativo per ISO a 64-bit)
- * 2. Protocollo PVH (nativo per QEMU -kernel ELF64)
- * ============================================================ */
+ */
+
+/* ── 0. Multiboot2 Header ─────────────────────────────────── */
+.section .multiboot2, "a"
+.balign 8
+multiboot2_header_start:
+    .long 0xe85250d6                /* magic */
+    .long 0                         /* architecture: i386 (0) */
+    .long multiboot2_header_end - multiboot2_header_start
+    .long -(0xe85250d6 + 0 + (multiboot2_header_end - multiboot2_header_start))
+
+    /* Tags can be added here if needed */
+
+    /* End tag */
+    .short 0, 0
+    .long 8
+multiboot2_header_end:
 
 /* ── 1. Limine Requests (Per Limine ISO) ──────────────────── */
 .section .limine_req, "aw"
 .balign 8
 limine_base_revision:
-    .quad 0xf95627dd37caebc6, 0
+    .quad 0xf9562b2d5c95a6c8, 0x6a7b384944536bdc, 3
 
 limine_entry_point:
-    .quad 0xc7b1dd30df4c8b88, 0x0a82e883a194f07b
-    .quad 0, _start64
+    .quad 0xc7b1dd30df4c8b88, 0x0a82e883a194f07b   /* common magic */
+    .quad 0x13d86c035a1cd3e1, 0x2b0caa89d8f3026a   /* request ID */
+    .quad 0                                          /* revision */
+    .quad 0                                          /* response (filled by Limine) */
+    .quad _start64                                   /* entry function */
 
 /* ── 2. PVH ELF Note (Per QEMU -kernel) ───────────────────── */
 .section .note.Xen, "a", @note

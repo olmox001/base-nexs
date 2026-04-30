@@ -88,12 +88,6 @@ void proc_destroy(NexsProc *p) {
 NexsProc *proc_current(void) { return g_current_proc; }
 
 NexsProc *proc_by_pid(uint32_t pid) {
-    /* Fast path: check /proc/<pid>/state in registry */
-    char buf[REG_PATH_MAX];
-    snprintf(buf, sizeof(buf), "/proc/%u", pid);
-    RegKey *k = reg_lookup(buf);
-    if (!k) return NULL;
-    /* Walk the scheduler queues (slow, only for rare lookups) */
     return sched_find(pid);
 }
 
@@ -101,11 +95,11 @@ void proc_block(const char *wait_path) {
     NexsProc *p = g_current_proc;
     if (!p) return;
     p->state = PROC_BLOCKED;
+    strncpy(p->wait_path, wait_path ? wait_path : "", REG_PATH_MAX - 1);
+    p->wait_path[REG_PATH_MAX - 1] = '\0';
     char buf[REG_PATH_MAX];
     snprintf(buf, sizeof(buf), "%s/state", p->reg_path);
     reg_set(buf, val_str("blocked"), RK_READ);
-    snprintf(buf, sizeof(buf), "%s/wait_path", p->reg_path);
-    reg_set(buf, val_str(wait_path), RK_READ);
     sched_yield();
 }
 
