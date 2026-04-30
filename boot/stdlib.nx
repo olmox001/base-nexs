@@ -10,7 +10,14 @@ fn cat(path) {
 }
 
 fn ls(path) {
-  ls (path)
+  items = keys(path)
+  n = len(items)
+  i = 0
+  loop {
+    if i >= n { break }
+    out "  " + str(items[i])
+    i = i + 1
+  }
 }
 
 fn cp(src dst) {

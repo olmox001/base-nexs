@@ -3,6 +3,9 @@
  * ========================================================
  */
 
+#define _DEFAULT_SOURCE
+#define _POSIX_C_SOURCE 200809L
+
 #include "include/nexs_sys.h"
 #include "../registry/include/nexs_registry.h"
 #include "../lang/include/nexs_fn.h"

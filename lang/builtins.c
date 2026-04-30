@@ -1,6 +1,12 @@
 /*
  * lang/builtins.c — Standard Built-in Functions
  * ================================================
+ */
+
+#define _DEFAULT_SOURCE
+#define _POSIX_C_SOURCE 200809L
+
+/*
  * Registers built-ins via fn_register_builtin() AND reg_register_builtin()
  * (both paths kept for compatibility with the registry-based dispatcher).
  *

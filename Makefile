@@ -8,6 +8,21 @@
 CC     = gcc
 TARGET = nexs
 
+# Platform Detection
+UNAME_S := $(shell uname -s)
+ZIG := $(shell command -v zig 2> /dev/null)
+
+ifeq ($(UNAME_S),Darwin)
+    HOST_PLATFORM = MACOS
+    # Fallback to zig cc if x86_64-linux-gnu-gcc is missing
+    LINUX_AMD64_CC = $(shell command -v x86_64-linux-gnu-gcc 2>/dev/null || ( [ -n "$(ZIG)" ] && echo "zig cc -target x86_64-linux-gnu" ) || echo "x86_64-linux-gnu-gcc")
+    MACOS_AMD64_CC = gcc
+else
+    HOST_PLATFORM = LINUX
+    LINUX_AMD64_CC = gcc
+    MACOS_AMD64_CC = x86_64-apple-darwin20.2-clang # Typical for osxcross
+endif
+
 # Include paths
 INCS = \
   -Icore/include \
@@ -20,7 +35,11 @@ INCS = \
 
 # Production flags & Memory Pool Profiles (4KB, 16KB, 32KB, 512KB, 4MB, 16MB)
 POOL_PROFILE ?= 16MB
-CFLAGS = -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter -DPOOL_$(POOL_PROFILE) $(INCS)
+CFLAGS = -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
+         -DPOOL_$(POOL_PROFILE) -DHOST_OS_$(HOST_PLATFORM) \
+         -DLINUX_AMD64_CC_BIN='"$(LINUX_AMD64_CC)"' \
+         -DMACOS_AMD64_CC_BIN='"$(MACOS_AMD64_CC)"' \
+         $(INCS)
 
 # Debug flags
 DBGFLAGS = -O0 -g -std=c11 -Wall -Wextra -Wno-unused-parameter \
@@ -91,6 +110,7 @@ HDRS = \
   lang/include/nexs_eval.h \
   sys/include/nexs_sys.h \
   runtime/include/nexs_runtime.h \
+  runtime/include/nexs_line.h \
   compiler/include/nexs_compiler.h \
   compiler/targets.h \
   hal/include/nexs_hal.h \
@@ -161,6 +181,28 @@ linux-arm64: $(TARGET)
 		echo "Cross-compiled -> build/linux-arm64/nexs"; \
 	else \
 		echo "aarch64-linux-gnu-gcc not found, skipping linux-arm64"; \
+	fi
+
+linux-amd64: $(TARGET)
+	@if command -v $(LINUX_AMD64_CC) >/dev/null 2>&1; then \
+		mkdir -p build/linux-amd64 && \
+		$(LINUX_AMD64_CC) -march=x86_64 -DNEXS_LINUX -DPOOL_$(POOL_PROFILE) -DHOST_OS_$(HOST_PLATFORM) \
+			-O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
+			$(INCS) $(SRCS) -o build/linux-amd64/nexs; \
+		echo "Cross-compiled -> build/linux-amd64/nexs"; \
+	else \
+		echo "$(LINUX_AMD64_CC) not found, skipping linux-amd64"; \
+	fi
+
+macos-amd64: $(TARGET)
+	@if command -v $(MACOS_AMD64_CC) >/dev/null 2>&1; then \
+		mkdir -p build/macos-amd64 && \
+		$(MACOS_AMD64_CC) -DNEXS_MACOS -DPOOL_$(POOL_PROFILE) -DHOST_OS_$(HOST_PLATFORM) \
+			-O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
+			$(INCS) $(SRCS) -o build/macos-amd64/nexs; \
+		echo "Compiled -> build/macos-amd64/nexs"; \
+	else \
+		echo "$(MACOS_AMD64_CC) not found, skipping macos-amd64"; \
 	fi
 
 # Kernel sources

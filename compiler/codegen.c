@@ -272,7 +272,7 @@ int nexs_codegen_ex(const char *src_path, const char *out_c_path, int no_dep, in
           "    EvalCtx ctx;\n"
           "    eval_ctx_init(&ctx);\n"
           "    EvalResult r = eval_str(&ctx, nexs_script_src);\n"
-          "    if (r.sig == 4 /* CTRL_ERR */) {\n"
+          "    if (r.sig == CTRL_ERR) {\n"
           "        fprintf(stderr, \"[ERR] \");\n"
           "        val_print(&r.ret_val, stderr);\n"
           "        fprintf(stderr, \"\\n\");\n"

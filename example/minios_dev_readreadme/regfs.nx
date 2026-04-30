@@ -4,26 +4,12 @@
 # ===================================================================
 
 fn _regfs_dump_node(current_path fd) {
-  # Ottiene il valore del nodo corrente
   v = reg_get(current_path)
   t = type(v)
-  
-  # Scrive solo tipi base serializzabili
-  if t != "err" {
-    if t != "nil" {
-      if t != "arr" {
-        if t != "ptr" {
-          if t != "fn" {
-            # Formato: TYPE|PATH|VALUE\n
-            line = t + "|" + current_path + "|" + str(v) + "\n"
-            write(fd line)
-          }
-        }
-      }
-    }
+  if t != "err" && t != "nil" && t != "arr" && t != "ptr" && t != "fn" {
+    line = t + "|" + current_path + "|" + str(v) + "\n"
+    write(fd line)
   }
-
-  # Visita i figli in modo ricorsivo
   children = keys(current_path)
   len_c = len(children)
   i = 0
@@ -40,9 +26,7 @@ fn _regfs_dump_node(current_path fd) {
   }
 }
 
-# Salva il registro a partire da un path base in un file
 fn regfs_save(path_in_reg file_path) {
-  # mode 1 = write
   fd = open(file_path 1)
   if fd < 0 {
     ret -1
@@ -52,9 +36,7 @@ fn regfs_save(path_in_reg file_path) {
   ret 0
 }
 
-# Carica il registro da un file salvato precedentemente
 fn regfs_load(file_path) {
-  # mode 0 = read
   fd = open(file_path 0)
   if fd < 0 {
     ret -1
