@@ -17,7 +17,7 @@ exec("example/minios_dev_readreadme/p9_mnt.nx")
 exec("example/minios_dev_readreadme/wasm_vm.nx")
 exec("example/minios_dev_readreadme/shell.nx")
 exec("example/minios_dev_readreadme/nxed_editor.nx")
-
+exec("example/minios_dev_readreadme/regfs.nx")
 
 out "[INIT] Fase 2: Inizializzazione Sottosistemi..."
 hw_dt_init()
@@ -36,6 +36,39 @@ vfs_write("home/olmo/test.nx" "out(\"Ciao dal test\")")
 out "==================================================="
 out " [INIT] Boot completato. Cessione controllo alla UI."
 out "==================================================="
+
+# Fase 2.5: Setup error registry (PLAN.md regola 8)
+reg /sys/errors/last = ""
+reg /sys/errors/count = 0
+
+# Fase 2.5: Plan9 namespace — pubblica sorgenti .nx nel VFS
+out "[INIT] Fase 2.5: Pubblicazione sorgenti nel namespace VFS..."
+mods[0] = "stdlib"
+mods[1] = "vfs"
+mods[2] = "pm"
+mods[3] = "hw_dt"
+mods[4] = "p9_mnt"
+mods[5] = "shell"
+mods[6] = "nxed_editor"
+mods[7] = "regfs"
+i = 0
+loop {
+  if i >= 8 { break }
+  fpath = "example/minios_dev_readreadme/" + mods[i] + ".nx"
+  fd = open(fpath 0)
+  if fd >= 0 {
+    src = read(fd 65536)
+    close(fd)
+    vfs_write("sys/modules/" + mods[i] + ".nx" src)
+  }
+  i = i + 1
+}
+out "[INIT] Moduli pubblicati. Usa 'modules' o 'ls sys/modules' per visualizzarli."
+
+# Fase 2.5: Registra processo init nel namespace /proc/ (seL4-style)
+reg /proc/1/name = "init"
+reg /proc/1/state = "running"
+reg /proc/1/pid = 1
 
 # Avvia il loop dell'interprete utente
 shell_loop()

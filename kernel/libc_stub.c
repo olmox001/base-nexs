@@ -11,9 +11,9 @@
 #include <stdarg.h>
 
 /* Nexs includes for actual implementations */
-#include "nexs_alloc.h"
-#include "nexs_hal.h"
-#include "nexs_utils.h"
+#include "../core/include/nexs_alloc.h"
+#include "../hal/include/nexs_hal.h"
+#include "../core/include/nexs_utils.h"
 
 static char dummy_stdout[16];
 static char dummy_stderr[16];
@@ -71,31 +71,54 @@ int vsnprintf(char *str, size_t size, const char *format, va_list ap) {
                 width = width * 10 + (*format - '0');
                 format++;
             }
+            int is_long = 0;
             int is_long_long = 0;
             if (*format == 'l') {
                 format++;
+                is_long = 1;
                 if (*format == 'l') {
                     format++;
                     is_long_long = 1;
                 }
             }
             if (*format == 'd') {
-                if (is_long_long) {
+                if (is_long_long || is_long) {
                     print_int(&out, &remain, va_arg(ap, long long), 10);
                 } else {
                     print_int(&out, &remain, va_arg(ap, int), 10);
                 }
             } else if (*format == 'u') {
-                if (is_long_long) {
+                if (is_long_long || is_long) {
                     print_uint(&out, &remain, va_arg(ap, unsigned long long), 10);
                 } else {
                     print_uint(&out, &remain, va_arg(ap, unsigned int), 10);
                 }
             } else if (*format == 'x') {
-                if (is_long_long) {
+                if (is_long_long || is_long) {
                     print_uint(&out, &remain, va_arg(ap, unsigned long long), 16);
                 } else {
                     print_uint(&out, &remain, va_arg(ap, unsigned int), 16);
+                }
+            } else if (*format == 'o') {
+                /* octal — usato da nexs_stat() con %o */
+                if (is_long_long || is_long) {
+                    print_uint(&out, &remain, va_arg(ap, unsigned long long), 8);
+                } else {
+                    print_uint(&out, &remain, va_arg(ap, unsigned int), 8);
+                }
+            } else if (*format == 'f' || *format == 'g') {
+                /* float — approssimato a 4 decimali */
+                double fv = va_arg(ap, double);
+                long long ip = (long long)fv;
+                double fp_part = fv - (double)ip;
+                if (fp_part < 0.0) fp_part = -fp_part;
+                print_int(&out, &remain, ip, 10);
+                if (remain > 1) { *out++ = '.'; remain--; }
+                for (int _d = 0; _d < 4 && remain > 1; _d++) {
+                    fp_part *= 10.0;
+                    int d = (int)fp_part;
+                    if (remain > 1) { *out++ = '0' + d; remain--; }
+                    fp_part -= d;
                 }
             } else if (*format == 's') {
                 const char *s = va_arg(ap, const char *);
@@ -147,7 +170,7 @@ int sprintf(char* buffer, const char* format, ...) {
 
 int vfprintf(FILE *stream, const char *format, va_list ap) {
     (void)stream;
-    char buf[256];
+    char buf[MAX_STR_LEN];
     int ret = vsnprintf(buf, sizeof(buf), format, ap);
     nexs_hal_print(buf);
     return ret;
@@ -449,13 +472,13 @@ ssize_t write(int fd, const void *buf, size_t count) {
 }
 int close(int fd) { (void)fd; return -1; }
 int pipe(int pipefd[2]) { (void)pipefd; return -1; }
-int isatty(int fd) { (void)fd; return 0; }
+int isatty(int fd) { (void)fd; return 1; }  /* baremetal: stdin è sempre un tty */
 int chdir(const char *path) { (void)path; return -1; }
 int unlink(const char *pathname) { (void)pathname; return -1; }
 int stat(const char *path, struct stat *buf) { (void)path; (void)buf; return -1; }
 int kill(int pid, int sig) { (void)pid; (void)sig; return -1; }
-int tcgetattr(int fd, struct termios *termios_p) { (void)fd; (void)termios_p; return -1; }
-int tcsetattr(int fd, int optional_actions, const struct termios *termios_p) { (void)fd; (void)optional_actions; (void)termios_p; return -1; }
+int tcgetattr(int fd, struct termios *termios_p) { (void)fd; (void)termios_p; return 0; }
+int tcsetattr(int fd, int optional_actions, const struct termios *termios_p) { (void)fd; (void)optional_actions; (void)termios_p; return 0; }
 pid_t wait(int *wstatus) { (void)wstatus; return -1; }
 pid_t waitpid(pid_t pid, int *wstatus, int options) { (void)pid; (void)wstatus; (void)options; return -1; }
 int poll(struct pollfd *fds, unsigned int nfds, int timeout) { (void)fds; (void)nfds; (void)timeout; return -1; }

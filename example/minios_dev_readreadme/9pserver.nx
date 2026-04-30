@@ -1,0 +1,80 @@
+# ===================================================================
+# 9pserver.nx — Server 9P2000 (stub, da espandere)
+# Implementa il protocollo Plan 9 per accesso al VFS via IPC
+# Referenza: PLAN.md Fase 6
+# ===================================================================
+
+reg /sys/9p/status = "idle"
+reg /sys/9p/version = "9P2000"
+reg /sys/9p/msize = 8192
+
+# Mappa delle versioni supportate
+fn p9_version(msize ver) {
+  if ver == "9P2000" {
+    reg /sys/9p/msize = msize
+    reg /sys/9p/status = "negotiated"
+    ret "9P2000"
+  }
+  ret "unknown"
+}
+
+# Operazione Tattach — monta il VFS radice
+fn p9_attach(fid uname aname) {
+  reg_set("/sys/9p/fids/" + str(fid) + "/path" "/")
+  reg_set("/sys/9p/fids/" + str(fid) + "/user" uname)
+  reg /sys/9p/status = "attached"
+  out "[9P] Attach: fid=" + str(fid) + " user=" + uname + " path=" + aname
+  ret fid
+}
+
+# Operazione Twalk — naviga nel VFS
+fn p9_walk(fid newfid path) {
+  base = reg_get("/sys/9p/fids/" + str(fid) + "/path")
+  if type(base) == "err" { ret -1 }
+  newpath = base + "/" + path
+  reg_set("/sys/9p/fids/" + str(newfid) + "/path" newpath)
+  ret newfid
+}
+
+# Operazione Tread — legge dal VFS via IPC
+fn p9_read(fid offset count) {
+  path = reg_get("/sys/9p/fids/" + str(fid) + "/path")
+  if type(path) == "err" { ret "" }
+  data = vfs_read(path)
+  if type(data) == "err" { ret "" }
+  # Ritorna chunk da offset per count byte
+  dlen = len(data)
+  if offset >= dlen { ret "" }
+  rem = dlen - offset
+  if rem > count { rem = count }
+  ret substr(data offset rem)
+}
+
+# Operazione Twrite — scrive nel VFS via IPC
+fn p9_write(fid offset data) {
+  path = reg_get("/sys/9p/fids/" + str(fid) + "/path")
+  if type(path) == "err" { ret -1 }
+  existing = vfs_read(path)
+  if type(existing) == "err" { existing = "" }
+  # Scrittura append-only per ora (offset ignorato)
+  vfs_write(path existing + data)
+  ret len(data)
+}
+
+# Avvia il server in loop IPC
+fn p9_serve(ipc_path) {
+  reg /sys/9p/status = "serving"
+  out "[9P] Server attivo su " + ipc_path
+  loop {
+    msg = receivemessage ipc_path
+    if msg == "" { sleep(10) }
+    if msg == "stop" {
+      reg /sys/9p/status = "idle"
+      out "[9P] Server fermato."
+      break
+    }
+    out "[9P] Ricevuto: " + str(msg)
+  }
+}
+
+out "[9P] Modulo 9P server stub caricato. Usa p9_serve(ipc_path) per avviare."

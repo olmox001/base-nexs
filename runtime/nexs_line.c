@@ -984,3 +984,40 @@ int nexs_line_read(NxLineEditor *le, const char *prompt, char *out, int outsz) {
     }
   }
 }
+
+/* =========================================================
+   LOW-LEVEL TERMINAL PRIMITIVES (Exported for Builtins)
+   ========================================================= */
+
+void nexs_term_write(const char *s, int n) {
+  if (!s || n <= 0) return;
+  write_bytes(s, n);
+}
+
+void nexs_term_puts(const char *s) {
+  if (!s) return;
+  write_str(s);
+}
+
+void nexs_term_cursor_left(int n) {
+  cursor_left(n);
+}
+
+void nexs_term_cursor_right(int n) {
+  cursor_right(n);
+}
+
+void nexs_term_cursor_col(int col) {
+  if (col < 1) col = 1;
+  char buf[32];
+  int len = snprintf(buf, sizeof(buf), "\033[%dG", col);
+  write_bytes(buf, len);
+}
+
+void nexs_term_erase_eol(void) {
+  write_str("\033[K");
+}
+
+void nexs_term_clear_screen(void) {
+  write_str("\033[2J\033[H");
+}

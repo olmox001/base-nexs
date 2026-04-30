@@ -58,30 +58,73 @@ extern "C" {
 #define NEXS_VERSION_STR   "0.2.0"
 
 /* =========================================================
-   BUDDY ALLOCATOR
+   BUDDY ALLOCATOR & DYNAMIC LIMITS
    ========================================================= */
 
 #if defined(POOL_16MB)
-  #define POOL_SIZE (16 * 1024 * 1024)
-  #define MIN_BLOCK 128
+  #define POOL_SIZE     (16 * 1024 * 1024)
+  #define MIN_BLOCK     128
+  #define MAX_STR_LEN   8192
+  #define MAX_TOKENS    16384
+  #define REG_PATH_MAX  512
+  #define MAX_ARRAYS    1024
+  #define NAME_LEN      64
+  #define MAX_PARAMS    16
 #elif defined(POOL_4MB)
-  #define POOL_SIZE (4 * 1024 * 1024)
-  #define MIN_BLOCK 32
+  #define POOL_SIZE     (4 * 1024 * 1024)
+  #define MIN_BLOCK     32
+  #define MAX_STR_LEN   4096
+  #define MAX_TOKENS    8192
+  #define REG_PATH_MAX  512
+  #define MAX_ARRAYS    512
+  #define NAME_LEN      64
+  #define MAX_PARAMS    16
 #elif defined(POOL_512KB)
-  #define POOL_SIZE (512 * 1024)
-  #define MIN_BLOCK 16
+  #define POOL_SIZE     (512 * 1024)
+  #define MIN_BLOCK     16
+  #define MAX_STR_LEN   2048
+  #define MAX_TOKENS    1024
+  #define REG_PATH_MAX  256
+  #define MAX_ARRAYS    128
+  #define NAME_LEN      64
+  #define MAX_PARAMS    16
 #elif defined(POOL_32KB)
-  #define POOL_SIZE (32 * 1024)
-  #define MIN_BLOCK 16
+  #define POOL_SIZE     (32 * 1024)
+  #define MIN_BLOCK     16
+  #define MAX_STR_LEN   512
+  #define MAX_TOKENS    128
+  #define REG_PATH_MAX  128
+  #define MAX_ARRAYS    16
+  #define NAME_LEN      32
+  #define MAX_PARAMS    8
 #elif defined(POOL_16KB)
-  #define POOL_SIZE (16 * 1024)
-  #define MIN_BLOCK 16
+  #define POOL_SIZE     (16 * 1024)
+  #define MIN_BLOCK     16
+  #define MAX_STR_LEN   256
+  #define MAX_TOKENS    64
+  #define REG_PATH_MAX  64
+  #define MAX_ARRAYS    8
+  #define NAME_LEN      24
+  #define MAX_PARAMS    4
 #elif defined(POOL_4KB)
-  #define POOL_SIZE (4 * 1024)
-  #define MIN_BLOCK 16
+  #define POOL_SIZE     (4 * 1024)
+  #define MIN_BLOCK     16
+  #define MAX_STR_LEN   128
+  #define MAX_TOKENS    32
+  #define REG_PATH_MAX  32
+  #define MAX_ARRAYS    4
+  #define NAME_LEN      16
+  #define MAX_PARAMS    4
 #else
-  #define POOL_SIZE (4 * 1024 * 1024)
-  #define MIN_BLOCK 32
+  /* Default (16MB) - Optimized for stability */
+  #define POOL_SIZE     (16 * 1024 * 1024)
+  #define MIN_BLOCK     128
+  #define MAX_STR_LEN   8192
+  #define MAX_TOKENS    16384
+  #define REG_PATH_MAX  512
+  #define MAX_ARRAYS    1024
+  #define NAME_LEN      64
+  #define MAX_PARAMS    16
 #endif
 
 #define NUM_LEAVES (POOL_SIZE / MIN_BLOCK)
@@ -99,14 +142,12 @@ extern "C" {
    DYNARRAY
    ========================================================= */
 
-#define MAX_ARRAYS 64
-#define NAME_LEN   64
+#define MAX_ARRAYS_GLOBAL    64  /* Registry-based global arrays limit */
 
 /* =========================================================
    REGISTRY
    ========================================================= */
 
-#define REG_PATH_MAX 256
 #define REG_CHILDREN 16
 #define REG_ROOT     "/"
 
@@ -135,11 +176,8 @@ extern "C" {
    INTERPRETER
    ========================================================= */
 
-#define MAX_TOKENS    4096
 #define MAX_IDENT_LEN NAME_LEN
-#define MAX_STR_LEN   512
 #define MAX_CALL_DEPTH 128
-#define MAX_PARAMS    16
 
 /* =========================================================
    FUNCTION TABLE

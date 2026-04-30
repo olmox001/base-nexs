@@ -101,7 +101,7 @@ int nexs_compile_file_ex(const char *src_path,
 
     snprintf(build_cmd, sizeof(build_cmd),
              "gcc -O2 -std=c11 -Icore/include -Iregistry/include -Ilang/include -Isys/include -Iruntime/include -Icompiler/include -Ihal/include "
-             "-D%s %s core/buddy.c core/pager.c core/value.c core/dynarray.c core/utils.c registry/registry.c registry/reg_ipc.c lang/fn_table.c lang/lexer.c lang/parser.c lang/eval.c lang/builtins.c sys/sysio.c sys/sysproc.c runtime/runtime.c hal/bc/nexs_hal_bc.c hal/hal_hosted.c -o %s >/dev/null 2>&1",
+             "-D%s %s core/buddy.c core/pager.c core/value.c core/dynarray.c core/utils.c registry/registry.c registry/reg_ipc.c lang/fn_table.c lang/lexer.c lang/parser.c lang/eval.c lang/builtins.c sys/sysio.c sys/sysproc.c runtime/runtime.c runtime/nexs_line.c hal/bc/nexs_hal_bc.c hal/hal_hosted.c -o %s >/dev/null 2>&1",
              profiles[i], test_c, test_bin);
 
     if (system(build_cmd) != 0) {
@@ -171,7 +171,7 @@ int nexs_compile_file_ex(const char *src_path,
                   " lang/fn_table.c lang/lexer.c lang/parser.c"
                   " lang/eval.c lang/builtins.c"
                   " sys/sysio.c sys/sysproc.c"
-                  " runtime/runtime.c"
+                  " runtime/runtime.c runtime/nexs_line.c"
                   " hal/bc/nexs_hal_bc.c",
                   script_c);
 

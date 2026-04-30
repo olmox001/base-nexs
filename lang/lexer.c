@@ -58,8 +58,8 @@ static Token make_tok(TokenKind k, const char *text, int line) {
   t.col  = 0;
   t.ival = 0;
   t.fval = 0.0;
-  strncpy(t.text, text ? text : "", MAX_STR_LEN - 1);
-  t.text[MAX_STR_LEN - 1] = '\0';
+  strncpy(t.text, text ? text : "", NAME_LEN - 1);
+  t.text[NAME_LEN - 1] = '\0';
   return t;
 }
 
@@ -78,6 +78,7 @@ static struct {
   {"loop",           TK_KW_LOOP},
   {"break",          TK_KW_BREAK},
   {"cont",           TK_KW_CONT},
+  {"continue",       TK_KW_CONT},   /* alias — fix nxed_editor.nx */
   {"del",            TK_KW_DEL},
   {"out",            TK_KW_OUT},
   {"reg",            TK_KW_REG},

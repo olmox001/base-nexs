@@ -34,16 +34,18 @@ ASTNode *ast_alloc(ASTKind kind, Token tok) {
 }
 
 void ast_free(ASTNode *n) {
-  if (!n) return;
-  ast_free(n->left);
-  ast_free(n->right);
-  ast_free(n->children);
-  ast_free(n->next);
-  ast_free(n->alt);
-  for (int i = 0; i < n->n_args; i++)
-    ast_free(n->args[i]);
-  val_free(&n->litval);
-  xfree(n);
+  while (n) {
+    ASTNode *next = n->next;
+    ast_free(n->left);
+    ast_free(n->right);
+    ast_free(n->children);
+    ast_free(n->alt);
+    for (int i = 0; i < n->n_args; i++)
+      ast_free(n->args[i]);
+    val_free(&n->litval);
+    xfree(n);
+    n = next;
+  }
 }
 
 /*
@@ -53,20 +55,22 @@ void ast_free(ASTNode *n) {
  * ast_free() is also safe.  This version makes the invariant explicit.
  */
 void ast_free_safe(ASTNode *n) {
-  if (!n) return;
-  if (n->kind == AST_FN_DECL) {
-    /* fn_table owns the body — do not free it */
-    n->right = NULL;
+  while (n) {
+    ASTNode *next = n->next;
+    if (n->kind == AST_FN_DECL) {
+      /* fn_table owns the body — do not free it */
+      n->right = NULL;
+    }
+    ast_free(n->left);
+    ast_free(n->right);
+    ast_free(n->children);
+    ast_free(n->alt);
+    for (int i = 0; i < n->n_args; i++)
+      ast_free(n->args[i]);
+    val_free(&n->litval);
+    xfree(n);
+    n = next;
   }
-  ast_free(n->left);
-  ast_free(n->right);
-  ast_free(n->children);
-  ast_free(n->next);
-  ast_free(n->alt);
-  for (int i = 0; i < n->n_args; i++)
-    ast_free(n->args[i]);
-  val_free(&n->litval);
-  xfree(n);
 }
 
 void ast_print(ASTNode *node, FILE *out, int depth) {

@@ -19,6 +19,10 @@ fn input(prompt) {
       break
     }
 
+    if ch == "KEY_UP" || ch == "KEY_DOWN" || ch == "KEY_LEFT" || ch == "KEY_RIGHT" || ch == "UP" || ch == "DOWN" || ch == "LEFT" || ch == "RIGHT" {
+      continue
+    }
+    
     if ch == "BACKSPACE" {
       blen = len(buffer)
       if blen > 0 {

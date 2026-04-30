@@ -1,0 +1,39 @@
+# ===================================================================
+# init.nx — Processo Init (seL4-style, PID 1)
+# Registra il processo nel namespace /proc/ e rimane in ascolto
+# per messaggi di sistema (shutdown, reboot).
+# ===================================================================
+
+reg /proc/1/name = "init"
+reg /proc/1/state = "running"
+reg /proc/1/pid = 1
+reg /proc/1/caps = "read:write:exec:admin"
+
+out "[INIT] /proc/1 registrato nel namespace."
+
+# Setup fd standard nel namespace Plan9
+reg /proc/1/fds/0 = "/dev/stdin"
+reg /proc/1/fds/1 = "/dev/stdout"
+reg /proc/1/fds/2 = "/dev/stderr"
+
+out "[INIT] Processo init pronto. In attesa di messaggi di sistema."
+
+# Loop di ricezione messaggi (seL4-style IPC)
+loop {
+  msg = receivemessage /proc/1/inbox
+  if msg == "shutdown" {
+    out "[INIT] Shutdown ricevuto. Uscita."
+    reg /proc/1/state = "zombie"
+    exits "shutdown"
+  }
+  if msg == "reboot" {
+    out "[INIT] Reboot ricevuto."
+    reg /proc/1/state = "zombie"
+    exits "reboot"
+  }
+  if msg != "" {
+    out "[INIT] Messaggio sconosciuto: " + str(msg)
+    reg_set("/sys/errors/last" "init: msg sconosciuto: " + str(msg))
+  }
+  sleep(100)
+}

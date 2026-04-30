@@ -141,3 +141,28 @@ fn vfs_stat(nome_file) {
   }
   ret str(len(val)) + " byte"
 }
+
+fn vfs_rm(nome_file) {
+  # Rimuovi il contenuto dal registry
+  reg_set("/sys/vfs/files/" + nome_file "")
+  # Tombstone nell'indice: svuota lo slot con il nome corrispondente
+  count = reg /sys/vfs/count
+  i = 0
+  loop {
+    if i >= count { break }
+    slot_key = "/sys/vfs/idx/" + str(i)
+    slot_val = reg_get(slot_key)
+    if slot_val == nome_file {
+      reg_set(slot_key "")
+      break
+    }
+    i = i + 1
+  }
+}
+
+fn vfs_exists(nome_file) {
+  val = reg_get("/sys/vfs/files/" + nome_file)
+  if type(val) == "err" { ret 0 }
+  if val == "" { ret 0 }
+  ret 1
+}

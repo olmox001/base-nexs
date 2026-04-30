@@ -95,7 +95,7 @@ typedef enum {
 
 typedef struct {
   TokenKind kind;
-  char      text[MAX_STR_LEN];
+  char      text[NAME_LEN];
   int64_t   ival;
   double    fval;
   int       line;

@@ -40,9 +40,33 @@ DynArray *arr_get_or_create(const char *name) {
   a->name[NAME_LEN - 1] = '\0';
   a->capacity = 4;
   a->size = 0;
+  a->refcount = 1; /* Owned by g_arrays */
   a->items = xmalloc(a->capacity * sizeof(Value));
   g_arrays[g_array_count++] = a;
   return a;
+}
+
+DynArray *arr_create_anon(void) {
+  DynArray *a = xmalloc(sizeof(DynArray));
+  a->name[0] = '\0';
+  a->capacity = 4;
+  a->size = 0;
+  a->refcount = 1; /* Owned by the caller's Value */
+  a->items = xmalloc(a->capacity * sizeof(Value));
+  return a;
+}
+
+void arr_ref(DynArray *arr) {
+  if (!arr) return;
+  arr->refcount++;
+}
+
+void arr_unref(DynArray *arr) {
+  if (!arr) return;
+  arr->refcount--;
+  if (arr->refcount <= 0) {
+    arr_free(arr);
+  }
 }
 
 void arr_ensure_cap(DynArray *arr, size_t index) {
@@ -101,6 +125,8 @@ void arr_print(DynArray *arr, FILE *out) {
 
 void arr_free(DynArray *arr) {
   if (!arr) return;
+  /* If this was called directly, we check refcount just in case, 
+   * but usually arr_unref is the entry point. */
   for (size_t i = 0; i < arr->size; i++)
     val_free(&arr->items[i]);
   if (arr->items)

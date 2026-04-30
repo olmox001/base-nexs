@@ -213,7 +213,12 @@ void val_free(Value *v) {
     xfree(v->err_msg);
     v->err_msg = NULL;
   }
-  /* TYPE_ARR and TYPE_FN lifetime is managed by registry/fn_table */
+  if (v->type == TYPE_ARR && v->data) {
+    arr_unref((DynArray *)v->data);
+    v->data = NULL;
+  }
+  /* TYPE_FN lifetime is managed by registry/fn_table */
+  v->type = TYPE_NIL;
 }
 
 Value val_clone(const Value *v) {
@@ -221,6 +226,8 @@ Value val_clone(const Value *v) {
   Value c = *v;
   if ((v->type == TYPE_STR || v->type == TYPE_REF || v->type == TYPE_PTR) && v->data)
     c.data = buddy_strdup((char *)v->data);
+  if (v->type == TYPE_ARR && v->data)
+    arr_ref((DynArray *)v->data);
   if (v->type == TYPE_ERR && v->err_msg)
     c.err_msg = buddy_strdup(v->err_msg);
   return c;
