@@ -8,6 +8,10 @@
 #include "include/nexs_common.h"
 #include "include/nexs_utils.h"
 
+#ifdef NEXS_BAREMETAL
+#include "../hal/include/nexs_hal.h"
+#endif
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -108,17 +112,25 @@ void buddy_free(void *ptr) {
    ========================================================= */
 
 void die(const char *msg) {
-  fprintf(stderr, "\033[1;31m[NEXS FATAL]\033[0m %s\n", msg);
+  nexs_fprintf(NULL, "\033[1;31m[NEXS FATAL]\033[0m %s\n", msg);
+#ifdef NEXS_BAREMETAL
+  nexs_hal_halt();
+#else
   exit(EXIT_FAILURE);
+#endif
 }
 
 void nexs_warn(const char *fmt, ...) {
   va_list ap;
-  fprintf(stderr, "\033[1;33m[NEXS WARN]\033[0m ");
+  nexs_fprintf(NULL, "\033[1;33m[NEXS WARN]\033[0m ");
   va_start(ap, fmt);
-  vfprintf(stderr, fmt, ap);
+  /* nexs_fprintf doesn't have a va_list version yet, but we can just use the buffer trick or add one.
+   * For now, let's just use it as is or implement a vsnprintf version.
+   */
+  char buf[1024];
+  vsnprintf(buf, sizeof(buf), fmt, ap);
+  nexs_fprintf(NULL, "%s\n", buf);
   va_end(ap);
-  fputc('\n', stderr);
 }
 
 /* =========================================================
@@ -156,6 +168,6 @@ void buddy_dump_stats(FILE *out) {
     else
       split_blocks++;
   }
-  fprintf(out, "[Buddy] free=%zu used=%zu split=%zu pool=%dKB\n",
+  nexs_fprintf(out, "[Buddy] free=%zu used=%zu split=%zu pool=%dKB\n",
           free_blocks, used_blocks, split_blocks, POOL_SIZE / 1024);
 }

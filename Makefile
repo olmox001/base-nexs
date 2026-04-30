@@ -200,7 +200,7 @@ baremetal-arm64: $(TARGET)
 			-T hal/arm64/nexs.ld \
 			$(INCS) -Ikernel/include -Ihal/include \
 			$(BAREMETAL_SRCS) $(KERNEL_SRCS) $(ARM64_HAL_SRCS) \
-			-o build/baremetal-arm64/nexs.elf; \
+			-o build/baremetal-arm64/nexs.elf && \
 		echo "Cross-compiled -> build/baremetal-arm64/nexs.elf"; \
 	else \
 		echo "aarch64-none-elf-gcc not found, skipping baremetal-arm64"; \
@@ -217,7 +217,7 @@ baremetal-amd64: $(TARGET)
 			-T hal/amd64/nexs.ld \
 			$(INCS) -Ikernel/include -Ihal/include \
 			$(BAREMETAL_SRCS) $(KERNEL_SRCS) $(AMD64_HAL_SRCS) \
-			-o build/baremetal-amd64/nexs.elf; \
+			-o build/baremetal-amd64/nexs.elf && \
 		echo "[+] Baremetal ELF creato con strap header."; \
 	else \
 		echo "x86_64-elf-gcc not found, skipping baremetal-amd64"; \

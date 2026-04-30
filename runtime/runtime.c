@@ -24,8 +24,12 @@ extern void builtins_register_all(void);
    VERSION
    ========================================================= */
 
+#include "../core/include/nexs_utils.h"
+#include "../core/include/nexs_value.h"
+#include "../core/include/nexs_common.h"
+
 void nexs_print_version(FILE *out) {
-  fprintf(out,
+  nexs_fprintf(out,
           "\033[1;36mNEXS\033[0m v%d.%d.%d — Buddy/Registry Runtime + Plan 9 Syscalls\n"
           "  Pool: %dKB  MinBlock: %dB  FnTable: %d slots\n"
           "  Syscalls: open create close read write seek stat pipe rfork exec\n"

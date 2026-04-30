@@ -35,7 +35,7 @@ fn pm_kill(pid) {
 }
 
 fn pm_ps() {
-  primo_pid = 100
+  primo_pid = 1
   ultimo_pid = (reg /sys/pm/next_pid) - 1
   out "  === Tabella Processi (PID " + str(primo_pid) + ".." + str(ultimo_pid) + ") ==="
   pid = primo_pid

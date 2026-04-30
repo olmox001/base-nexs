@@ -7,3 +7,6 @@
 test_out.txt
 *.o
 /hal/amd64/.boot
+/RELEASE
+/build
+nexs

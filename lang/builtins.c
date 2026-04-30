@@ -370,6 +370,14 @@ static Value builtin_keys(Value *args, int n) {
   return v;
 }
 
+static Value builtin_print_reg(Value *args, int n) {
+  if (n < 1) return val_err(4, "print_reg: requires a path string");
+  if (args[0].type != TYPE_STR || !args[0].data)
+    return val_err(4, "print_reg: argument must be a string path");
+  reg_ls_recursive((char *)args[0].data, NULL, 0);
+  return val_nil();
+}
+
 /*
  * reg_get(path) → value   (function-call form of `reg /path`)
  * Useful when path is a dynamic string: reg_get("/sys/pm/proc/" + str(pid))
@@ -635,6 +643,8 @@ void builtins_register_all(void) {
     SIG("arr_del(arr, idx int)") "nil");
   register_builtin_sig("keys",     builtin_keys,
     SIG("keys(path str)") "arr");
+  register_builtin_sig("print_reg", builtin_print_reg,
+    SIG("print_reg(path str)") "nil");
   register_builtin_sig("lines_of",  builtin_lines_of,
     SIG("lines_of(s str)") "arr");
 
