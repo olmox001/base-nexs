@@ -184,3 +184,4 @@ _stack_mem:
     .space 0x8000          /* 32 KB stack */
 .global _stack_top
 _stack_top:
+

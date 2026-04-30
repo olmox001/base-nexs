@@ -42,3 +42,4 @@ SECTIONS {
     . += 0x4000;       /* 16 KB stack */
     _stack_top = .;
 }
+
