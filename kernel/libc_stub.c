@@ -8,6 +8,8 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <poll.h>
+#include <stdarg.h>
+
 /* Nexs includes for actual implementations */
 #include "nexs_alloc.h"
 #include "nexs_hal.h"
@@ -59,6 +61,16 @@ int vsnprintf(char *str, size_t size, const char *format, va_list ap) {
     while (*format && remain > 1) {
         if (*format == '%') {
             format++;
+            int left_align = 0;
+            int width = 0;
+            if (*format == '-') {
+                left_align = 1;
+                format++;
+            }
+            while (*format >= '0' && *format <= '9') {
+                width = width * 10 + (*format - '0');
+                format++;
+            }
             int is_long_long = 0;
             if (*format == 'l') {
                 format++;
@@ -73,6 +85,12 @@ int vsnprintf(char *str, size_t size, const char *format, va_list ap) {
                 } else {
                     print_int(&out, &remain, va_arg(ap, int), 10);
                 }
+            } else if (*format == 'u') {
+                if (is_long_long) {
+                    print_uint(&out, &remain, va_arg(ap, unsigned long long), 10);
+                } else {
+                    print_uint(&out, &remain, va_arg(ap, unsigned int), 10);
+                }
             } else if (*format == 'x') {
                 if (is_long_long) {
                     print_uint(&out, &remain, va_arg(ap, unsigned long long), 16);
@@ -82,7 +100,21 @@ int vsnprintf(char *str, size_t size, const char *format, va_list ap) {
             } else if (*format == 's') {
                 const char *s = va_arg(ap, const char *);
                 if (!s) s = "(null)";
-                while (*s && remain > 1) { *out++ = *s++; remain--; }
+                size_t len = 0;
+                while (s[len]) len++;
+                if (!left_align) {
+                    while (width > (int)len && remain > 1) {
+                        *out++ = ' '; remain--; width--;
+                    }
+                }
+                while (*s && remain > 1) {
+                    *out++ = *s++; remain--; width--;
+                }
+                if (left_align) {
+                    while (width > 0 && remain > 1) {
+                        *out++ = ' '; remain--; width--;
+                    }
+                }
             } else if (*format == 'c') {
                 *out++ = (char)va_arg(ap, int); remain--;
             } else {
@@ -193,7 +225,17 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream) {
     (void)ptr; (void)size; (void)nmemb; (void)stream;
     return 0;
 }
-size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream) { (void)ptr; (void)size; (void)nmemb; (void)stream; return 0; }
+size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream) {
+    (void)stream;
+    size_t total = size * nmemb;
+    if (total == 0 || !ptr) return 0;
+    const char *cptr = (const char *)ptr;
+    for (size_t i = 0; i < total; i++) {
+        char s[2] = {cptr[i], 0};
+        nexs_hal_print(s);
+    }
+    return nmemb;
+}
 int fseek(FILE *stream, long offset, int whence) { (void)stream; (void)offset; (void)whence; return -1; }
 long ftell(FILE *stream) { (void)stream; return -1; }
 int remove(const char *filename) { (void)filename; return -1; }
@@ -378,8 +420,33 @@ int toupper(int c) { return (c >= 'a' && c <= 'z') ? c - 32 : c; }
    POSIX Stubs
    ========================================================= */
 
-ssize_t read(int fd, void *buf, size_t count) { (void)fd; (void)buf; (void)count; return -1; }
-ssize_t write(int fd, const void *buf, size_t count) { (void)fd; (void)buf; (void)count; return -1; }
+ssize_t read(int fd, void *buf, size_t count) {
+    if (fd == STDIN_FILENO) {
+        if (count == 0 || !buf) return 0;
+        char *cptr = (char *)buf;
+        int ch = -1;
+        while (ch == -1) {
+            ch = nexs_hal_getc();
+        }
+        cptr[0] = (char)ch;
+        return 1;
+    }
+    (void)buf; (void)count;
+    return -1;
+}
+ssize_t write(int fd, const void *buf, size_t count) {
+    if (fd == STDOUT_FILENO || fd == STDERR_FILENO) {
+        if (!buf || count == 0) return 0;
+        const char *cbuf = (const char *)buf;
+        for (size_t i = 0; i < count; i++) {
+            if (cbuf[i] == '\n') nexs_hal_putc('\r');
+            nexs_hal_putc(cbuf[i]);
+        }
+        return (ssize_t)count;
+    }
+    (void)buf; (void)count;
+    return -1;
+}
 int close(int fd) { (void)fd; return -1; }
 int pipe(int pipefd[2]) { (void)pipefd; return -1; }
 int isatty(int fd) { (void)fd; return 0; }

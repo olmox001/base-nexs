@@ -1,9 +1,9 @@
 /*
  * kernel/sched.c — Round-robin scheduler with 8 priority levels
  * ===============================================================
- * STEP 07: sched_tick() called from timer IRQ → context switch.
+ * sched_tick() called from timer IRQ → context switch.
  *
- * Data structure: 8 circular doubly-linked lists (one per priority level).
+ * Data structure: 8 singly-linked lists with O(1) tail tracking.
  * sched_pick_next(): O(1) — picks head of highest non-empty level.
  * All scheduler state published to /sys/sched/ in the registry.
  */
@@ -16,8 +16,9 @@
 #include <string.h>
 #include <stdio.h>
 
-/* ── Priority queues (circular singly-linked) ─────────────── */
+/* ── Priority queues (singly-linked with O(1) tail tracking) ─ */
 static NexsProc *s_queues[SCHED_LEVELS];  /* head of each level */
+static NexsProc *s_tails[SCHED_LEVELS];   /* tail of each level */
 static int       s_counts[SCHED_LEVELS];
 static uint64_t  s_tick = 0;
 static int       s_total = 0;
@@ -41,6 +42,7 @@ static void publish_state(void) {
 
 void sched_init(void) {
     memset(s_queues, 0, sizeof(s_queues));
+    memset(s_tails,  0, sizeof(s_tails));
     memset(s_counts, 0, sizeof(s_counts));
     s_tick  = 0;
     s_total = 0;
@@ -54,8 +56,10 @@ void sched_init(void) {
 void sched_add(NexsProc *p) {
     if (!p) return;
     int lvl = prio_level(p);
-    p->next = s_queues[lvl];
-    s_queues[lvl] = p;
+    p->next = NULL;
+    if (s_tails[lvl]) s_tails[lvl]->next = p;
+    else s_queues[lvl] = p;
+    s_tails[lvl] = p;
     s_counts[lvl]++;
     s_total++;
     p->state = PROC_READY;
@@ -64,16 +68,20 @@ void sched_add(NexsProc *p) {
 void sched_remove(NexsProc *p) {
     if (!p) return;
     int lvl = prio_level(p);
-    NexsProc **cur = &s_queues[lvl];
-    while (*cur) {
-        if (*cur == p) {
-            *cur = p->next;
+    NexsProc *prev = NULL;
+    NexsProc *cur  = s_queues[lvl];
+    while (cur) {
+        if (cur == p) {
+            if (prev) prev->next = p->next;
+            else s_queues[lvl] = p->next;
+            if (s_tails[lvl] == p) s_tails[lvl] = prev;
             p->next = NULL;
             s_counts[lvl]--;
             s_total--;
             return;
         }
-        cur = &(*cur)->next;
+        prev = cur;
+        cur  = cur->next;
     }
 }
 
@@ -81,17 +89,14 @@ NexsProc *sched_pick_next(void) {
     for (int lvl = 0; lvl < SCHED_LEVELS; lvl++) {
         if (s_queues[lvl] && s_queues[lvl]->state == PROC_READY) {
             NexsProc *p = s_queues[lvl];
-            /* Rotate queue: move head to tail */
+            /* Dequeue head */
             s_queues[lvl] = p->next;
+            if (!s_queues[lvl]) s_tails[lvl] = NULL;
+            /* Append to tail (round-robin rotation) */
             p->next = NULL;
-            /* Re-insert at tail */
-            if (!s_queues[lvl]) {
-                s_queues[lvl] = p;
-            } else {
-                NexsProc *tail = s_queues[lvl];
-                while (tail->next) tail = tail->next;
-                tail->next = p;
-            }
+            if (s_tails[lvl]) s_tails[lvl]->next = p;
+            else s_queues[lvl] = p;
+            s_tails[lvl] = p;
             return p;
         }
     }

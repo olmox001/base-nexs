@@ -1,0 +1,45 @@
+fn hw_dt_init() {
+  out "[HW] Populating device tree from HAL..."
+
+  # CPU — read from HAL if available, else use defaults
+  cpu_vendor = reg /hal/acpi/cpu_vendor
+  if cpu_vendor == "" {
+    cpu_vendor = "Generic x86-64"
+  }
+  reg /sys/hw/cpu/vendor    = cpu_vendor
+  reg /sys/hw/cpu/model     = "NEXS Core"
+  reg /sys/hw/cpu/cores     = 1
+  reg /sys/hw/cpu/frequency = 0
+
+  # Memory — read from HAL FDT or ACPI
+  mem_base = reg /hal/fdt/ram_base
+  mem_size = reg /hal/fdt/ram_size
+  if mem_base == "" {
+    mem_base = "0x00100000"
+  }
+  if mem_size == "" {
+    mem_size = 4096
+  }
+  reg /sys/hw/mem/base      = mem_base
+  reg /sys/hw/mem/size      = mem_size
+  reg /sys/hw/mem/pool_size = 4096
+
+  # UART
+  uart_base = reg /hal/apic/lapic_base
+  reg /sys/hw/dev/com1/io_port = "0x3F8"
+  reg /sys/hw/dev/com1/status  = "active"
+
+  # PCI placeholder
+  reg_set("/sys/hw/bus/pci/00:00.0/device", "Host Bridge")
+  reg_set("/sys/hw/bus/pci/00:01.0/device", "VGA")
+  reg_set("/sys/hw/bus/pci/00:02.0/device", "Ethernet")
+  reg_set("/sys/hw/bus/pci/00:03.0/device", "Storage")
+
+  out "[HW] Device tree populated."
+}
+
+fn hw_dt_dump() {
+  out "=== NEXS DEVICE TREE ==="
+  out "CPU: " + reg /sys/hw/cpu/vendor
+  out "UART: COM1 at " + reg /sys/hw/dev/com1/io_port
+}

@@ -1,7 +1,7 @@
 /*
  * kernel/proc.c — Process create/destroy/block
  * ===============================================
- * STEP 07: TCB management. State lives in /proc/<pid>/ registry.
+ * TCB management. State lives in /proc/<pid>/ registry.
  */
 
 #include "include/nexs_proc.h"
@@ -35,26 +35,26 @@ NexsProc *proc_create(const char *name, void (*entry)(void *), void *arg) {
 
     /* Allocate context + stack */
 #ifdef __aarch64__
-    typedef struct { uint64_t x19,x20,x21,x22,x23,x24,x25,x26,x27,x28,x29,x30,sp; } Ctx;
-#else
-    typedef struct { uint64_t rbx,rbp,r12,r13,r14,r15,rsp,rip; } Ctx;
-#endif
-    Ctx *ctx = (Ctx *)nexs_alloc(sizeof(Ctx));
+    Ctx_arm64 *ctx = (Ctx_arm64 *)nexs_alloc(sizeof(Ctx_arm64));
     if (!ctx) { nexs_free(p, sizeof(*p)); return NULL; }
-    memset(ctx, 0, sizeof(Ctx));
-
+    memset(ctx, 0, sizeof(Ctx_arm64));
     uint8_t *stack = (uint8_t *)nexs_alloc(PROC_STACK_SIZE);
-    if (!stack) { nexs_free(ctx, sizeof(*ctx)); nexs_free(p, sizeof(*p)); return NULL; }
-
-    /* Set up initial stack frame so ctx_switch returns into entry(arg) */
+    if (!stack) { nexs_free(ctx, sizeof(Ctx_arm64)); nexs_free(p, sizeof(*p)); return NULL; }
     uint64_t *sp = (uint64_t *)(stack + PROC_STACK_SIZE);
-    *--sp = (uint64_t)arg;     /* pushed as if by call convention */
-    *--sp = (uint64_t)entry;   /* return address = entry */
-#ifdef __aarch64__
+    *--sp = (uint64_t)arg;
+    *--sp = (uint64_t)entry;
     ctx->sp  = (uint64_t)sp;
     ctx->x30 = (uint64_t)entry;
     ctx->x19 = (uint64_t)arg;
 #else
+    Ctx_amd64 *ctx = (Ctx_amd64 *)nexs_alloc(sizeof(Ctx_amd64));
+    if (!ctx) { nexs_free(p, sizeof(*p)); return NULL; }
+    memset(ctx, 0, sizeof(Ctx_amd64));
+    uint8_t *stack = (uint8_t *)nexs_alloc(PROC_STACK_SIZE);
+    if (!stack) { nexs_free(ctx, sizeof(Ctx_amd64)); nexs_free(p, sizeof(*p)); return NULL; }
+    uint64_t *sp = (uint64_t *)(stack + PROC_STACK_SIZE);
+    *--sp = (uint64_t)arg;
+    *--sp = (uint64_t)entry;
     ctx->rsp = (uint64_t)sp;
     ctx->rip = (uint64_t)entry;
 #endif
@@ -94,7 +94,6 @@ NexsProc *proc_by_pid(uint32_t pid) {
     RegKey *k = reg_lookup(buf);
     if (!k) return NULL;
     /* Walk the scheduler queues (slow, only for rare lookups) */
-    extern NexsProc *sched_find(uint32_t pid);
     return sched_find(pid);
 }
 
@@ -111,9 +110,7 @@ void proc_block(const char *wait_path) {
 }
 
 void proc_unblock_by_msg(const char *ipc_path) {
-    /* Scan registry for /proc/[pid]/wait_path matching ipc_path */
-    /* For now: linear scan via sched queues */
-    extern void sched_unblock_waiting(const char *path);
+    /* Linear scan via sched queues for process waiting on ipc_path */
     sched_unblock_waiting(ipc_path);
 }
 

@@ -1,7 +1,7 @@
 /*
  * hal/arm64/timer.c — ARM Generic Timer (EL1 virtual timer)
  * ===========================================================
- * STEP 05: ARM generic timer init + 1ms periodic tick.
+ * ARM generic timer init + 1ms periodic tick.
  *
  * Uses CNTV_CTL_EL0 (virtual timer control) and CNTV_TVAL_EL0
  * (countdown value). IRQ 27 = EL1 virtual timer PPI (QEMU virt).

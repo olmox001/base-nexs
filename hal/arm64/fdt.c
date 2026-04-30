@@ -1,7 +1,7 @@
 /*
  * hal/arm64/fdt.c — Flattened Device Tree (FDT) parser
  * =======================================================
- * STEP 06: Parse FDT blob passed by QEMU/U-Boot in x0 at boot.
+ * Parses FDT blob passed by QEMU/U-Boot in x0 at boot.
  *
  * boot.S must save x0 (FDT pointer) before clobbering registers
  * and pass it to nexs_hal_init() or directly to fdt_init().

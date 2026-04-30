@@ -61,10 +61,31 @@ extern "C" {
    BUDDY ALLOCATOR
    ========================================================= */
 
-#define POOL_SIZE  (4 * 1024 * 1024)       /* 4 MB */
-#define MIN_BLOCK  32                      /* minimum block 32 bytes */
-#define NUM_LEAVES (POOL_SIZE / MIN_BLOCK) /* 131072 leaves */
-#define TREE_NODES (2 * NUM_LEAVES - 1)   /* total nodes */
+#if defined(POOL_16MB)
+  #define POOL_SIZE (16 * 1024 * 1024)
+  #define MIN_BLOCK 128
+#elif defined(POOL_4MB)
+  #define POOL_SIZE (4 * 1024 * 1024)
+  #define MIN_BLOCK 32
+#elif defined(POOL_512KB)
+  #define POOL_SIZE (512 * 1024)
+  #define MIN_BLOCK 16
+#elif defined(POOL_32KB)
+  #define POOL_SIZE (32 * 1024)
+  #define MIN_BLOCK 16
+#elif defined(POOL_16KB)
+  #define POOL_SIZE (16 * 1024)
+  #define MIN_BLOCK 16
+#elif defined(POOL_4KB)
+  #define POOL_SIZE (4 * 1024)
+  #define MIN_BLOCK 16
+#else
+  #define POOL_SIZE (4 * 1024 * 1024)
+  #define MIN_BLOCK 32
+#endif
+
+#define NUM_LEAVES (POOL_SIZE / MIN_BLOCK)
+#define TREE_NODES (2 * NUM_LEAVES - 1)
 
 /* =========================================================
    PAGE ALLOCATOR

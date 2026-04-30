@@ -1,7 +1,7 @@
 /*
  * hal/arm64/gic.c — GICv2 interrupt controller (QEMU virt)
  * ===========================================================
- * STEP 05: GIC init + IRQ enable/disable + EOI.
+ * GIC init + IRQ enable/disable + EOI.
  *
  * QEMU virt machine defaults:
  *   GICD base: 0x08000000

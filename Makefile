@@ -18,12 +18,13 @@ INCS = \
   -Icompiler/include \
   -Ihal/include
 
-# Production flags
-CFLAGS = -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter $(INCS)
+# Production flags & Memory Pool Profiles (4KB, 16KB, 32KB, 512KB, 4MB, 16MB)
+POOL_PROFILE ?= 16MB
+CFLAGS = -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter -DPOOL_$(POOL_PROFILE) $(INCS)
 
 # Debug flags
 DBGFLAGS = -O0 -g -std=c11 -Wall -Wextra -Wno-unused-parameter \
-           -fsanitize=address,undefined $(INCS)
+           -fsanitize=address,undefined -DPOOL_$(POOL_PROFILE) $(INCS)
 
 # All runtime source files (no src/)
 SRCS = \
@@ -42,6 +43,7 @@ SRCS = \
   sys/sysio.c \
   sys/sysproc.c \
   runtime/runtime.c \
+  runtime/nexs_line.c \
   runtime/main.c \
   compiler/codegen.c \
   compiler/driver.c \
@@ -66,6 +68,7 @@ BAREMETAL_SRCS = \
   sys/sysio.c \
   sys/sysproc.c \
   runtime/runtime.c \
+  runtime/nexs_line.c \
   runtime/main.c \
   compiler/codegen.c \
   compiler/driver.c \
@@ -167,7 +170,7 @@ compile-test: $(TARGET)
 linux-arm64: $(TARGET)
 	@if command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then \
 	  mkdir -p build/linux-arm64 && \
-	  aarch64-linux-gnu-gcc -march=armv8-a -DNEXS_LINUX \
+	  aarch64-linux-gnu-gcc -march=armv8-a -DNEXS_LINUX -DPOOL_$(POOL_PROFILE) \
 	    -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
 	    $(INCS) $(SRCS) -o build/linux-arm64/nexs; \
 	  echo "Cross-compiled -> build/linux-arm64/nexs"; \
@@ -212,7 +215,7 @@ AMD64_INCS = $(INCS) -Ikernel/include -Ihal/include
 baremetal-arm64: $(TARGET)
 	@if command -v aarch64-none-elf-gcc >/dev/null 2>&1; then \
 	  mkdir -p build/baremetal-arm64 && \
-	  aarch64-none-elf-gcc -march=armv8-a -DNEXS_BAREMETAL \
+	  aarch64-none-elf-gcc -march=armv8-a -DNEXS_BAREMETAL -DPOOL_$(POOL_PROFILE) \
 	    -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
 	    -nostdlib -nostartfiles -ffreestanding \
 	    -T hal/arm64/nexs.ld \
@@ -227,7 +230,7 @@ baremetal-arm64: $(TARGET)
 baremetal-amd64: $(TARGET)
 	@if command -v x86_64-elf-gcc >/dev/null 2>&1; then \
 	  mkdir -p build/baremetal-amd64 && \
-	  x86_64-elf-gcc -march=x86-64 -mno-red-zone -DNEXS_BAREMETAL \
+	  x86_64-elf-gcc -march=x86-64 -mno-red-zone -DNEXS_BAREMETAL -DPOOL_$(POOL_PROFILE) \
 	    -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
 	    -nostdlib -nostartfiles -ffreestanding \
 	    -T hal/amd64/nexs.ld \

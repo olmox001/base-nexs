@@ -57,9 +57,7 @@ typedef struct {
     uint64_t base;
 } __attribute__((packed)) Gdtr;
 
-/* ── Storage ──────────────────────────────────────────────── */
-static GdtEntry s_gdt[5];
-static TssDesc  s_tss_desc;
+/* Storage */
 static Tss64    s_tss;
 
 /* All GDT + TSS descriptor in one flat array for lgdt */

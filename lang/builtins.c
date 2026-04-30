@@ -411,6 +411,28 @@ static Value nexs_builtin_deref(Value *args, int n) {
   return reg_get_deref((char *)args[0].data);
 }
 
+static Value builtin_eval_builtin(Value *args, int n) {
+  if (n < 1) return val_err(4, "eval: requires a string argument");
+  if (args[0].type != TYPE_STR || !args[0].data)
+    return val_err(4, "eval: argument must be a string");
+
+  const char *src = (const char *)args[0].data;
+  EvalCtx local_ctx;
+  EvalCtx *ctx = nexs_g_eval_ctx;
+  if (!ctx) {
+    eval_ctx_init(&local_ctx);
+    local_ctx.out = NULL;
+    ctx = &local_ctx;
+  }
+
+  EvalResult r = eval_str(ctx, src);
+  if (r.sig == CTRL_ERR) {
+    val_free(&r.ret_val);
+    return val_err(4, "eval: execution failed");
+  }
+  return r.ret_val;
+}
+
 /* =========================================================
    REGISTRATION
    ========================================================= */
@@ -434,6 +456,9 @@ void builtins_register_all(void) {
     SIG("buddy_stats()") "nil");
   register_builtin_sig("errstr",      builtin_errstr,
     SIG("errstr()") "str");
+  register_builtin_sig("eval",        builtin_eval_builtin,
+    SIG("eval(src str)") "value");
+
 
   /* String manipulation */
   register_builtin_sig("substr",   builtin_substr,

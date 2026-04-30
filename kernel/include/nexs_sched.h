@@ -14,5 +14,7 @@ void      sched_remove(NexsProc *p);
 void      sched_tick(void);             /* called from timer IRQ */
 NexsProc *sched_pick_next(void);        /* O(1) */
 void      sched_yield(void);
+NexsProc *sched_find(uint32_t pid);
+void      sched_unblock_waiting(const char *path);
 
 #endif

@@ -10,6 +10,8 @@
  */
 
 #include "include/nexs_runtime.h"
+#include "include/nexs_line.h"
+
 #include "../core/include/nexs_alloc.h"
 #include "../core/include/nexs_value.h"
 #include "../core/include/nexs_common.h"
@@ -50,15 +52,18 @@ void nexs_repl(void) {
           "                  :fn  :ptr /path  :ipc /path  :ast\n"
           "Syntax: x=42 | arr[0]=10 | fn add(a b){ret a+b} | out add(1 2)\n\n");
 
+  NxLineEditor le;
+  nexs_line_init(&le);
   char line[1024];
   while (1) {
-    fprintf(stdout, "\033[1;32mnexs\033[0m> ");
-    fflush(stdout);
-    if (!fgets(line, sizeof(line), stdin)) break;
+    if (nexs_line_read(&le, "\033[1;32mnexs\033[0m> ", line, sizeof(line)) < 0) break;
     nexs_trim(line);
     if (strlen(line) == 0) continue;
 
+
+    nexs_line_add_history(&le, line);
     if (strcmp(line, ":exit") == 0 || strcmp(line, ":q") == 0) break;
+
 
     if (strcmp(line, ":version") == 0) { nexs_print_version(stdout); continue; }
 
@@ -257,6 +262,7 @@ int main(int argc, char *argv[]) {
             "  -h, --help                     Show this help\n"
             "  <file.nx>                      Run a NEXS source file\n"
             "  --compile <file.nx>            Compile file to native binary\n"
+            "  --standalone-program <file.nx> Alias for --compile (bundled deps on by default)\n"
             "    --target <target>            Compilation target:\n"
             "      linux-amd64  linux-arm64\n"
             "      macos-amd64  macos-arm64  plan9-amd64\n"
@@ -269,8 +275,8 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  /* --compile <file.nx> [--target <t>] [-o <out>] [--no-dep] [--dep-only] */
-  if (strcmp(argv[1], "--compile") == 0) {
+  /* --compile / --standalone-program <file.nx> [--target <t>] [-o <out>] [--no-dep] [--dep-only] */
+  if (strcmp(argv[1], "--compile") == 0 || strcmp(argv[1], "--standalone-program") == 0) {
     if (argc < 3) {
       fprintf(stderr, "nexs: --compile requires a source file\n");
       return 1;

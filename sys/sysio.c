@@ -14,6 +14,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <termios.h>
+#include "include/nexs_keymap.h"
+
 
 /* =========================================================
    GLOBAL STATE
@@ -431,6 +433,47 @@ static Value bi_rawoff(Value *args, int n) {
   return val_int(0);
 }
 
+static char s_key_layout[16] = "us";
+
+static Value bi_set_layout(Value *args, int n) {
+    if (n < 1 || args[0].type != TYPE_STR || !args[0].data)
+        return val_err(4, "set_layout: requires string layout name");
+    strncpy(s_key_layout, (char *)args[0].data, sizeof(s_key_layout) - 1);
+    s_key_layout[sizeof(s_key_layout) - 1] = '\0';
+    return val_int(0);
+}
+
+static Value bi_readkey(Value *args, int n) {
+    (void)args; (void)n;
+    unsigned char c;
+    ssize_t r = read(STDIN_FILENO, &c, 1);
+    if (r <= 0) return val_str("");
+
+    if (c == 27) { // ESC
+        unsigned char c2, c3, c4;
+        if (read(STDIN_FILENO, &c2, 1) <= 0) return val_str("ESC");
+        if (c2 == '[') {
+            if (read(STDIN_FILENO, &c3, 1) <= 0) return val_str("ESC");
+            if (c3 == 'A') return val_str("UP");
+            if (c3 == 'B') return val_str("DOWN");
+            if (c3 == 'C') return val_str("RIGHT");
+            if (c3 == 'D') return val_str("LEFT");
+            if (c3 == '3') {
+                if (read(STDIN_FILENO, &c4, 1) <= 0) return val_str("ESC");
+                if (c4 == '~') return val_str("DELETE");
+            }
+        }
+        return val_str("ESC");
+    }
+
+    if (c == 127 || c == 8) return val_str("BACKSPACE");
+    if (c == 10 || c == 13) return val_str("ENTER");
+    if (c == 24) return val_str("CTRL_X");
+
+    const char *translated = translate_key_layout(s_key_layout, (char)c);
+    return val_str((char *)translated);
+}
+
 static Value bi_readbyte(Value *args, int n) {
   (void)args; (void)n;
   unsigned char c;
@@ -503,6 +546,10 @@ void sysio_register_builtins(void) {
     SIG("readbyte()") "int");
   fn_register_builtin_sig("chr",      bi_chr,
     SIG("chr(codepoint int)") "str");
+  fn_register_builtin_sig("set_layout", bi_set_layout,
+    SIG("set_layout(name str)") "int");
+  fn_register_builtin_sig("readkey",  bi_readkey,
+    SIG("readkey()") "str");
 
   /* Store actual fn_table indices in /sys/<name> for val_print and eval resolution */
   {
@@ -514,6 +561,7 @@ void sysio_register_builtins(void) {
       {"mount",bi_mount},{"bind",bi_bind},{"unmount",bi_unmount},
       {"rawon",bi_rawon},{"rawoff",bi_rawoff},
       {"readbyte",bi_readbyte},{"chr",bi_chr},
+      {"set_layout",bi_set_layout},{"readkey",bi_readkey},
     };
     char path[REG_PATH_MAX];
     for (int _i = 0; _i < (int)(sizeof(t)/sizeof(t[0])); _i++) {

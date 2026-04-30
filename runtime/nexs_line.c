@@ -13,18 +13,29 @@
  */
 
 #include "include/nexs_line.h"
-
 #include <ctype.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifndef NEXS_BAREMETAL
 #include <termios.h>
 #include <unistd.h>
+#else
+#include "../../hal/include/nexs_hal.h"
+#include "../../hal/include/nexs_timer.h"
+#define STDIN_FILENO 0
+#define STDOUT_FILENO 1
+#define isatty(fd) (1)
+#define write(fd, buf, n)                                                      \
+  ((fd) == STDOUT_FILENO ? (nexs_hal_print(buf), (long)(n)) : (long)(-1))
+#endif
 
 /* =========================================================
    INTERNAL: TERMIOS STATE
    ========================================================= */
 
+#ifndef NEXS_BAREMETAL
 static struct termios s_orig_termios;
 static int s_raw_active = 0;
 
@@ -37,13 +48,9 @@ int nexs_line_raw_on(void) {
     return -1;
 
   struct termios raw = s_orig_termios;
-  /* Input flags: no ICRNL (CR→NL), no IXON (XON/XOFF) */
   raw.c_iflag &= ~(tcflag_t)(ICRNL | IXON | BRKINT | ISTRIP | INPCK);
-  /* Output flags: keep OPOST so \n still moves to next line */
-  /* Local flags: no echo, no canonical, no signals, no IEXTEN */
   raw.c_lflag &= ~(tcflag_t)(ECHO | ICANON | IEXTEN | ISIG);
   raw.c_cflag |= CS8;
-  /* Read returns after 1 byte; no timeout */
   raw.c_cc[VMIN] = 1;
   raw.c_cc[VTIME] = 0;
 
@@ -60,11 +67,6 @@ void nexs_line_raw_off(void) {
   s_raw_active = 0;
 }
 
-/* =========================================================
-   INTERNAL: LOW-LEVEL READ
-   ========================================================= */
-
-/* Read one byte, returns -1 on EOF/error */
 static int read_byte(void) {
   unsigned char c;
   ssize_t n = read(STDIN_FILENO, &c, 1);
@@ -73,7 +75,6 @@ static int read_byte(void) {
   return (int)c;
 }
 
-/* Read one byte with timeout (~100 ms) for escape sequences */
 static int read_byte_timeout(void) {
   struct termios tmp;
   tcgetattr(STDIN_FILENO, &tmp);
@@ -85,6 +86,28 @@ static int read_byte_timeout(void) {
   tcsetattr(STDIN_FILENO, TCSANOW, &tmp);
   return c;
 }
+#else
+int nexs_line_raw_on(void) { return 0; }
+void nexs_line_raw_off(void) {}
+
+static int read_byte(void) {
+  int c = -1;
+  while (c == -1) {
+    c = nexs_hal_getc();
+  }
+  return c;
+}
+
+static int read_byte_timeout(void) {
+  for (int i = 0; i < 100; i++) {
+    int c = nexs_hal_getc();
+    if (c != -1)
+      return c;
+    hal_timer_sleep_ms(1);
+  }
+  return -1;
+}
+#endif
 
 /* =========================================================
    UTF-8 HELPERS

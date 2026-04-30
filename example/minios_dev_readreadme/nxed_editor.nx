@@ -1,0 +1,299 @@
+# ===================================================================
+# NXED v13 (VFS + Multilingual Layouts)
+# ===================================================================
+
+fn get_ln(y) {
+  l = reg_get("/sys/ed/buf/" + str(y))
+  if type(l) == "err" { ret "" }
+  ret l
+}
+
+fn nxed_start() {
+  rawon()
+  O = 1
+  I = 0
+
+  
+  ESC  = chr(27)
+
+  reg_set("/sys/ed/buf/0", "")
+
+  cur_x = 0
+  cur_y = 0
+  view_y = 0
+  SCR_H = 12
+  MAX_Y = 0
+
+  # Nascondiamo il cursore hardware
+  write(O, ESC + "[?25l")
+
+  loop {
+    # --- RENDERER VIM-STYLE ---
+    write(O, ESC + "[2J" + ESC + "[H")
+    write(O, ESC + "[7m NXED v13 (VFS) | L:" + str(cur_y) + " C:" + str(cur_x) + " | CTRL+X: Menu " + ESC + "[0m\n")
+    
+    i = view_y
+    limit = view_y + SCR_H
+    loop {
+      if i >= limit { break }
+      txt = get_ln(i)
+      
+      if i == cur_y {
+        l = len(txt)
+        if cur_x >= l {
+          write(O, "> " + txt + ESC + "[7m " + ESC + "[0m\n")
+        } else {
+          p1 = substr(txt 0 cur_x)
+          cc = substr(txt cur_x 1)
+          p2 = ""
+          rem = l - cur_x - 1
+          if rem > 0 { p2 = substr(txt cur_x + 1 rem) }
+          write(O, "> " + p1 + ESC + "[7m" + cc + ESC + "[0m" + p2 + "\n")
+        }
+      } else {
+        write(O, "  " + txt + "\n")
+      }
+      i = i + 1
+    }
+
+    # --- INPUT ---
+    ch = readkey()
+    if ch == "" { continue }
+    
+    # 0. MENU (CTRL_X)
+    if ch == "CTRL_X" {
+      write(O, ESC + "[2J" + ESC + "[H")
+      write(O, ESC + "[7m --- MENU DI SISTEMA NEXS --- " + ESC + "[0m\n")
+      write(O, " q : Esci senza salvare\n")
+      write(O, " s : Salva nel VFS locale\n")
+      write(O, " e : Esporta su disco Host\n")
+      write(O, " i : Importa da disco Host\n")
+      write(O, " k : Cambia Layout Tastiera\n")
+      write(O, " c : Annulla e continua\n\n> ")
+      
+      opt_k = readkey()
+      
+      if opt_k == "q" {
+        write(O, ESC + "[?25h")
+        write(O, ESC + "[2J" + ESC + "[H")
+        rawoff()
+        break
+      }
+
+      
+      if opt_k == "s" {
+        write(O, "\nNome file VFS: ")
+        write(O, ESC + "[?25h")
+        fname = ""
+        loop {
+          fc = readkey()
+          if fc == "ENTER" { break }
+          if fc == "BACKSPACE" {
+            l_f = len(fname)
+            if l_f > 0 {
+              fname = substr(fname 0 l_f - 1)
+              write(O, ESC + "[1D " + ESC + "[1D")
+            }
+          } else {
+            fname = fname + fc
+            write(O, fc)
+          }
+        }
+        write(O, ESC + "[?25l")
+        
+        if len(fname) > 0 {
+          idx = 0
+          full_content = ""
+          loop {
+            if idx > MAX_Y { break }
+            full_content = full_content + get_ln(idx) + "\n"
+            idx = idx + 1
+          }
+          vfs_write(fname full_content)
+          write(O, "\n[ Salvataggio VFS di " + fname + " completato. ]\nPremi un tasto.")
+          readkey()
+        }
+      }
+
+      if opt_k == "e" {
+        write(O, "\nEsporta su disco Host (Nome file): ")
+        write(O, ESC + "[?25h")
+        fname = ""
+        loop {
+          fc = readkey()
+          if fc == "ENTER" { break }
+          if fc == "BACKSPACE" {
+            l_f = len(fname)
+            if l_f > 0 {
+              fname = substr(fname 0 l_f - 1)
+              write(O, ESC + "[1D " + ESC + "[1D")
+            }
+          } else {
+            fname = fname + fc
+            write(O, fc)
+          }
+        }
+        write(O, ESC + "[?25l")
+        
+        if len(fname) > 0 {
+          fd = create(fname 1 0644)
+          idx = 0
+          loop {
+            if idx > MAX_Y { break }
+            write(fd get_ln(idx) + "\n")
+            idx = idx + 1
+          }
+          close(fd)
+          write(O, "\n[ Esportazione Host completata. ]\nPremi un tasto.")
+          readkey()
+        }
+      }
+
+      if opt_k == "i" {
+        write(O, "\nImporta da disco Host (Nome file): ")
+        write(O, ESC + "[?25h")
+        fname = ""
+        loop {
+          fc = readkey()
+          if fc == "ENTER" { break }
+          if fc == "BACKSPACE" {
+            l_f = len(fname)
+            if l_f > 0 {
+              fname = substr(fname 0 l_f - 1)
+              write(O, ESC + "[1D " + ESC + "[1D")
+            }
+          } else {
+            fname = fname + fc
+            write(O, fc)
+          }
+        }
+        write(O, ESC + "[?25l")
+        
+        if len(fname) > 0 {
+          fd = open(fname 0)
+          if fd >= 0 {
+            content = read(fd 4096)
+            close(fd)
+            lines = split(content "\n")
+            MAX_Y = len(lines) - 1
+            idx = 0
+            loop {
+              if idx > MAX_Y { break }
+              reg_set("/sys/ed/buf/" + str(idx), lines[idx])
+              idx = idx + 1
+            }
+            write(O, "\n[ Importazione Host completata. ]\nPremi un tasto.")
+          } else {
+            write(O, "\n[ Errore: File non trovato sull'Host. ]\nPremi un tasto.")
+          }
+          readkey()
+        }
+      }
+
+      if opt_k == "k" {
+        write(O, "\nLayout (us, uk, uk-mac, ita, ita-mac): ")
+        write(O, ESC + "[?25h")
+        layout_name = ""
+        loop {
+          fc = readkey()
+          if fc == "ENTER" { break }
+          if fc == "BACKSPACE" {
+            l_f = len(layout_name)
+            if l_f > 0 {
+              layout_name = substr(layout_name 0 l_f - 1)
+              write(O, ESC + "[1D " + ESC + "[1D")
+            }
+          } else {
+            layout_name = layout_name + fc
+            write(O, fc)
+          }
+        }
+        write(O, ESC + "[?25l")
+        set_layout(layout_name)
+        write(O, "\n[ Tastiera configurata su: " + layout_name + " ]\nPremi un tasto.")
+        readkey()
+      }
+      continue
+    }
+
+    # 1. FRECCE
+    if ch == "UP" {
+      if cur_y > 0 { cur_y = cur_y - 1 }
+      if cur_y < view_y { view_y = cur_y }
+      l_len = len(get_ln(cur_y))
+      if cur_x > l_len { cur_x = l_len }
+      continue
+    }
+    if ch == "DOWN" {
+      cur_y = cur_y + 1
+      if cur_y > MAX_Y { MAX_Y = cur_y }
+      if cur_y >= (view_y + SCR_H) { view_y = view_y + 1 }
+      l_len = len(get_ln(cur_y))
+      if cur_x > l_len { cur_x = l_len }
+      continue
+    }
+    if ch == "RIGHT" {
+      cur_x = cur_x + 1
+      l_len = len(get_ln(cur_y))
+      if cur_x > l_len { cur_x = l_len }
+      continue
+    }
+    if ch == "LEFT" {
+      if cur_x > 0 { cur_x = cur_x - 1 }
+      continue
+    }
+
+    # 2. CANCELLAZIONE
+    if ch == "BACKSPACE" {
+      if cur_x > 0 {
+        txt = get_ln(cur_y)
+        l = len(txt)
+        p1 = substr(txt 0 cur_x - 1)
+        p2 = ""
+        rem = l - cur_x
+        if rem > 0 { p2 = substr(txt cur_x rem) }
+        
+        reg_set("/sys/ed/buf/" + str(cur_y), p1 + p2)
+        cur_x = cur_x - 1
+      }
+      continue
+    }
+
+    if ch == "DELETE" {
+      txt = get_ln(cur_y)
+      l = len(txt)
+      if cur_x < l {
+        p1 = substr(txt 0 cur_x)
+        p2 = ""
+        rem = l - cur_x - 1
+        if rem > 0 { p2 = substr(txt cur_x + 1 rem) }
+        reg_set("/sys/ed/buf/" + str(cur_y), p1 + p2)
+      }
+      continue
+    }
+
+    # 3. INVIO
+    if ch == "ENTER" {
+      cur_y = cur_y + 1
+      cur_x = 0
+      if cur_y > MAX_Y { MAX_Y = cur_y }
+      continue
+    }
+
+    # 4. SCRITTURA CARATTERI NORMALI
+    if len(ch) == 1 {
+      txt = get_ln(cur_y)
+      l = len(txt)
+      if cur_x >= l {
+        reg_set("/sys/ed/buf/" + str(cur_y), txt + ch)
+      } else {
+        p1 = substr(txt 0 cur_x)
+        p2 = ""
+        rem = l - cur_x
+        if rem > 0 { p2 = substr(txt cur_x rem) }
+        reg_set("/sys/ed/buf/" + str(cur_y), p1 + ch + p2)
+      }
+      cur_x = cur_x + 1
+    }
+  }
+}

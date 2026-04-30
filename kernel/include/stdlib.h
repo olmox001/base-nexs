@@ -11,5 +11,4 @@ long long atoll(const char *nptr);
 double atof(const char *nptr);
 void exit(int status) __attribute__((noreturn));
 #define EXIT_FAILURE 1
-void exit(int status);
 #endif

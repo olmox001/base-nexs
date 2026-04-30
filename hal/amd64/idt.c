@@ -8,6 +8,7 @@
  */
 
 #include "../include/nexs_idt.h"
+#include "../include/nexs_hal.h"
 #include "../../registry/include/nexs_registry.h"
 #include "../../core/include/nexs_value.h"
 #include <stdint.h>
@@ -101,8 +102,6 @@ void nexs_isr_dispatch(IsrFrame *f) {
 
     /* Unhandled exception: print info and halt */
     if (vec < 32) {
-        /* Use HAL print — UART is always available */
-        extern void nexs_hal_print(const char *);
         nexs_hal_print("\r\n*** CPU EXCEPTION #");
         char tmp[8];
         tmp[0] = (char)('0' + vec / 10);
@@ -110,7 +109,7 @@ void nexs_isr_dispatch(IsrFrame *f) {
         tmp[2] = ' ';
         tmp[3] = '\0';
         nexs_hal_print(tmp);
-        if (vec < 32) nexs_hal_print(exc_names[vec]);
+        nexs_hal_print(exc_names[vec]);
         nexs_hal_print(" ***\r\n");
     }
     /* For IRQs (vec>=32) with no handler: spurious, just return */

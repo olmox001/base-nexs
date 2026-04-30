@@ -1,7 +1,7 @@
 /*
  * hal/amd64/apic.c — LAPIC + IOAPIC + APIC timer
  * =================================================
- * STEP 02: APIC init + timer IRQ (vector 0x20, 1 ms tick)
+ * APIC init + timer IRQ (vector 0x20, 1 ms tick).
  *
  * LAPIC base: detected via CPUID/MSR IA32_APIC_BASE (0x1B).
  * IOAPIC base: 0xFEC00000 (standard; overridden by ACPI MADT).
@@ -64,7 +64,7 @@ static inline void ioapic_write(uint8_t reg, uint32_t val) {
 
 /* Route IOAPIC IRQ → LAPIC vector.
  * dest_apic_id=0 → CPU 0. Delivery=fixed. Active low, edge. */
-static void ioapic_route(uint8_t irq, uint8_t vec, uint8_t apic_id) {
+static __attribute__((unused)) void ioapic_route(uint8_t irq, uint8_t vec, uint8_t apic_id) {
     uint32_t lo = (uint32_t)vec;            /* fixed delivery, edge, active high */
     uint32_t hi = ((uint32_t)apic_id) << 24;
     ioapic_write((uint8_t)(IOAPIC_REDTBL(irq)),     lo);
@@ -86,7 +86,11 @@ static void pic_disable(void) {
 #define PIT_HZ        1193182UL
 #define CALIB_MS      10
 
+static uint32_t s_cached_tpm = 0;
+
 static uint32_t lapic_calibrate_ticks_per_ms(void) {
+    if (s_cached_tpm) return s_cached_tpm;
+
     /* Use PIT channel 2 in one-shot mode for ~10 ms */
     uint32_t count = (uint32_t)(PIT_HZ * CALIB_MS / 1000);
 
@@ -113,7 +117,8 @@ static uint32_t lapic_calibrate_ticks_per_ms(void) {
     lapic_write(LAPIC_TIMER_ICR, 0); /* stop */
 
     uint32_t elapsed = 0xFFFFFFFF - remain;
-    return elapsed / CALIB_MS; /* ticks per millisecond */
+    s_cached_tpm = elapsed / CALIB_MS;
+    return s_cached_tpm;
 }
 
 /* ── Timer ISR ────────────────────────────────────────────── */
@@ -172,7 +177,6 @@ void apic_init(void) {
     ioapic_write((uint8_t)IOAPIC_REDTBL(0), (1U << 16));  /* masked */
 
     /* Register timer ISR */
-    extern void nexs_isr_register(uint8_t, void (*)(IsrFrame *));
     nexs_isr_register(LAPIC_TIMER_VECTOR, apic_timer_isr);
 
     /* Calibrate and configure periodic LAPIC timer at 1000 Hz (1 ms) */

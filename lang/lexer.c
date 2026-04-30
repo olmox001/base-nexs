@@ -134,10 +134,14 @@ Token lexer_next(Lexer *lex) {
       if (ch == '\\' && lex->pos < lex->len) {
         ch = lex->src[lex->pos++];
         if      (ch == 'n')  ch = '\n';
+        else if (ch == 'r')  ch = '\r';
+        else if (ch == 'b')  ch = '\b';
+        else if (ch == 'e')  ch = '\x1b';
         else if (ch == 't')  ch = '\t';
         else if (ch == '\\') ch = '\\';
         else if (ch == '"')  ch = '"';
         else if (ch == '0')  ch = '\0';
+
       }
       buf[i++] = ch;
     }
