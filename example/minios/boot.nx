@@ -10,7 +10,6 @@ out "[INIT] Fase 1: Caricamento Driver (Librerie Dinamiche)..."
 
 
 exec("example/minios/vfs.nx")
-exec("example/minios/vfs.nx")
 exec("example/minios/pm.nx")
 exec("example/minios/wasm_vm.nx")
 exec("example/minios/shell.nx")

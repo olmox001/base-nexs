@@ -76,7 +76,7 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
     if (slash && slash != outdir) {
       *slash = '\0';
       char mkdir_cmd[640];
-      snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p %s", outdir);
+      snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p '%s'", outdir);
       (void)system(mkdir_cmd);
     }
   }

@@ -19,11 +19,27 @@ typedef struct {
   const char *ld_script;   /* NULL for hosted targets */
 } TargetConfig;
 
+#if defined(LINUX_AMD64_CC_BIN)
+  #define DEFAULT_LINUX_AMD64_CC LINUX_AMD64_CC_BIN
+#elif defined(HOST_OS_MACOS)
+  #define DEFAULT_LINUX_AMD64_CC "x86_64-linux-gnu-gcc"
+#else
+  #define DEFAULT_LINUX_AMD64_CC "gcc"
+#endif
+
+#if defined(MACOS_AMD64_CC_BIN)
+  #define DEFAULT_MACOS_AMD64_CC MACOS_AMD64_CC_BIN
+#elif defined(HOST_OS_LINUX)
+  #define DEFAULT_MACOS_AMD64_CC "x86_64-apple-darwin20.2-clang"
+#else
+  #define DEFAULT_MACOS_AMD64_CC "gcc"
+#endif
+
 static const TargetConfig nexs_targets[TARGET_COUNT] = {
   [TARGET_LINUX_AMD64]     = {
     "linux-amd64",
-    "gcc",
-    "-march=x86-64",
+    DEFAULT_LINUX_AMD64_CC,
+    "-march=x86_64",
     "-DNEXS_LINUX",
     0, NULL
   },
@@ -36,7 +52,7 @@ static const TargetConfig nexs_targets[TARGET_COUNT] = {
   },
   [TARGET_MACOS_AMD64]     = {
     "macos-amd64",
-    "clang",
+    DEFAULT_MACOS_AMD64_CC,
     "-arch x86_64",
     "-DNEXS_MACOS",
     0, NULL
@@ -51,7 +67,7 @@ static const TargetConfig nexs_targets[TARGET_COUNT] = {
   [TARGET_PLAN9_AMD64]     = {
     "plan9-amd64",
     "gcc",
-    "-march=x86-64",
+    "-march=x86_64",
     "-DNEXS_PLAN9",
     0, NULL
   },

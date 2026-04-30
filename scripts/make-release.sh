@@ -7,7 +7,7 @@
 
 set -euo pipefail
 
-VERSION="${1:-v0.2.0}"
+VERSION="${1:-v9.9.9}"
 RELEASE_DIR="RELEASE/$VERSION"
 mkdir -p "$RELEASE_DIR"
 
@@ -15,17 +15,27 @@ echo "=== NEXS RELEASE PACKAGER ($VERSION) ==="
 echo "Artifacts will be saved in: $RELEASE_DIR"
 echo "-------------------------------------------"
 
-# 1. Build Hosted Interpreter (MacOS)
-echo "[*] Building Nexs-amd64-MacOS (Interpreter)..."
+# 1. Build Native Interpreter (Host)
+UNAME_S=$(uname -s)
+if [ "$UNAME_S" = "Darwin" ]; then
+    HOST_NAME="MacOS"
+    CROSS_TARGET="linux-amd64"
+    CROSS_NAME="Linux"
+else
+    HOST_NAME="Linux"
+    CROSS_TARGET="macos-amd64"
+    CROSS_NAME="MacOS"
+fi
+
+echo "[*] Building Nexs-amd64-$HOST_NAME (Native Interpreter)..."
 make clean > /dev/null
 make POOL_PROFILE=16MB > /dev/null
-cp nexs "$RELEASE_DIR/Nexs-amd64-MacOS"
+cp nexs "$RELEASE_DIR/Nexs-amd64-$HOST_NAME"
 
-# 2. Build Hosted AOT (MacOS-MINIOS)
-echo "[*] Building Nexs-amd64-MacOS-MINIOS (AOT)..."
+# 2. Build Native AOT (MINIOS)
+echo "[*] Building Nexs-amd64-$HOST_NAME-MINIOS (AOT)..."
 ./nexs --compile example/minios_dev_readreadme/boot.nx \
-       --target macos-amd64 \
-       -o "$RELEASE_DIR/Nexs-amd64-MacOS-MINIOS"
+       -o "$RELEASE_DIR/Nexs-amd64-$HOST_NAME-MINIOS"
 
 # 3. Build Baremetal Interpreter (STANDALONE)
 echo "[*] Building Nexs-amd64-STANDALONE (Interpreter)..."
@@ -39,7 +49,7 @@ cp build/nexs-amd64.iso "$RELEASE_DIR/Nexs-amd64-STANDALONE.iso"
 
 # 4. Build Baremetal AOT (STANDALONE-MINIOS)
 echo "[*] Building Nexs-amd64-STANDALONE-MINIOS (AOT)..."
-# We need the hosted compiler first
+# We need the native compiler first
 make clean > /dev/null
 make > /dev/null
 
@@ -52,6 +62,25 @@ cp build/baremetal-amd64/nexs.elf "$RELEASE_DIR/Nexs-amd64-STANDALONE-MINIOS.elf
 echo "[*] Generating Nexs-amd64-STANDALONE-MINIOS.iso..."
 ./scripts/make-iso.sh > /dev/null
 cp build/nexs-amd64.iso "$RELEASE_DIR/Nexs-amd64-STANDALONE-MINIOS.iso"
+
+# 5. Build Cross Interpreter
+echo "[*] Building Nexs-amd64-$CROSS_NAME (Cross-compiled Interpreter)..."
+make clean > /dev/null
+make "$CROSS_TARGET" POOL_PROFILE=16MB > /dev/null
+if [ -f "build/$CROSS_TARGET/nexs" ]; then
+    cp "build/$CROSS_TARGET/nexs" "$RELEASE_DIR/Nexs-amd64-$CROSS_NAME"
+else
+    echo "Warning: $CROSS_TARGET build failed, skipping Nexs-amd64-$CROSS_NAME"
+fi
+
+# 6. Build Cross AOT
+echo "[*] Building Nexs-amd64-$CROSS_NAME-MINIOS (Cross-compiled AOT)..."
+# We need native nexs to run the compiler
+make clean > /dev/null
+make > /dev/null
+./nexs --compile example/minios_dev_readreadme/boot.nx \
+       --target "$CROSS_TARGET" \
+       -o "$RELEASE_DIR/Nexs-amd64-$CROSS_NAME-MINIOS" || echo "Warning: Cross AOT build failed, skipping"
 
 echo "-------------------------------------------"
 echo "[+] RELEASE COMPLETE: $VERSION"

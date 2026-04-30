@@ -231,8 +231,7 @@ void nexs_main_baremetal(void) {
   } else {
     nexs_repl();
   }
-  __asm__ volatile("cli");
-  while (1) { __asm__ volatile("hlt"); }
+  nexs_hal_halt();
 }
 #endif /* NEXS_BAREMETAL */
 
@@ -283,7 +282,11 @@ int main(int argc, char *argv[]) {
     }
     const char *src_file  = argv[2];
     const char *out_file  = "nexs_out";
+#if defined(HOST_OS_MACOS)
+    CompileTarget target  = TARGET_MACOS_AMD64;
+#else
     CompileTarget target  = TARGET_LINUX_AMD64;
+#endif
     int no_dep            = 0;
     int dep_only          = 0;
 

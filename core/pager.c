@@ -50,11 +50,13 @@ void *page_alloc(size_t n_pages) {
     return NULL;
 
   int slot = page_slot_find_free();
-  if (slot >= 0) {
-    page_table[slot].base  = p;
-    page_table[slot].pages = n_pages;
-    page_table[slot].used  = 1;
+  if (slot < 0) {
+    munmap(p, bytes);
+    return NULL;
   }
+  page_table[slot].base  = p;
+  page_table[slot].pages = n_pages;
+  page_table[slot].used  = 1;
   return p;
 }
 
@@ -88,16 +90,16 @@ void *page_alloc(size_t n_pages) {
   if (large_brk + bytes > sizeof(large_pool))
     return NULL; /* OOM */
 
+  int slot = page_slot_find_free();
+  if (slot < 0)
+    return NULL;
+
   void *p = large_pool + large_brk;
   large_brk += bytes;
   memset(p, 0, bytes);
-
-  int slot = page_slot_find_free();
-  if (slot >= 0) {
-    page_table[slot].base  = p;
-    page_table[slot].pages = n_pages;
-    page_table[slot].used  = 1;
-  }
+  page_table[slot].base  = p;
+  page_table[slot].pages = n_pages;
+  page_table[slot].used  = 1;
   return p;
 }
 

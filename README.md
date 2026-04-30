@@ -5,7 +5,7 @@ NEXS is a dynamically-typed, Plan 9-inspired scripting language with a tree-walk
 ## Building
 
 ```sh
-make          # host build (macOS Intel: clang -arch x86_64)
+make          # host build (uses CC=gcc by default)
 ./nexs        # interactive REPL
 ./nexs file.nx
 ```
