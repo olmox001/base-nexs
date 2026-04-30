@@ -8,7 +8,7 @@ out " [INIT] Booting NEXS Modular Micro-OS"
 out "==================================================="
 out "[INIT] Fase 1: Caricamento Driver (Librerie Dinamiche)..."
 
-
+exec("boot/init.nx")
 exec("example/minios/vfs.nx")
 exec("example/minios/pm.nx")
 exec("example/minios/wasm_vm.nx")

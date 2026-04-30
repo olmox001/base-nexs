@@ -82,11 +82,11 @@ typedef enum {
   TK_KW_NIL,
 
   /* New keywords — pointer and IPC */
-  TK_KW_PTR,      /* ptr    — create a pointer to a registry path */
-  TK_KW_DEREF,    /* deref  — dereference a pointer */
-  TK_KW_SEND,     /* sendmessage    — enqueue a value on a registry IPC queue */
-  TK_KW_RECV,     /* receivemessage — dequeue a value from a registry IPC queue */
-  TK_KW_PENDING,  /* msgpending     — query pending message count */
+  TK_KW_PTR,   /* ptr    — create a pointer to a registry path */
+  TK_KW_DEREF, /* deref  — dereference a pointer */
+  TK_KW_SEND,  /* sendmessage    — enqueue a value on a registry IPC queue */
+  TK_KW_RECV,  /* receivemessage — dequeue a value from a registry IPC queue */
+  TK_KW_PENDING, /* msgpending     — query pending message count */
 } TokenKind;
 
 /* =========================================================
@@ -95,11 +95,11 @@ typedef enum {
 
 typedef struct {
   TokenKind kind;
-  char      text[NAME_LEN];
-  int64_t   ival;
-  double    fval;
-  int       line;
-  int       col;
+  char text[NAME_LEN];
+  int64_t ival;
+  double fval;
+  int line;
+  int col;
 } Token;
 
 /* =========================================================
@@ -108,21 +108,21 @@ typedef struct {
 
 typedef struct {
   const char *src;
-  size_t      pos;
-  size_t      len;
-  int         line;
-  int         col;
-  Token       peeked;
-  int         has_peek;
+  size_t pos;
+  size_t len;
+  int line;
+  int col;
+  Token peeked;
+  int has_peek;
 } Lexer;
 
 /* =========================================================
    LEXER API
    ========================================================= */
 
-NEXS_API void        lexer_init(Lexer *lex, const char *src);
-NEXS_API Token       lexer_next(Lexer *lex);
-NEXS_API Token       lexer_peek(Lexer *lex);
+NEXS_API void lexer_init(Lexer *lex, const char *src);
+NEXS_API Token lexer_next(Lexer *lex);
+NEXS_API Token lexer_peek(Lexer *lex);
 NEXS_API const char *token_kind_name(TokenKind k);
 
 #ifdef __cplusplus
