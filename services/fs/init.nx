@@ -91,6 +91,19 @@ fn vfs_rm(nome_file) {
   }
 }
 
+fn vfs_mkdir(nome_dir) {
+  # Se il percorso non termina con /, lo aggiungiamo
+  if substr(nome_dir len(nome_dir) - 1 1) != "/" {
+    nome_dir = nome_dir + "/"
+  }
+  
+  # Verifichiamo se esiste già (opzionale, ma consigliato)
+  # Per ora aggiungiamo semplicemente all'indice
+  count = reg /sys/vfs/count
+  reg_set("/sys/vfs/idx/" + str(count), nome_dir)
+  reg /sys/vfs/count = count + 1
+}
+
 fn vfs_cp(src dst) {
   data = vfs_read(src)
   if type(data) != "err" {
@@ -118,6 +131,9 @@ fn vfs_ls(dir) {
   if prefix != "" { prefix = prefix + "/" }
   plen = len(prefix)
   
+  found_any = 0
+  if dir == "" { found_any = 1 } # Root exists always
+
   seen_dirs = "|"
   count = reg /sys/vfs/count
   i = 0
@@ -136,6 +152,7 @@ fn vfs_ls(dir) {
       }
       
       if match == 1 {
+        found_any = 1
         rest = substr(n plen len(n) - plen)
         # Se rest contiene "/", allora è in una sottodirectory
         slash_pos = -1
@@ -165,6 +182,11 @@ fn vfs_ls(dir) {
       }
     }
     i = i + 1
+  }
+
+  if found_any == 0 {
+    # Restituiamo un errore del registry per far scattare type() == "err"
+    ret reg_get("/sys/vfs/errors/not_found")
   }
 }
 

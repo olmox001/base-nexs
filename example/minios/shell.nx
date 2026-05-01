@@ -16,6 +16,7 @@ fn shell_help() {
   out "  cp src dst    - Copia file nel VFS"
   out "  mv src dst    - Sposta file nel VFS"
   out "  touch file    - Crea un file vuoto nel VFS"
+  out "  mkdir dir     - Crea una cartella nel VFS"
   out "  ps            - Elenca processi attivi"
   out "  devtree       - Mostra hardware Device Tree"
   out "  fm [dir]      - Avvia Plan 9 File Manager"
@@ -98,7 +99,15 @@ fn shell_loop() {
         } else {
           new_cwd = vfs_resolve(arg shell_cwd())
         }
-        reg_set("/proc/1/vfs_cwd" new_cwd)
+        
+        # FIX: Verifica che la cartella esista davvero nel VFS prima di cambiare
+        # Utilizziamo vfs_ls per controllare la validità del percorso
+        test_ls = vfs_ls(new_cwd)
+        if type(test_ls) == "err" {
+           out "cd: la cartella specificata non esiste (" + new_cwd + ")"
+        } else {
+           reg_set("/proc/1/vfs_cwd" new_cwd)
+        }
       }
       handled = 1
     }
@@ -135,6 +144,12 @@ fn shell_loop() {
     if cmd == "touch" {
       if arg == "" { out "touch: manca il file" }
       else { vfs_write(vfs_resolve(arg shell_cwd()) "") }
+      handled = 1
+    }
+    
+    if cmd == "mkdir" {
+      if arg == "" { out "mkdir: manca il nome della cartella" }
+      else { vfs_mkdir(vfs_resolve(arg shell_cwd())) }
       handled = 1
     }
 
@@ -176,7 +191,11 @@ fn shell_loop() {
     }
 
     if cmd == "nxed" {
-      nxed_start(vfs_resolve(arg shell_cwd()))
+      if arg == "" {
+        nxed_start("")
+      } else {
+        nxed_start(vfs_resolve(arg shell_cwd()))
+      }
       handled = 1
     }
 
