@@ -70,6 +70,14 @@ void nexs_hal_memory_map(NexsMemMap *map) {
   map->uart_base   = (uintptr_t)COM1_PORT;
 }
 
+void nexs_hal_irq_disable(void) {
+  __asm__ volatile("cli" : : : "memory");
+}
+
+void nexs_hal_irq_enable(void) {
+  __asm__ volatile("sti" : : : "memory");
+}
+
 void nexs_hal_halt(void) {
   __asm__ volatile("cli");
   while (1) { __asm__ volatile("hlt"); }

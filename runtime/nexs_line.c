@@ -779,8 +779,23 @@ int nexs_line_read(NxLineEditor *le, const char *prompt, char *out, int outsz) {
   le->pos = 0;
   le->hist_nav = -1;
   le->prompt = prompt;
-  le->prompt_len = prompt ? (int)strlen(prompt) : 0;
-  /* TODO: strip ANSI codes from prompt for accurate prompt_len */
+  if (prompt) {
+    int plen = 0;
+    const char *p = prompt;
+    while (*p) {
+      if (*p == '\033' && *(p + 1) == '[') {
+        p += 2;
+        while (*p && *p != 'm') p++;
+        if (*p) p++;
+      } else {
+        plen++;
+        p++;
+      }
+    }
+    le->prompt_len = plen;
+  } else {
+    le->prompt_len = 0;
+  }
   le->ctrl_c_seen = 0;
   le->interrupted = 0;
 

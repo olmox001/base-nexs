@@ -17,6 +17,7 @@
 #include "../registry/include/nexs_registry.h"
 #include "../core/include/nexs_value.h"
 #include "../core/include/nexs_alloc.h"
+#include "../hal/include/nexs_hal.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -53,8 +54,18 @@ typedef struct {
 
 static VfsFd s_fd_table[VFS_MAX_FD];
 
+void vfs_init(void) {
+    /* Reserve fd 0/1/2 for stdin/stdout/stderr (inode 0/1/2 = sentinel) */
+    for (int i = 0; i < 3; i++) {
+        s_fd_table[i].in_use = 1;
+        s_fd_table[i].ino    = (uint64_t)i;
+        s_fd_table[i].flags  = (i == 0) ? 0 : 1;
+        s_fd_table[i].pos    = 0;
+    }
+}
+
 static int fd_alloc(uint64_t ino, int flags) {
-    for (int i = 3; i < VFS_MAX_FD; i++) { /* 0=stdin 1=stdout 2=stderr */
+    for (int i = 3; i < VFS_MAX_FD; i++) {
         if (!s_fd_table[i].in_use) {
             s_fd_table[i].in_use = 1;
             s_fd_table[i].ino    = ino;
@@ -121,6 +132,18 @@ int vfs_open(const char *path, int flags) {
 }
 
 int vfs_read(int fd, void *buf, size_t n) {
+    if (fd == 0) {
+        /* stdin → HAL character input */
+        size_t got = 0;
+        uint8_t *out = (uint8_t *)buf;
+        while (got < n) {
+            int c = nexs_hal_getc();
+            if (c < 0) break;
+            out[got++] = (uint8_t)c;
+            if (c == '\n') break;
+        }
+        return (int)got;
+    }
     VfsFd *f = fd_get(fd);
     if (!f) return -1;
     char reg_path[REG_PATH_MAX];
@@ -140,6 +163,12 @@ int vfs_read(int fd, void *buf, size_t n) {
 }
 
 int vfs_write(int fd, const void *buf, size_t n) {
+    if (fd == 1 || fd == 2) {
+        /* stdout / stderr → HAL print */
+        const char *s = (const char *)buf;
+        for (size_t i = 0; i < n; i++) nexs_hal_putc(s[i]);
+        return (int)n;
+    }
     VfsFd *f = fd_get(fd);
     if (!f) return -1;
     char reg_path[REG_PATH_MAX];
@@ -162,6 +191,7 @@ int vfs_write(int fd, const void *buf, size_t n) {
 }
 
 int vfs_close(int fd) {
+    if (fd >= 0 && fd < 3) return 0; /* never close stdin/stdout/stderr */
     VfsFd *f = fd_get(fd);
     if (!f) return -1;
     f->in_use = 0;
@@ -181,7 +211,10 @@ int vfs_stat(const char *path, VfsInode *out) {
     out->uid = out->gid = 0;
     out->size = 0;
     out->atime = out->mtime = out->ctime = 0;
-    strncpy(out->reg_data_path, reg_path, sizeof(out->reg_data_path) - 1);
+    char data_path[REG_PATH_MAX];
+    snprintf(data_path, sizeof(data_path), "/vfs/inode/%llu/data",
+             (unsigned long long)ino);
+    strncpy(out->reg_data_path, data_path, sizeof(out->reg_data_path) - 1);
     return 0;
 }
 

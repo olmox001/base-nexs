@@ -13,6 +13,7 @@
 #include "include/nexs_ctx.h"
 #include "../registry/include/nexs_registry.h"
 #include "../core/include/nexs_value.h"
+#include "../hal/include/nexs_hal.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -86,21 +87,23 @@ void sched_remove(NexsProc *p) {
 }
 
 NexsProc *sched_pick_next(void) {
+    nexs_hal_irq_disable();
+    NexsProc *picked = NULL;
     for (int lvl = 0; lvl < SCHED_LEVELS; lvl++) {
         if (s_queues[lvl] && s_queues[lvl]->state == PROC_READY) {
             NexsProc *p = s_queues[lvl];
-            /* Dequeue head */
             s_queues[lvl] = p->next;
             if (!s_queues[lvl]) s_tails[lvl] = NULL;
-            /* Append to tail (round-robin rotation) */
             p->next = NULL;
             if (s_tails[lvl]) s_tails[lvl]->next = p;
             else s_queues[lvl] = p;
             s_tails[lvl] = p;
-            return p;
+            picked = p;
+            break;
         }
     }
-    return NULL;
+    nexs_hal_irq_enable();
+    return picked;
 }
 
 void sched_tick(void) {

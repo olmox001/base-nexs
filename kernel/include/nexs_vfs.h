@@ -17,6 +17,7 @@ typedef struct {
     char     reg_data_path[REG_PATH_MAX];
 } VfsInode;
 
+void vfs_init(void);
 int vfs_open(const char *path, int flags);
 int vfs_read(int fd, void *buf, size_t n);
 int vfs_write(int fd, const void *buf, size_t n);

@@ -38,8 +38,7 @@ fn mv(src dst) {
 }
 
 fn rm(path) {
-  reg_del = path
-  reg reg_del
+  reg_del(path)
 }
 
 fn echo(s) {

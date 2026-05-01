@@ -163,7 +163,10 @@ int fat_read(int handle, void *buf, size_t n) {
     /* Traverse FAT chain to current cluster */
     uint32_t cluster_idx = fh->pos / (s_cluster_size * 512);
     uint32_t cluster = fh->first_cluster;
+    const uint32_t MAX_FAT_CLUSTERS = 0xFFF0u;
+    uint32_t guard = 0;
     for (uint32_t i = 0; i < cluster_idx; i++) {
+        if (++guard > MAX_FAT_CLUSTERS) return -1; /* cyclic chain */
         uint16_t next = fat_entry(cluster);
         if (next >= 0xFFF8) return 0;
         cluster = next;

@@ -68,3 +68,16 @@ void nexs_hal_memory_map(NexsMemMap *map) {
   map->ram_size    = 128 * 1024 * 1024;          /* 128 MB (QEMU default) */
   map->uart_base   = (uintptr_t)UART0_BASE;
 }
+
+void nexs_hal_irq_disable(void) {
+  __asm__ volatile("msr daifset, #0xf" : : : "memory");
+}
+
+void nexs_hal_irq_enable(void) {
+  __asm__ volatile("msr daifclr, #0xf" : : : "memory");
+}
+
+void nexs_hal_halt(void) {
+  __asm__ volatile("msr daifset, #0xf");
+  while (1) { __asm__ volatile("wfi"); }
+}
