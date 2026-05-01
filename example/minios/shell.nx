@@ -1,62 +1,218 @@
-# ===================================================================
-# Modulo Shell (Userspace CLI)
-# Fix: Rimozione del punto e virgola, un'istruzione per riga
+# example/minios/shell.nx — NEXS Shell v2.2
+# VFS cwd tracked in /proc/1/vfs_cwd (registry key).
+# NEXS 'cd'/'pwd' keywords operate on eval scope — they are NOT used
+# here for user-facing navigation to avoid literal-path confusion.
 # ===================================================================
 
-fn input(prompt) {
-  out prompt
-  buffer = ""
-  loop {
-    ch = read(0 1)
-    if ch == "" || ch == "\n" { break }
-    buffer = buffer + ch
-  }
-  ret buffer
+fn shell_help() {
+  out "  Comandi standard:"
+  out "  ls [dir]      - Elenca file nel VFS"
+  out "  ls /reg/path  - Elenca figli nel Registry"
+  out "  cd [dir]      - Cambia directory VFS"
+  out "  pwd           - Mostra directory corrente"
+  out "  clear         - Pulisce lo schermo"
+  out "  cat file      - Visualizza contenuto file VFS"
+  out "  rm file       - Rimuove file dal VFS"
+  out "  cp src dst    - Copia file nel VFS"
+  out "  mv src dst    - Sposta file nel VFS"
+  out "  touch file    - Crea un file vuoto nel VFS"
+  out "  mkdir dir     - Crea una cartella nel VFS"
+  out "  ps            - Elenca processi attivi"
+  out "  devtree       - Mostra hardware Device Tree"
+  out "  fm [dir]      - Avvia Plan 9 File Manager"
+  out "  modules       - Elenca moduli di sistema"
+  out "  source file   - Esegue script .nx dal VFS"
+  out "  errlog        - Mostra ultimo errore kernel"
+  out "  nxed [file]   - Editor di testo"
+  out "  exit          - Arresta il sistema"
+  out ""
+  out "  Espressioni NEXS native: digita qualsiasi espressione valida."
+}
+
+fn shell_cwd() {
+  v = reg_get("/proc/1/vfs_cwd")
+  if type(v) == "err" || v == "" { ret "" }
+  ret str(v)
+}
+
+fn shell_cwd_display() {
+  c = shell_cwd()
+  if c == "" { ret "/" }
+  ret "/" + c
 }
 
 fn shell_loop() {
   out "---------------------------------------------------"
-  out " NEXS Shell v1.0. Digita 'help' per i comandi."
+  out " NEXS Shell v2.2. Type 'help' for commands."
   out "---------------------------------------------------"
-  
+
+  reg_set("/proc/1/vfs_cwd" "")
+
   loop {
-    cmd = input("nexs-os> ")
-    
-    if cmd == "exit" || cmd == ":exit" {
-      out "Esecuzione sequenza di spegnimento..."
-      exits("")
-    }
+    p = shell_cwd_display()
+    prompt = "nexs-os:" + p + "> "
+    cmd_full = input(prompt)
+    if cmd_full == "" { continue }
+
+    parts = split(cmd_full " ")
+    cmd = parts[0]
+
+    arg = ""
+    if len(parts) > 1 { arg = parts[1] }
+    arg2 = ""
+    if len(parts) > 2 { arg2 = parts[2] }
+
+    handled = 0
+
     if cmd == "help" {
-      out "  Comandi supportati:"
-      out "  ls     - Mostra i file nel VFS"
-      out "  ps     - Mostra i processi allocati"
-      out "  cat    - Legge il file di benvenuto"
-      out "  runvm  - Esegue il bytecode Wasm di test"
-      out "  exit   - Spegne il sistema"
+      shell_help()
+      handled = 1
     }
+
     if cmd == "ls" {
-      vfs_ls()
+      if arg != "" && substr(arg 0 1) == "/" {
+        # Registry listing via keys()
+        children = keys(arg)
+        ci = 0
+        loop {
+          if ci >= len(children) { break }
+          out "  " + str(children[ci])
+          ci = ci + 1
+        }
+      } else {
+        vfs_ls(vfs_resolve(arg shell_cwd()))
+      }
+      handled = 1
     }
+
+    if cmd == "clear" {
+      term_cls()
+      handled = 1
+    }
+
+    if cmd == "cd" {
+      if arg == "" || arg == "/" {
+        reg_set("/proc/1/vfs_cwd" "")
+      } else {
+        if substr(arg 0 1) == "/" {
+          new_cwd = substr(arg 1 len(arg)-1)
+        } else {
+          new_cwd = vfs_resolve(arg shell_cwd())
+        }
+        
+        # FIX: Verifica che la cartella esista davvero nel VFS prima di cambiare
+        # Utilizziamo vfs_ls per controllare la validità del percorso
+        test_ls = vfs_ls(new_cwd)
+        if type(test_ls) == "err" {
+           out "cd: la cartella specificata non esiste (" + new_cwd + ")"
+        } else {
+           reg_set("/proc/1/vfs_cwd" new_cwd)
+        }
+      }
+      handled = 1
+    }
+
+    if cmd == "pwd" {
+      out shell_cwd_display()
+      handled = 1
+    }
+
+    if cmd == "cat" {
+      if arg == "" { out "cat: manca il file" }
+      else { out vfs_read(vfs_resolve(arg shell_cwd())) }
+      handled = 1
+    }
+
+    if cmd == "rm" {
+      if arg == "" { out "rm: manca il file" }
+      else { vfs_rm(vfs_resolve(arg shell_cwd())) }
+      handled = 1
+    }
+
+    if cmd == "cp" {
+      if arg == "" || arg2 == "" { out "cp: sorgente o destinazione mancante" }
+      else { vfs_cp(vfs_resolve(arg shell_cwd()) vfs_resolve(arg2 shell_cwd())) }
+      handled = 1
+    }
+
+    if cmd == "mv" {
+      if arg == "" || arg2 == "" { out "mv: sorgente o destinazione mancante" }
+      else { vfs_mv(vfs_resolve(arg shell_cwd()) vfs_resolve(arg2 shell_cwd())) }
+      handled = 1
+    }
+
+    if cmd == "touch" {
+      if arg == "" { out "touch: manca il file" }
+      else { vfs_write(vfs_resolve(arg shell_cwd()) "") }
+      handled = 1
+    }
+    
+    if cmd == "mkdir" {
+      if arg == "" { out "mkdir: manca il nome della cartella" }
+      else { vfs_mkdir(vfs_resolve(arg shell_cwd())) }
+      handled = 1
+    }
+
     if cmd == "ps" {
       pm_ps()
+      handled = 1
     }
-    if cmd == "cat" {
-      out vfs_read("motd.txt")
+
+    if cmd == "devtree" {
+      hw_dt_dump()
+      handled = 1
     }
-    if cmd == "runvm" {
-      # Assegnazione riga per riga per l'interprete NEXS
-      bytecode[0] = 0
-      bytecode[1] = 10
-      bytecode[2] = 0
-      bytecode[3] = 20
-      bytecode[4] = 1  # ADD
-      bytecode[5] = 0
-      bytecode[6] = 2
-      bytecode[7] = 2  # MUL
-      bytecode[8] = 3  # PRINT
-      bytecode[9] = 4  # HALT
-      
-      vm_run(bytecode 10)
+
+    if cmd == "fm" {
+      p9_file_manager(vfs_resolve(arg shell_cwd()))
+      handled = 1
+    }
+
+    if cmd == "modules" {
+      vfs_ls("sys/modules")
+      handled = 1
+    }
+
+    if cmd == "errlog" {
+      last = reg_get("/sys/errors/last")
+      if type(last) == "err" { last = "(nessun errore)" }
+      out "Ultimo errore: " + str(last)
+      handled = 1
+    }
+
+    if cmd == "source" {
+      if arg == "" { out "source: manca il file" }
+      else {
+        src = vfs_read(vfs_resolve(arg shell_cwd()))
+        if type(src) != "err" { eval(src) }
+        else { out src }
+      }
+      handled = 1
+    }
+
+    if cmd == "nxed" {
+      if arg == "" {
+        nxed_start("")
+      } else {
+        nxed_start(vfs_resolve(arg shell_cwd()))
+      }
+      handled = 1
+    }
+
+    if cmd == "exit" {
+      exits("")
+      handled = 1
+    }
+
+    if handled == 0 {
+      result = eval(cmd_full)
+      if type(result) == "err" {
+        errmsg = str(result)
+        out "[ERR] eval: " + errmsg
+        reg_set("/sys/errors/last" errmsg)
+      } else {
+        if type(result) != "nil" { out result }
+      }
     }
   }
 }

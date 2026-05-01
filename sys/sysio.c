@@ -538,26 +538,24 @@ static Value bi_readkey(Value *args, int n) {
         if (c2 == '[') {
             c3 = nexs_read_byte();
             if (c3 == -1) return val_str("ESC");
+            
             if (c3 == 'A') return val_str("KEY_UP");
             if (c3 == 'B') return val_str("KEY_DOWN");
             if (c3 == 'C') return val_str("KEY_RIGHT");
             if (c3 == 'D') return val_str("KEY_LEFT");
-            /* Aliases */
-            if (c3 == 'A') return val_str("UP");
-            if (c3 == 'B') return val_str("DOWN");
-            if (c3 == 'C') return val_str("RIGHT");
-            if (c3 == 'D') return val_str("LEFT");
 
             if (c3 == 'H') return val_str("KEY_HOME");
             if (c3 == 'F') return val_str("KEY_END");
+            
             /* ESC [ N ~ sequences */
             if (c3 >= '1' && c3 <= '6') {
-                (void)nexs_read_byte(); /* consume '~' */
-                if (c3 == '1') return val_str("KEY_HOME");
+                int c4 = nexs_read_byte(); /* consume '~' */
+                if (c3 == '1' || c3 == '7') return val_str("KEY_HOME");
+                if (c3 == '4' || c3 == '8') return val_str("KEY_END");
                 if (c3 == '3') return val_str("KEY_DELETE");
-                if (c3 == '4') return val_str("KEY_END");
                 if (c3 == '5') return val_str("KEY_PGUP");
                 if (c3 == '6') return val_str("KEY_PGDN");
+                if (c4 != '~' && c4 != -1) { /* handle ;5A etc - simplified */ }
             }
         }
         /* SS3 sequences: ESC O ... (xterm, macOS Terminal) */
@@ -568,12 +566,6 @@ static Value bi_readkey(Value *args, int n) {
             if (c3 == 'B') return val_str("KEY_DOWN");
             if (c3 == 'C') return val_str("KEY_RIGHT");
             if (c3 == 'D') return val_str("KEY_LEFT");
-            /* Aliases */
-            if (c3 == 'A') return val_str("UP");
-            if (c3 == 'B') return val_str("DOWN");
-            if (c3 == 'C') return val_str("RIGHT");
-            if (c3 == 'D') return val_str("LEFT");
-
             if (c3 == 'H') return val_str("KEY_HOME");
             if (c3 == 'F') return val_str("KEY_END");
         }
@@ -650,6 +642,14 @@ static Value bi_term_cursor_show(Value *args, int n) {
     if (n < 1) return val_err(4, "term_cursor_show: requires bool");
     int show = (int)val_to_int(&args[0]);
     nexs_hal_print(show ? "\033[?25h" : "\033[?25l");
+    return val_nil();
+}
+
+static Value bi_term_flush(Value *args, int n) {
+    (void)args; (void)n;
+#ifndef NEXS_BAREMETAL
+    fflush(stdout);
+#endif
     return val_nil();
 }
 
@@ -741,6 +741,8 @@ void sysio_register_builtins(void) {
     SIG("term_erase_eol()") "nil");
   fn_register_builtin_sig("term_cursor_show", bi_term_cursor_show,
     SIG("term_cursor_show(bool)") "nil");
+  fn_register_builtin_sig("term_flush", bi_term_flush,
+    SIG("term_flush()") "nil");
 
   /* Store actual fn_table indices in /sys/<name> for val_print and eval resolution */
   {
@@ -756,6 +758,7 @@ void sysio_register_builtins(void) {
       {"readkey_nb",bi_readkey_nb},{"term_at",bi_term_at},
       {"term_cls",bi_term_cls},{"term_cursor_move",bi_term_cursor_move},
       {"term_erase_eol",bi_term_erase_eol},{"term_cursor_show",bi_term_cursor_show},
+      {"term_flush",bi_term_flush},
     };
     char path[REG_PATH_MAX];
     for (int _i = 0; _i < (int)(sizeof(t)/sizeof(t[0])); _i++) {

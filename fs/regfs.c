@@ -82,6 +82,13 @@ static void save_key(RegKey *k, RegfsSaveCtx *ctx) {
         ctx->crc = crc32_byte(ctx->crc, (uint8_t)path_buf[i]);
     ctx->crc = crc32_byte(ctx->crc, type);
     ctx->crc = crc32_byte(ctx->crc, rights);
+    /* Include data_len and data in CRC to detect corruption */
+    uint8_t len_bytes[4];
+    memcpy(len_bytes, &data_len, 4);
+    for (int _i = 0; _i < 4; _i++)
+        ctx->crc = crc32_byte(ctx->crc, len_bytes[_i]);
+    for (uint32_t _i = 0; _i < data_len; _i++)
+        ctx->crc = crc32_byte(ctx->crc, (uint8_t)data_buf[_i]);
 
     RegKey *child = k->children;
     while (child) {

@@ -1,21 +1,27 @@
 reg /sys/init/status = "booting"
 reg /sys/init/pid    = 1
 
-exec("boot/stdlib.nx")
+exec("services/stdlib.nx")
 
 out "[init] NEXS PID 1 starting..."
 
+# Security first
+exec("services/auth/init.nx")
+
 # Mount namespaces
-reg /sys/ns/reg/status = "active"
-reg /sys/ns/sd00/type  = "drivers"
-reg /sys/ns/sd01/type  = "system"
+exec("services/fs/init.nx")
 
-# Start drivers
-reg /sys/init/status = "drivers"
+# Process manager
+exec("services/pm/init.nx")
 
-# Start shell
+# TTY / console
+exec("services/tty/init.nx")
+
+# UI framebuffer
+exec("services/ui/init.nx")
+
 reg /sys/init/status = "running"
-out "[init] System running."
+out "[init] All services running."
 
 # Wait loop — PID 1 never exits
 loop {

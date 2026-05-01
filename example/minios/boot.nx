@@ -1,39 +1,38 @@
+# example/minios/boot.nx — NEXS Boot Script
 # ===================================================================
-# KERNEL INIT (boot.nx)
-# Bootloader e Modulo Principale
-# ===================================================================
+
+# Enable kernel trace
+sys_debug(false)
 
 out "==================================================="
 out " [INIT] Booting NEXS Modular Micro-OS"
 out "==================================================="
-out "[INIT] Fase 1: Caricamento Driver (Librerie Dinamiche)..."
+out "[INIT] Fase 1: Caricamento Driver e Servizi (Librerie di Sistema)..."
 
-exec("boot/init.nx")
-exec("example/minios/vfs.nx")
-exec("example/minios/pm.nx")
-exec("example/minios/wasm_vm.nx")
-exec("example/minios/shell.nx")
-exec("example/minios/hw_dt.nx")
-exec("example/minios/p9_mnt.nx")
+# Caricamento dei servizi di sistema
+exec("services/stdlib.nx")
+exec("services/fs/init.nx")     # VFS & Mounts
+exec("services/pm/init.nx")     # PM
+exec("services/auth/init.nx")   # Auth & capabilities
+exec("services/tty/init.nx")    # TTY
+exec("services/ui/init.nx")     # UI framebuffer
+exec("services/fs/p9_mnt.nx")   # 9P
+exec("services/hw_dt.nx")       # HW Device Tree
+exec("services/textbuf.nx")     # Text Buffer Library
 
 out "[INIT] Fase 2: Inizializzazione Sottosistemi..."
 hw_dt_init()
 p9_mnt_init()
-pid_vfs = pm_spawn("VFS_Daemon")
-pm_alloc(pid_vfs 2)
-
-pid_shell = pm_spawn("Shell_TTY")
-pm_alloc(pid_shell 1)
 
 out "[INIT] Fase 3: Popolamento Root FS..."
-vfs_write("motd.txt" "Benvenuti nel super-sistema NEXS! Tutto gira nel Registry.")
-vfs_write("kernel.sys" "BINARY_DATA_CORRUPTED_DO_NOT_READ")
+# I mount standard sono già fatti da services/fs/init.nx
+
+# Avvio dei demoni di sistema
+exec("example/minios/nxed_editor.nx")
+exec("example/minios/shell.nx")
 
 out "==================================================="
 out " [INIT] Boot completato. Cessione controllo alla UI."
 out "==================================================="
 
-# Avvia il loop dell'interprete utente
 shell_loop()
-
-out "[HALT] Sistema operativo fermato con successo."

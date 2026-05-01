@@ -1,0 +1,85 @@
+# modules/stdlib.nx — NEXS core stdlib (auto-loaded by runtime)
+# Only uses C builtins — no dependency on VFS or other services.
+# ===================================================================
+
+fn input(prompt) {
+  write(1 prompt)
+  rawon()
+  buffer = ""
+  loop {
+    ch = readkey()
+    if ch == "" { continue }
+    if ch == "ENTER" {
+      write(1 "\n")
+      break
+    }
+    if ch == "BACKSPACE" {
+      blen = len(buffer)
+      if blen > 0 {
+        write(1 "\b \b")
+        buffer = substr(buffer 0 blen - 1)
+      }
+      continue
+    }
+    if ch == "UP"    || ch == "KEY_UP"    { continue }
+    if ch == "DOWN"  || ch == "KEY_DOWN"  { continue }
+    if ch == "LEFT"  || ch == "KEY_LEFT"  { continue }
+    if ch == "RIGHT" || ch == "KEY_RIGHT" { continue }
+    if ch == "HOME"  || ch == "KEY_HOME"  { continue }
+    if ch == "END"   || ch == "KEY_END"   { continue }
+    if ch == "ESC" { continue }
+    if ch == "TAB" { continue }
+    if len(ch) == 1 {
+      write(1 ch)
+      buffer = buffer + ch
+    }
+  }
+  rawoff()
+  ret buffer
+}
+
+fn print(s) { write(1 str(s) + "\n") }
+
+fn min(a b) { if a < b { ret a } ret b }
+fn max(a b) { if a > b { ret a } ret b }
+
+fn clamp(v lo hi) {
+  if v < lo { ret lo }
+  if v > hi { ret hi }
+  ret v
+}
+
+fn startswith(s prefix) {
+  plen = len(prefix)
+  if len(s) < plen { ret 0 }
+  ret substr(s 0 plen) == prefix
+}
+
+fn endswith(s suffix) {
+  slen = len(suffix)
+  tlen = len(s)
+  if tlen < slen { ret 0 }
+  ret substr(s (tlen - slen) slen) == suffix
+}
+
+fn trim(s) {
+  i = 0
+  loop {
+    if i >= len(s) { break }
+    c = substr(s i 1)
+    if c != " " && c != "\t" && c != "\n" { break }
+    i = i + 1
+  }
+  j = len(s)
+  loop {
+    if j <= i { break }
+    c = substr(s (j-1) 1)
+    if c != " " && c != "\t" && c != "\n" { break }
+    j = j - 1
+  }
+  ret substr(s i (j - i))
+}
+
+fn join(arr sep) {
+  ret arr_join(arr sep)
+}

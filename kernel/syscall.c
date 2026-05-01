@@ -14,6 +14,7 @@
 #include "../lang/include/nexs_eval.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /* =========================================================
    RING CHECK
@@ -178,16 +179,18 @@ static Value sys_pipe(const KernelMsg *m, uint32_t pid) {
 }
 
 static Value sys_dup(const KernelMsg *m, uint32_t pid) {
-    (void)m; (void)pid;
-    return val_int(0); /* stub */
+    (void)pid;
+    int oldfd = (int)m->n;
+    int newfd = m->arg1[0] ? (int)atoi(m->arg1) : -1;
+    return val_int(vfs_dup(oldfd, newfd));
 }
 
 static Value sys_seek(const KernelMsg *m, uint32_t pid) {
     (void)pid;
-    int fd = (int)m->n;
-    /* Seek not yet tracked in fd table — stub */
-    (void)fd;
-    return val_int(0);
+    int fd     = (int)m->n;
+    int64_t off = m->arg0[0] ? (int64_t)atoi(m->arg0) : 0;
+    int whence = m->arg1[0] ? (int)atoi(m->arg1) : 0;
+    return val_int(vfs_seek(fd, off, whence));
 }
 
 static Value sys_fstat(const KernelMsg *m, uint32_t pid) {
@@ -240,6 +243,7 @@ static const SyscallEntry s_table[] = {
 #define SYSCALL_COUNT ((int)(sizeof(s_table) / sizeof(s_table[0])))
 
 Value kmsg_handle(const KernelMsg *m) {
+    if (m->sender_pid == 0) return val_err(1, "ESRCH");
     for (int i = 0; i < SYSCALL_COUNT; i++) {
         if (strcmp(s_table[i].verb, m->verb) == 0)
             return s_table[i].fn(m, m->sender_pid);

@@ -124,6 +124,7 @@ NEXS_API const char *val_type_name(ValueType t);
    PRINT / MEMORY
    ========================================================= */
 
+NEXS_API void  val_to_str(const Value *v, char *buf, size_t sz);
 NEXS_API void  val_print(const Value *v, FILE *out);
 NEXS_API void  val_free(Value *v);
 NEXS_API Value val_clone(const Value *v);  /* deep copy — buddy_alloc's new data */

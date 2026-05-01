@@ -13,10 +13,15 @@
 #include "../core/include/nexs_common.h"
 #include "../registry/include/nexs_registry.h"
 #include "../lang/include/nexs_fn.h"
+#include "../lang/include/nexs_eval.h"
 #include "../sys/include/nexs_sys.h"
+#include "../hal/include/nexs_hal_module.h"
 
 #include <stdio.h>
 #include <string.h>
+#ifndef NEXS_BAREMETAL
+#include <dirent.h>
+#endif
 
 extern void builtins_register_all(void);
 
@@ -65,4 +70,29 @@ void nexs_runtime_init(void) {
 
   /* 7. Register Plan 9 process built-ins */
   sysproc_register_builtins();
+
+  /* 8. Register HAL module builtins */
+  hal_module_register_builtins();
+
+#ifndef NEXS_BAREMETAL
+  /* 9. Auto-load modules/ .nx files — standard library functions */
+  {
+    DIR *d = opendir("modules");
+    if (d) {
+      struct dirent *ent;
+      while ((ent = readdir(d)) != NULL) {
+        size_t nlen = strlen(ent->d_name);
+        if (nlen > 3 && strcmp(ent->d_name + nlen - 3, ".nx") == 0) {
+          char path[512];
+          snprintf(path, sizeof(path), "modules/%s", ent->d_name);
+          EvalCtx ctx;
+          eval_ctx_init(&ctx);
+          EvalResult r = eval_file(&ctx, path);
+          val_free(&r.ret_val);
+        }
+      }
+      closedir(d);
+    }
+  }
+#endif
 }

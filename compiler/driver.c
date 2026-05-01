@@ -116,16 +116,16 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
       continue;
     }
 
-    char out_path[256];
-    snprintf(out_path, sizeof(out_path), "/tmp/nexs_prof_out_%d.txt",
+    char run_out[256];
+    snprintf(run_out, sizeof(run_out), "/tmp/nexs_prof_out_%d.txt",
              (int)getpid());
 
     /* Use perl to set a cross-platform 1-second timeout */
     snprintf(run_cmd, sizeof(run_cmd),
-             "perl -e 'alarm 1; exec \"%s\"' > %s 2>&1", test_bin, out_path);
+             "perl -e 'alarm 1; exec \"%s\"' > '%s' 2>&1", test_bin, run_out);
     system(run_cmd);
 
-    FILE *fout = fopen(out_path, "r");
+    FILE *fout = fopen(run_out, "r");
     int failed = 0;
     if (fout) {
       char line[1024];
@@ -137,7 +137,7 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
       }
       fclose(fout);
     }
-    unlink(out_path);
+    unlink(run_out);
     unlink(test_bin);
 
     if (!failed) {
@@ -172,7 +172,7 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
                   " -Icompiler/include -Ihal/include");
 
   pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
-                  " %s"
+                  " '%s'"
                   " core/buddy.c core/pager.c core/value.c"
                   " core/dynarray.c core/utils.c"
                   " registry/registry.c registry/reg_ipc.c"
@@ -180,7 +180,7 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
                   " lang/eval.c lang/builtins.c"
                   " sys/sysio.c sys/sysproc.c"
                   " runtime/runtime.c runtime/nexs_line.c"
-                  " hal/bc/nexs_hal_bc.c",
+                  " hal/bc/nexs_hal_bc.c hal/module/nexs_hal_module.c",
                   script_c);
 
   if (tc->is_baremetal) {
@@ -193,7 +193,7 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
   /* Bare-metal extras */
   if (tc->is_baremetal) {
     if (tc->ld_script)
-      pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -T %s",
+      pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -T '%s'",
                       tc->ld_script);
     pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
                     " -nostdlib -nostartfiles -ffreestanding -Ikernel/include "
@@ -213,7 +213,7 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
     }
   }
 
-  pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -o %s", out_path);
+  pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -o '%s'", out_path);
 
   fprintf(stdout, "[compile] %s\n", cmd);
 

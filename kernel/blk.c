@@ -57,7 +57,10 @@ static BlkDev *blk_find_dev(uint32_t dev_id) {
 static void flush_buf(BlkBuf *b) {
     if (!b->valid || !b->dirty) return;
     BlkDev *d = blk_find_dev(b->dev_id);
-    if (d && d->write) d->write(b->dev_id, b->lba, b->data);
+    if (d && d->write) {
+        d->write(b->dev_id, b->lba, b->data);
+        b->dirty = 0;
+    }
 }
 
 static BlkBuf *cache_find(uint32_t dev, uint64_t lba) {
@@ -125,6 +128,7 @@ int blk_write(uint32_t dev, uint64_t lba, const void *buf) {
         flush_buf(b);
         b->dev_id = dev;
         b->lba    = lba;
+        b->dirty  = 0;
         b->valid  = 1;
     }
     memcpy(b->data, buf, BLK_SIZE);

@@ -48,6 +48,10 @@ NEXS_API void nexs_hal_print(const char *s);
 /* Fill in the platform memory map */
 NEXS_API void nexs_hal_memory_map(NexsMemMap *map);
 
+/* Disable / enable CPU interrupts (used by baremetal scheduler) */
+NEXS_API void nexs_hal_irq_disable(void);
+NEXS_API void nexs_hal_irq_enable(void);
+
 /* Halt the CPU (disable interrupts, spin with HLT/WFI) — does not return */
 NEXS_API void nexs_hal_halt(void) __attribute__((noreturn));
 

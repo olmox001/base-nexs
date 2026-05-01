@@ -57,10 +57,10 @@ _start:
     cli
     movl $(_stack_top), %esp
     
-    /* Debug: Stampa 'P' su COM1 */
+    /* Debug: Stampa 'P' su COM1 
     movw $0x3F8, %dx
     movb $'P', %al
-    outb %al, %dx
+    outb %al, %dx   */
 
     /* Costruisce le page tables identity a 0x1000 */
     movl $0x1000, %edi

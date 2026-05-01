@@ -68,6 +68,7 @@ SRCS = \
   compiler/driver.c \
   compiler/dep_scan.c \
   hal/bc/nexs_hal_bc.c \
+  hal/module/nexs_hal_module.c \
   hal/hal_hosted.c
 
 # Baremetal doesn't use the hosted HAL, but it keeps the AOT compiler
@@ -92,7 +93,8 @@ BAREMETAL_SRCS = \
   compiler/codegen.c \
   compiler/driver.c \
   compiler/dep_scan.c \
-  hal/bc/nexs_hal_bc.c
+  hal/bc/nexs_hal_bc.c \
+  hal/module/nexs_hal_module.c
 
 OBJS = $(SRCS:.c=.o)
 

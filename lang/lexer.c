@@ -91,6 +91,8 @@ static struct {
                 {"true", TK_KW_TRUE},
                 {"false", TK_KW_FALSE},
                 {"nil", TK_KW_NIL},
+                {"cd", TK_KW_CD},
+                {"pwd", TK_KW_PWD},
                 /* New keywords */
                 {"ptr", TK_KW_PTR},
                 {"deref", TK_KW_DEREF},
@@ -154,8 +156,11 @@ Token lexer_next(Lexer *lex) {
       buf[i++] = ch;
     }
     buf[i] = '\0';
+    /* If buffer filled before closing quote, scan forward to consume it */
+    while (lex->pos < lex->len && lex->src[lex->pos] != '"')
+      lex->pos++;
     if (lex->pos < lex->len)
-      lex->pos++; /* closing " */
+      lex->pos++; /* consume closing " */
     return make_tok(TK_STRING, buf, line);
   }
 

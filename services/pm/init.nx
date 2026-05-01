@@ -1,12 +1,4 @@
-# ===================================================================
-# Modulo PM (Process & Memory Manager)
-# ===================================================================
-# Tutti i processi vengono registrati nel namespace NEXS:
-#   /sys/pm/procs/<pid>/name   = nome del processo
-#   /sys/pm/procs/<pid>/state  = "running" | "zombie"
-#   /sys/pm/procs/<pid>/mem    = byte allocati
-#   /sys/pm/next_pid           = prossimo PID disponibile
-# Visibile tramite: ls /sys/pm
+# services/pm/init.nx — NEXS Process & Memory Manager
 # ===================================================================
 
 reg /sys/pm/next_pid = 100
@@ -50,3 +42,6 @@ fn pm_ps() {
     pid = pid + 1
   }
 }
+
+reg /sys/pm/status = "ready"
+out "[pm] Process manager initialised."

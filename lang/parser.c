@@ -22,6 +22,7 @@
 
 ASTNode *ast_alloc(ASTKind kind, Token tok) {
   ASTNode *n = xmalloc(sizeof(ASTNode));
+  memset(n, 0, sizeof(ASTNode)); // Assicura che tutti i puntatori (args, etc) siano NULL
   n->kind = kind;
   n->tok = tok;
   n->litval = val_nil();
@@ -177,6 +178,11 @@ static ASTNode *parse_primary(Parser *p) {
     parser_advance(p);
     return n;
   }
+  case TK_KW_PWD: {
+    ASTNode *n = ast_alloc(AST_PWD, t);
+    parser_advance(p);
+    return n;
+  }
   case TK_KW_LS: {
     Token kw = t;
     parser_advance(p);
@@ -191,8 +197,10 @@ static ASTNode *parse_primary(Parser *p) {
         if (p->cur.kind == TK_COMMA)
           parser_advance(p);
       }
-      if (!parser_expect(p, TK_RPAREN))
+      if (!parser_expect(p, TK_RPAREN)) {
+        ast_free(fn);
         return NULL;
+      }
       return fn;
     }
     /* Simple ls in expression -> default registry list / */
@@ -230,8 +238,10 @@ static ASTNode *parse_primary(Parser *p) {
         if (p->cur.kind == TK_COMMA)
           parser_advance(p);
       }
-      if (!parser_expect(p, TK_RPAREN))
+      if (!parser_expect(p, TK_RPAREN)) {
+        ast_free(n);
         return NULL;
+      }
       return n;
     }
     ASTNode *n = ast_alloc(AST_IDENT, t);
@@ -287,8 +297,10 @@ static ASTNode *parse_primary(Parser *p) {
         if (p->cur.kind == TK_COMMA)
           parser_advance(p);
       }
-      if (!parser_expect(p, TK_RPAREN))
+      if (!parser_expect(p, TK_RPAREN)) {
+        ast_free(fn);
         return NULL;
+      }
       return fn;
     }
     Token pt = p->cur;
@@ -483,8 +495,10 @@ ASTNode *parse_stmt(Parser *p) {
     ASTNode *n = ast_alloc(AST_FN_DECL, name_tok);
     strncpy(n->name, name_tok.text, NAME_LEN - 1);
     n->name[NAME_LEN - 1] = '\0';
-    if (!parser_expect(p, TK_LPAREN))
+    if (!parser_expect(p, TK_LPAREN)) {
+      ast_free(n);
       return NULL;
+    }
     while (p->cur.kind == TK_IDENT && n->n_params < MAX_PARAMS) {
       strncpy(n->params[n->n_params], p->cur.text, NAME_LEN - 1);
       n->params[n->n_params][NAME_LEN - 1] = '\0';
@@ -493,8 +507,10 @@ ASTNode *parse_stmt(Parser *p) {
       if (p->cur.kind == TK_COMMA)
         parser_advance(p);
     }
-    if (!parser_expect(p, TK_RPAREN))
+    if (!parser_expect(p, TK_RPAREN)) {
+      ast_free(n);
       return NULL;
+    }
     n->right = parse_block(p);
     return n;
   }
@@ -505,9 +521,14 @@ ASTNode *parse_stmt(Parser *p) {
     ASTNode *n = ast_alloc(AST_IF, t);
     n->left = parse_expr(p);
     n->right = parse_block(p);
+    parser_skip_newlines(p);
     if (p->cur.kind == TK_KW_ELSE) {
       parser_advance(p);
-      n->alt = parse_block(p);
+      if (p->cur.kind == TK_KW_IF) {
+        n->alt = parse_stmt(p);
+      } else {
+        n->alt = parse_block(p);
+      }
     }
     return n;
   }
@@ -555,11 +576,15 @@ ASTNode *parse_stmt(Parser *p) {
     ASTNode *n = ast_alloc(AST_DEL, nt);
     strncpy(n->name, nt.text, NAME_LEN - 1);
     n->name[NAME_LEN - 1] = '\0';
-    if (!parser_expect(p, TK_LBRACKET))
+    if (!parser_expect(p, TK_LBRACKET)) {
+      ast_free(n);
       return NULL;
+    }
     n->left = parse_expr(p);
-    if (!parser_expect(p, TK_RBRACKET))
+    if (!parser_expect(p, TK_RBRACKET)) {
+      ast_free(n);
       return NULL;
+    }
     return n;
   }
 
@@ -581,20 +606,42 @@ ASTNode *parse_stmt(Parser *p) {
         if (p->cur.kind == TK_COMMA)
           parser_advance(p);
       }
-      if (!parser_expect(p, TK_RPAREN))
+      if (!parser_expect(p, TK_RPAREN)) {
+        ast_free(n);
         return NULL;
+      }
       return n;
     }
     /* Fallback to built-in registry listing */
     ASTNode *n = ast_alloc(AST_REG_LS, t);
-    if (p->cur.kind == TK_REGPATH) {
+    if (p->cur.kind == TK_REGPATH || p->cur.kind == TK_STRING || p->cur.kind == TK_IDENT) {
       strncpy(n->path, p->cur.text, REG_PATH_MAX - 1);
       n->path[REG_PATH_MAX - 1] = '\0';
       parser_advance(p);
     } else {
-      strncpy(n->path, "/", REG_PATH_MAX - 1);
+      n->path[0] = '\0';
     }
     return n;
+  }
+  
+  /* cd /path OR cd("path") OR cd path */
+  if (t.kind == TK_KW_CD) {
+    parser_advance(p);
+    ASTNode *n = ast_alloc(AST_CD, t);
+    if (p->cur.kind == TK_REGPATH || p->cur.kind == TK_STRING || p->cur.kind == TK_IDENT) {
+      strncpy(n->path, p->cur.text, REG_PATH_MAX - 1);
+      n->path[REG_PATH_MAX - 1] = '\0';
+      parser_advance(p);
+    } else {
+      n->left = parse_expr(p);
+    }
+    return n;
+  }
+
+  /* pwd */
+  if (t.kind == TK_KW_PWD) {
+    parser_advance(p);
+    return ast_alloc(AST_PWD, t);
   }
 
   /* reg /path [= expr] */
@@ -635,8 +682,10 @@ ASTNode *parse_stmt(Parser *p) {
         if (p->cur.kind == TK_COMMA)
           parser_advance(p);
       }
-      if (!parser_expect(p, TK_RPAREN))
+      if (!parser_expect(p, TK_RPAREN)) {
+        ast_free(fn);
         return NULL;
+      }
       return fn;
     }
     Token pt = peek;
@@ -743,8 +792,10 @@ ASTNode *parse_stmt(Parser *p) {
     if (p->cur.kind == TK_LBRACKET) {
       parser_advance(p);
       ASTNode *idx = parse_expr(p);
-      if (!parser_expect(p, TK_RBRACKET))
+      if (!parser_expect(p, TK_RBRACKET)) {
+        ast_free(idx);
         return NULL;
+      }
       if (p->cur.kind == TK_EQ) {
         parser_advance(p);
         ASTNode *n = ast_alloc(AST_INDEX_ASSIGN, t);
@@ -783,8 +834,10 @@ ASTNode *parse_stmt(Parser *p) {
         if (p->cur.kind == TK_COMMA)
           parser_advance(p);
       }
-      if (!parser_expect(p, TK_RPAREN))
+      if (!parser_expect(p, TK_RPAREN)) {
+        ast_free(n);
         return NULL;
+      }
       return n;
     }
     ASTNode *n = ast_alloc(AST_IDENT, t);

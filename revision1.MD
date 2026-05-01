@@ -121,7 +121,7 @@ Traccia completa: stato, bug e lacune
   ├───────────────┼──────────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────┤    
   │ 25–30         │ Esempio --compile program.nx --target ...                                    │ ✅ Corretto, funziona                                              │    
   ├───────────────┼──────────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────┤ 
-  │ Tutto il      │ Nessuna menzione di minios_dev_readreadme/ come esempio funzionante          │ Da aggiungere                                                      │    
+  │ Tutto il      │ Nessuna menzione di minios/ come esempio funzionante          │ Da aggiungere                                                      │    
   │ README        │                                                                              │                                      │ 
   ├───────────────┼──────────────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────┤    
   │ Nessuna       │ Manca documentazione su --standalone-program, :exit, REPL commands :ls :reg  │ Da aggiungere                                                      │

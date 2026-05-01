@@ -87,3 +87,5 @@ void nexs_fprintf(FILE *out, const char *fmt, ...) {
   }
   va_end(ap);
 }
+
+int g_nexs_debug = 0;

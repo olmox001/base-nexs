@@ -1,6 +1,4 @@
-# ===================================================================
-# DEVICE TREE (hw_dt.nx)
-# Hardware Topology and Simulated Platform Drivers
+# services/hw_dt.nx — NEXS Device Tree
 # ===================================================================
 
 fn hw_dt_init() {

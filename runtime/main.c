@@ -69,6 +69,7 @@ void nexs_repl(void) {
 
     if (strcmp(line, ":debug") == 0) {
       ctx.debug = !ctx.debug;
+      g_nexs_debug = ctx.debug;
       nexs_fprintf(ctx.out, "Debug: %s\n", ctx.debug ? "ON" : "OFF");
       continue;
     }
@@ -172,20 +173,53 @@ void nexs_repl(void) {
               "  sleep(1000)\n"
               "  pid = rfork(1)\n"
               "\nREPL commands:\n"
-              "  :ls [path]  :reg [path]  :fn  :debug  :ast\n"
+              "  :ls [path]  :reg [path]  :cd [path]  :fn  :debug  :ast\n"
               "  :ptr /path  :ipc /path   :exit\n\n");
       continue;
     }
 
     if (strncmp(line, ":ls", 3) == 0) {
-      const char *path = strlen(line) > 4 ? line + 4 : "/";
-      reg_ls(path, stdout);
+      const char *path = strlen(line) > 4 ? line + 4 : "";
+      char target[REG_PATH_MAX];
+      if (path[0] != '/') {
+        REG_PATH(target, ctx.scope, path);
+      } else {
+        strncpy(target, path, REG_PATH_MAX - 1);
+        target[REG_PATH_MAX - 1] = '\0';
+      }
+      reg_ls(target, stdout);
       continue;
     }
 
     if (strncmp(line, ":reg", 4) == 0) {
-      const char *path = strlen(line) > 5 ? line + 5 : "/";
-      reg_ls_recursive(path, stdout, 0);
+      const char *path = strlen(line) > 5 ? line + 5 : "";
+      char target[REG_PATH_MAX];
+      if (path[0] != '/') {
+        REG_PATH(target, ctx.scope, path);
+      } else {
+        strncpy(target, path, REG_PATH_MAX - 1);
+        target[REG_PATH_MAX - 1] = '\0';
+      }
+      reg_ls_recursive(target, stdout, 0);
+      continue;
+    }
+
+    if (strncmp(line, ":cd ", 4) == 0) {
+      const char *path = line + 4;
+      char target[REG_PATH_MAX];
+      if (path[0] != '/') {
+        REG_PATH(target, ctx.scope, path);
+      } else {
+        strncpy(target, path, REG_PATH_MAX - 1);
+        target[REG_PATH_MAX - 1] = '\0';
+      }
+      /* Check if path exists */
+      if (reg_lookup(target)) {
+        strncpy(ctx.scope, target, REG_PATH_MAX - 1);
+        ctx.scope[REG_PATH_MAX - 1] = '\0';
+      } else {
+        fprintf(stderr, "Path not found: %s\n", target);
+      }
       continue;
     }
 

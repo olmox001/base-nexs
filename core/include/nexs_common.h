@@ -10,6 +10,7 @@
 #pragma once
 
 #include <stddef.h>
+#include <stdio.h>
 
 #ifdef NEXS_BAREMETAL
 typedef __INT8_TYPE__ int8_t;
@@ -55,7 +56,7 @@ extern "C" {
 #define NEXS_VERSION_MAJOR 0
 #define NEXS_VERSION_MINOR 2
 #define NEXS_VERSION_PATCH 0
-#define NEXS_VERSION_STR "0.1.5"
+#define NEXS_VERSION_STR "0.1.7"
 
 /* =========================================================
    BUDDY ALLOCATOR & DYNAMIC LIMITS
@@ -227,6 +228,11 @@ extern "C" {
   } while (0)
 
 #define REG_PATH(buf, ...) nexs_path_join((buf), sizeof(buf), __VA_ARGS__, NULL)
+
+NEXS_API void nexs_fprintf(FILE *out, const char *fmt, ...);
+
+/* Global Debug Flag */
+extern int g_nexs_debug;
 
 #ifdef __cplusplus
 }

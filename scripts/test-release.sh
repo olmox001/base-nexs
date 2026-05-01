@@ -27,8 +27,8 @@ case "$CHOICE" in
         "./$REL_DIR/Nexs-amd64-MacOS"
         ;;
     2)
-        echo "Testing Nexs-amd64-MacOS-MINIOS (AOT)..."
-        "./$REL_DIR/Nexs-amd64-MacOS-MINIOS"
+        echo "Testing MINIOS-amd64-MacOS (AOT)..."
+        "./$REL_DIR/MINIOS-amd64-MacOS"
         ;;
     3)
         echo "Testing Nexs-amd64-STANDALONE.elf (QEMU -kernel)..."
@@ -39,12 +39,12 @@ case "$CHOICE" in
         qemu-system-x86_64 -cdrom "$REL_DIR/Nexs-amd64-STANDALONE.iso" -m 256M -nographic -no-reboot
         ;;
     5)
-        echo "Testing Nexs-amd64-STANDALONE-MINIOS.elf (QEMU -kernel)..."
-        qemu-system-x86_64 -kernel "$REL_DIR/Nexs-amd64-STANDALONE-MINIOS.elf" -m 128M -nographic -no-reboot
+        echo "Testing MINIOS-amd64-STANDALONE.elf (QEMU -kernel)..."
+        qemu-system-x86_64 -kernel "$REL_DIR/MINIOS-amd64-STANDALONE.elf" -m 128M -nographic -no-reboot
         ;;
     6)
-        echo "Testing Nexs-amd64-STANDALONE-MINIOS.iso (QEMU -cdrom)..."
-        qemu-system-x86_64 -cdrom "$REL_DIR/Nexs-amd64-STANDALONE-MINIOS.iso" -m 256M -nographic -no-reboot
+        echo "Testing MINIOS-amd64-STANDALONE.iso (QEMU -cdrom)..."
+        qemu-system-x86_64 -cdrom "$REL_DIR/MINIOS-amd64-STANDALONE.iso" -m 256M -nographic -no-reboot
         ;;
     7)
         echo "Testing Nexs-amd64-Linux (Interpreter)..."
@@ -56,9 +56,9 @@ case "$CHOICE" in
         fi
         ;;
     8)
-        echo "Testing Nexs-amd64-Linux-MINIOS (AOT)..."
+        echo "Testing MINIOS-amd64-Linux (AOT)..."
         if [ "$(uname)" = "Linux" ]; then
-            "./$REL_DIR/Nexs-amd64-Linux-MINIOS"
+            "./$REL_DIR/MINIOS-amd64-Linux"
         else
             echo "Error: Cannot run Linux binary on $(uname). Use a Linux environment or Docker."
             exit 1
@@ -66,14 +66,14 @@ case "$CHOICE" in
         ;;
     *)
         echo "Usage: $0 [1-8]"
-        echo "  1: Nexs-amd64-MacOS (Host)"
-        echo "  2: Nexs-amd64-MacOS-MINIOS (Host AOT)"
+        echo "  1: Nexs-amd64-MacOS (Host Interpreter)"
+        echo "  2: MINIOS-amd64-MacOS (Host AOT)"
         echo "  3: Nexs-amd64-STANDALONE.elf (Baremetal ELF)"
         echo "  4: Nexs-amd64-STANDALONE.iso (Baremetal ISO)"
-        echo "  5: Nexs-amd64-STANDALONE-MINIOS.elf (MiniOS ELF)"
-        echo "  6: Nexs-amd64-STANDALONE-MINIOS.iso (MiniOS ISO)"
-        echo "  7: Nexs-amd64-Linux (Linux Host)"
-        echo "  8: Nexs-amd64-Linux-MINIOS (Linux AOT)"
+        echo "  5: MINIOS-amd64-STANDALONE.elf (MiniOS ELF)"
+        echo "  6: MINIOS-amd64-STANDALONE.iso (MiniOS ISO)"
+        echo "  7: Nexs-amd64-Linux (Linux Host Interpreter)"
+        echo "  8: MINIOS-amd64-Linux (Linux AOT)"
         exit 1
         ;;
 esac

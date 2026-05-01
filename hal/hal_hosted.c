@@ -36,6 +36,9 @@ void nexs_hal_memory_map(NexsMemMap *map) {
   }
 }
 
+void nexs_hal_irq_disable(void) { /* no-op on hosted */ }
+void nexs_hal_irq_enable(void)  { /* no-op on hosted */ }
+
 void nexs_hal_halt(void) {
   _Exit(0);
 }
