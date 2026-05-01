@@ -19,6 +19,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#ifdef NEXS_BAREMETAL
+#  include "../hal/include/nexs_hal.h"
+#endif
+
 /*
  * nexs_embedded_lookup — provided by standalone compiled binaries (generated
  * by compiler/codegen.c).  When running as the interactive interpreter this
@@ -65,9 +69,14 @@ int nexs_exec(EvalCtx *ctx, const char *path) {
 }
 
 void nexs_exits(const char *status) {
+#ifdef NEXS_BAREMETAL
+  (void)status;
+  nexs_hal_halt();
+#else
   if (!status || status[0] == '\0') exit(0);
   fprintf(stderr, "[exits] %s\n", status);
   exit(1);
+#endif
 }
 
 #ifndef NEXS_BAREMETAL

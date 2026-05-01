@@ -10,6 +10,7 @@
 #pragma once
 
 #include <stddef.h>
+#include <stdio.h>
 
 #ifdef NEXS_BAREMETAL
 typedef __INT8_TYPE__ int8_t;
@@ -227,6 +228,11 @@ extern "C" {
   } while (0)
 
 #define REG_PATH(buf, ...) nexs_path_join((buf), sizeof(buf), __VA_ARGS__, NULL)
+
+NEXS_API void nexs_fprintf(FILE *out, const char *fmt, ...);
+
+/* Global Debug Flag */
+extern int g_nexs_debug;
 
 #ifdef __cplusplus
 }

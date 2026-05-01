@@ -79,5 +79,8 @@ void nexs_hal_irq_enable(void) {
 
 void nexs_hal_halt(void) {
   __asm__ volatile("msr daifset, #0xf");
+  /* PSCI SYSTEM_OFF (0x84000008) via HVC — tells QEMU to power off */
+  register uint64_t x0 __asm__("x0") = 0x84000008UL;
+  __asm__ volatile("hvc #0" : : "r"(x0) : "memory", "x1", "x2", "x3");
   while (1) { __asm__ volatile("wfi"); }
 }

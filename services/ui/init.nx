@@ -1,0 +1,48 @@
+# services/ui — Framebuffer / UI service
+# Single-app model: one fullscreen app at a time (Android/iOS-style).
+# Uses double-buffering via /sys/ui/buf[0|1].
+
+reg /sys/ui/width   = 80
+reg /sys/ui/height  = 24
+reg /sys/ui/active_app = ""
+reg /sys/ui/front_buf  = 0
+
+fn ui_init(w h) {
+  reg /sys/ui/width  = w
+  reg /sys/ui/height = h
+  term_cls()
+  term_cursor_show(0)
+  out "[ui] Framebuffer " + str(w) + "x" + str(h) + " initialised."
+  ret 0
+}
+
+fn ui_launch(app_path) {
+  prev = reg /sys/ui/active_app
+  if prev != "" {
+    out "[ui] Suspending: " + prev
+  }
+  reg /sys/ui/active_app = app_path
+  term_cls()
+  exec(app_path)
+  reg /sys/ui/active_app = ""
+  ret 0
+}
+
+fn ui_flip() {
+  front = reg /sys/ui/front_buf
+  if front == 0 {
+    reg /sys/ui/front_buf = 1
+  } else {
+    reg /sys/ui/front_buf = 0
+  }
+  term_flush()
+  ret 0
+}
+
+fn ui_clear() {
+  term_cls()
+  ret 0
+}
+
+reg /sys/ui/status = "ready"
+out "[ui] UI service initialised."

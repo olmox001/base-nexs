@@ -149,6 +149,23 @@ double val_to_float(const Value *v) {
    PRINT
    ========================================================= */
 
+void val_to_str(const Value *v, char *buf, size_t sz) {
+  if (!v || !buf || sz == 0) return;
+  switch (v->type) {
+    case TYPE_NIL:   snprintf(buf, sz, "nil"); break;
+    case TYPE_BOOL:  snprintf(buf, sz, "%s", v->ival ? "true" : "false"); break;
+    case TYPE_INT:   snprintf(buf, sz, "%lld", (long long)v->ival); break;
+    case TYPE_FLOAT: snprintf(buf, sz, "%g", v->fval); break;
+    case TYPE_STR:   snprintf(buf, sz, "%s", v->data ? (char *)v->data : ""); break;
+    case TYPE_ARR:   snprintf(buf, sz, "<array>"); break;
+    case TYPE_FN:    snprintf(buf, sz, "<function>"); break;
+    case TYPE_ERR:   snprintf(buf, sz, "ERR(%s)", v->err_msg ? v->err_msg : ""); break;
+    case TYPE_REF:   snprintf(buf, sz, "REF(%s)", v->data ? (char *)v->data : ""); break;
+    case TYPE_PTR:   snprintf(buf, sz, "PTR(%s)", v->data ? (char *)v->data : ""); break;
+    default:         snprintf(buf, sz, "<unknown>"); break;
+  }
+}
+
 void val_print(const Value *v, FILE *out) {
   if (!v) return;
   switch (v->type) {
@@ -165,7 +182,11 @@ void val_print(const Value *v, FILE *out) {
     nexs_fprintf(out, "%g", v->fval);
     break;
   case TYPE_STR:
-    nexs_fprintf(out, "%s", v->data ? (char *)v->data : "");
+    if (v->data) {
+      fprintf(out, "%s", (char *)v->data);
+    } else {
+      fprintf(out, "(null str)");
+    }
     break;
   case TYPE_ARR: {
     DynArray *arr = (DynArray *)v->data;
@@ -206,17 +227,19 @@ void val_print(const Value *v, FILE *out) {
 
 void val_free(Value *v) {
   if (!v) return;
-  if ((v->type == TYPE_STR || v->type == TYPE_REF || v->type == TYPE_PTR) && v->data) {
-    xfree(v->data);
+  if (v->type == TYPE_STR) {
+    if (v->data) xfree(v->data);
+    v->data = NULL;
+  } else if (v->type == TYPE_ARR) {
+    if (v->data) arr_unref((DynArray *)v->data);
+    v->data = NULL;
+  } else if (v->type == TYPE_REF || v->type == TYPE_PTR) {
+    if (v->data) xfree(v->data);
     v->data = NULL;
   }
   if (v->type == TYPE_ERR && v->err_msg) {
     xfree(v->err_msg);
     v->err_msg = NULL;
-  }
-  if (v->type == TYPE_ARR && v->data) {
-    arr_unref((DynArray *)v->data);
-    v->data = NULL;
   }
   /* TYPE_FN lifetime is managed by registry/fn_table */
   v->type = TYPE_NIL;
@@ -224,14 +247,24 @@ void val_free(Value *v) {
 
 Value val_clone(const Value *v) {
   if (!v) return val_nil();
-  Value c = *v;
-  if ((v->type == TYPE_STR || v->type == TYPE_REF || v->type == TYPE_PTR) && v->data)
-    c.data = buddy_strdup((char *)v->data);
-  if (v->type == TYPE_ARR && v->data)
-    arr_ref((DynArray *)v->data);
-  if (v->type == TYPE_ERR && v->err_msg)
-    c.err_msg = buddy_strdup(v->err_msg);
-  return c;
+  Value res = *v;
+  if (v->type == TYPE_STR) {
+    if (v->data) {
+      res.data = buddy_strdup((char *)v->data);
+    } else {
+      res.data = buddy_strdup("");
+    }
+  } else if (v->type == TYPE_ARR) {
+    if (v->data) arr_ref((DynArray *)v->data);
+  } else if (v->type == TYPE_REF || v->type == TYPE_PTR) {
+    if (v->data) res.data = buddy_strdup((char *)v->data);
+  }
+  if (v->type == TYPE_ERR && v->err_msg) {
+    res.err_msg = buddy_strdup(v->err_msg);
+  } else if (v->type == TYPE_ERR) {
+    res.err_msg = NULL;
+  }
+  return res;
 }
 
 /* =========================================================
@@ -275,7 +308,6 @@ Value val_add(const Value *a, const Value *b) {
     xfree(buf_a);
     xfree(buf_b);
     xfree(result_buf);
-    /* Note: res.data points to a copy created by val_str, which will be freed by val_free later */
     return res;
   }
   if (a->type == TYPE_FLOAT || b->type == TYPE_FLOAT)

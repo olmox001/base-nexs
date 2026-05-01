@@ -443,6 +443,15 @@ static Value builtin_term_size(Value *args, int n) {
     return v;
 }
 
+static Value builtin_arr_create_anon(Value *args, int n) {
+  (void)args; (void)n;
+  DynArray *arr = arr_create_anon();
+  Value v;
+  v.type = TYPE_ARR; v.data = arr; v.ival = 0;
+  v.fval = 0; v.err_code = 0; v.err_msg = NULL;
+  return v;
+}
+
 /* arr_join(arr sep) → str: concatena elementi arr separati da sep (es. "\n") */
 static Value builtin_arr_join(Value *args, int n) {
     if (n < 1 || args[0].type != TYPE_ARR || !args[0].data)
@@ -590,6 +599,11 @@ static Value builtin_sleep(Value *args, int n) {
 /* Arrow UTF-8 → (U+2192) */
 #define SIG(s) s " \xe2\x86\x92 "
 
+static Value builtin_sys_debug(Value *args, int n) {
+  if (n > 0) g_nexs_debug = val_is_truthy(&args[0]);
+  return val_bool(g_nexs_debug);
+}
+
 void builtins_register_all(void) {
   /* Core type conversion */
   register_builtin_sig("str",         builtin_str,
@@ -647,6 +661,8 @@ void builtins_register_all(void) {
     SIG("arr_ins(arr, idx int, val)") "nil");
   register_builtin_sig("arr_del",  builtin_arr_del,
     SIG("arr_del(arr, idx int)") "nil");
+  register_builtin_sig("arr_create_anon", builtin_arr_create_anon,
+    SIG("arr_create_anon()") "arr");
   register_builtin_sig("keys",     builtin_keys,
     SIG("keys(path str)") "arr");
   register_builtin_sig("print_reg", builtin_print_reg,
@@ -674,6 +690,8 @@ void builtins_register_all(void) {
   /* Term Size */
   register_builtin_sig("term_size", builtin_term_size,
     SIG("term_size()") "arr");
+  register_builtin_sig("sys_debug", builtin_sys_debug,
+    SIG("sys_debug(on bool)") "bool");
 }
 
 #undef SIG

@@ -91,6 +91,8 @@ static struct {
                 {"true", TK_KW_TRUE},
                 {"false", TK_KW_FALSE},
                 {"nil", TK_KW_NIL},
+                {"cd", TK_KW_CD},
+                {"pwd", TK_KW_PWD},
                 /* New keywords */
                 {"ptr", TK_KW_PTR},
                 {"deref", TK_KW_DEREF},

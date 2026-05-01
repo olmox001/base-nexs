@@ -48,9 +48,9 @@ static RegKey *regkey_alloc(const char *name, const char *path, uint8_t rights) 
 
 static RegKey *regkey_find_child(RegKey *parent, const char *name) {
   if (!parent || !name) return NULL;
-  for (RegKey *c = parent->children; c; c = c->next)
-    if (strcmp(c->name, name) == 0)
-      return c;
+  for (RegKey *c = parent->children; c; c = c->next) {
+    if (strcmp(c->name, name) == 0) return c;
+  }
   return NULL;
 }
 
@@ -204,6 +204,7 @@ RegKey *reg_mkpath(const char *path, uint8_t rights) {
 
     RegKey *child = regkey_find_child(cur, seg);
     if (!child) {
+      if (g_nexs_debug) nexs_fprintf(stderr, "[REG DEBUG] Creating key: %s\n", child_path);
       child = regkey_alloc(seg, child_path, rights);
       regkey_add_child(cur, child);
     }
@@ -216,25 +217,38 @@ RegKey *reg_mkpath(const char *path, uint8_t rights) {
 }
 
 RegKey *reg_lookup(const char *path) {
-  if (!path) return NULL;
+  if (!path || path[0] == '\0') return NULL;
+  if (g_nexs_debug) nexs_fprintf(stderr, "[REG DEBUG] Lookup: %s\n", path);
   if (strcmp(path, "/") == 0) return g_registry.root;
   if (path[0] != '/') return NULL;
+
+  if (!g_registry.root) return NULL;
 
   char buf[REG_PATH_MAX];
   strncpy(buf, path, REG_PATH_MAX - 1);
   buf[REG_PATH_MAX - 1] = '\0';
 
   RegKey *cur = g_registry.root;
-  char *seg = strtok(buf + 1, "/");
-  while (seg && cur) {
-    cur = regkey_find_child(cur, seg);
-    seg = strtok(NULL, "/");
+  char *p = buf + 1;
+  while (*p && cur) {
+    char *next_slash = strchr(p, '/');
+    if (next_slash) *next_slash = '\0';
+    
+    if (*p != '\0') {
+      cur = regkey_find_child(cur, p);
+    }
+    
+    if (next_slash) {
+      p = next_slash + 1;
+    } else {
+      break;
+    }
   }
   return cur;
 }
 
 RegKey *reg_resolve(const char *name, const char *scope_path) {
-  if (!name) return NULL;
+  if (!name || name[0] == '\0') return NULL;
   char path[REG_PATH_MAX];
 
   /* 1. Current scope and ancestors */
@@ -245,10 +259,9 @@ RegKey *reg_resolve(const char *name, const char *scope_path) {
     snprintf(path, sizeof(path), "%s/%s", sp, name);
     RegKey *k = reg_lookup(path);
     if (k) return k;
+    if (strcmp(sp, "/") == 0) break;
     char parent[REG_PATH_MAX];
     nexs_path_dirname(sp, parent, sizeof(parent));
-    if (strcmp(parent, sp) == 0 || strcmp(parent, "/") == 0)
-      break;
     strncpy(sp, parent, REG_PATH_MAX - 1);
     sp[REG_PATH_MAX - 1] = '\0';
   }
@@ -403,10 +416,9 @@ void reg_ls(const char *path, FILE *out) {
   nexs_fprintf(out, "\n[REGISTRY] %s\n", path);
   nexs_fprintf(out, "%-28s  %-6s  %s\n", "PATH", "TYPE", "VALUE");
   nexs_fprintf(out, "---------------------------------------------------\n");
-  /* Always recurse one level (direct children) with their own children
-   * shown as count — full recursion via :reg command */
+  /* Always recurse one level (direct children) WITHOUT further recursion */
   for (RegKey *c = k->children; c; c = c->next)
-    reg_ls_node(c, out, 0, 1);
+    reg_ls_node(c, out, 0, 0);
   nexs_fprintf(out, "\n");
 }
 

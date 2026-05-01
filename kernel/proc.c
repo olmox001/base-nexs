@@ -15,6 +15,16 @@
 
 NexsProc *g_current_proc = NULL;
 
+#ifdef __aarch64__
+/* x19 = arg, x20 = real entry fn — set by proc_create */
+__attribute__((naked)) static void proc_trampoline_arm64(void) {
+    __asm__ volatile(
+        "mov x0, x19\n"
+        "br  x20\n"
+    );
+}
+#endif
+
 static uint32_t s_next_pid = 1;
 
 /* Each process gets a small stack (32 KB) */
@@ -44,8 +54,9 @@ NexsProc *proc_create(const char *name, void (*entry)(void *), void *arg) {
     *--sp = (uint64_t)arg;
     *--sp = (uint64_t)entry;
     ctx->sp  = (uint64_t)sp;
-    ctx->x30 = (uint64_t)entry;
+    ctx->x30 = (uint64_t)proc_trampoline_arm64;
     ctx->x19 = (uint64_t)arg;
+    ctx->x20 = (uint64_t)entry;
 #else
     Ctx_amd64 *ctx = (Ctx_amd64 *)nexs_alloc(sizeof(Ctx_amd64));
     if (!ctx) { nexs_free(p, sizeof(*p)); return NULL; }

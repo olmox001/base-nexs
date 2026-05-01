@@ -1,63 +1,75 @@
-fn cat(path) {
-  fd = open(path 0)
-  if fd < 0 {
-    out "[cat] cannot open: " + path
-    ret ""
+# services/stdlib.nx — NEXS Standard Library
+# ===================================================================
+
+fn input(prompt) {
+  write(1 prompt)
+  rawon()
+  buffer = ""
+  loop {
+    ch = readkey()
+    if ch == "" { continue }
+    
+    if ch == "ENTER" {
+      write(1 "\n")
+      break
+    }
+    
+    if ch == "BACKSPACE" {
+      blen = len(buffer)
+      if blen > 0 {
+        write(1 "\b \b")
+        buffer = substr(buffer 0 blen - 1)
+      }
+      continue
+    }
+
+    # Gestione esplicita tasti speciali per evitare che finiscano nel buffer
+    if ch == "UP" || ch == "KEY_UP" { continue }
+    if ch == "DOWN" || ch == "KEY_DOWN" { continue }
+    if ch == "LEFT" || ch == "KEY_LEFT" { continue }
+    if ch == "RIGHT" || ch == "KEY_RIGHT" { continue }
+    if ch == "HOME" || ch == "KEY_HOME" { continue }
+    if ch == "END" || ch == "KEY_END" { continue }
+    if ch == "ESC" { continue }
+    if ch == "TAB" { continue }
+
+    if len(ch) == 1 {
+      write(1 ch)
+      buffer = buffer + ch
+    }
   }
-  data = read(fd 4096)
-  close(fd)
-  ret data
+  rawoff()
+  ret buffer
 }
 
-fn ls(path) {
-  items = keys(path)
-  n = len(items)
-  i = 0
-  loop {
-    if i >= n { break }
-    out "  " + str(items[i])
-    i = i + 1
-  }
+# Nota: term_at, term_cls, term_cursor_move, ecc. sono built-in nativi (C)
+# e non necessitano di wrapper nel modulo stdlib se usati direttamente.
+
+fn cat(path) {
+  ret vfs_read(path)
 }
 
 fn cp(src dst) {
-  data = cat(src)
-  fd = open(dst 1)
-  if fd < 0 {
-    out "[cp] cannot open dst: " + dst
-    ret -1
-  }
-  write(fd data)
-  close(fd)
+  content = vfs_read(src)
+  vfs_write(dst content)
   ret 0
 }
 
 fn mv(src dst) {
   cp(src dst)
-  rm(src)
+  vfs_rm(src)
+  ret 0
 }
 
 fn rm(path) {
-  reg_del(path)
-}
-
-fn echo(s) {
-  out s
+  vfs_rm(path)
+  ret 0
 }
 
 fn exists(path) {
-  fd = open(path 0)
-  if fd < 0 {
+  val = vfs_read(path)
+  if type(val) == "err" {
     ret 0
   }
-  close(fd)
   ret 1
-}
-
-fn pwd() {
-  ret reg /proc/1/cwd
-}
-
-fn sleep_ms(ms) {
-  sleep(ms)
 }

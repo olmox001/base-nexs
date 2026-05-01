@@ -80,6 +80,8 @@ typedef enum {
   TK_KW_TRUE,
   TK_KW_FALSE,
   TK_KW_NIL,
+  TK_KW_CD,
+  TK_KW_PWD,
 
   /* New keywords — pointer and IPC */
   TK_KW_PTR,   /* ptr    — create a pointer to a registry path */

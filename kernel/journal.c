@@ -20,16 +20,22 @@
    ========================================================= */
 
 #define JOURNAL_MAGIC  0x4E584A4CUL  /* "NXJL" */
-#define JOURNAL_BLOCK_HDR 25         /* magic(4)+seq(8)+dev(4)+lba(8)+commit(1) */
+#define JOURNAL_HDR_META 25          /* magic(4)+seq(8)+dev(4)+lba(8)+commit(1) */
 
+/*
+ * Each journal entry uses TWO consecutive LBAs:
+ *   lba+0 = JournalHdr  (metadata, padded to BLK_SIZE)
+ *   lba+1 = raw BLK_SIZE data (the old block contents)
+ * This avoids writing a struct larger than BLK_SIZE in one call.
+ */
 typedef struct {
     uint32_t magic;
     uint64_t seq;
     uint32_t dev;
     uint64_t lba;
     uint8_t  commit;
-    uint8_t  data[BLK_SIZE];
-} __attribute__((packed)) JournalRecord;
+    uint8_t  _pad[BLK_SIZE - JOURNAL_HDR_META];
+} __attribute__((packed)) JournalHdr;
 
 /* =========================================================
    STATE
@@ -47,21 +53,26 @@ static int      s_commit_count = 0;
    HELPERS
    ========================================================= */
 
-static uint64_t journal_lba(uint64_t pos) {
-    return s_base_lba + (pos % s_n_blocks);
+/* Each entry occupies 2 LBAs: header at pos*2, data at pos*2+1 */
+static uint64_t journal_lba_hdr(uint64_t pos) {
+    return s_base_lba + (pos * 2) % (s_n_blocks * 2);
+}
+static uint64_t journal_lba_data(uint64_t pos) {
+    return s_base_lba + (pos * 2 + 1) % (s_n_blocks * 2);
 }
 
 static void write_record(uint64_t pos, uint32_t dev, uint64_t lba,
                          const uint8_t *data, uint8_t commit) {
-    JournalRecord rec;
-    memset(&rec, 0, sizeof(rec));
-    rec.magic  = JOURNAL_MAGIC;
-    rec.seq    = s_seq;
-    rec.dev    = dev;
-    rec.lba    = lba;
-    rec.commit = commit;
-    if (data) memcpy(rec.data, data, BLK_SIZE);
-    blk_write(s_dev, journal_lba(pos), &rec);
+    JournalHdr hdr;
+    memset(&hdr, 0, sizeof(hdr));
+    hdr.magic  = JOURNAL_MAGIC;
+    hdr.seq    = s_seq;
+    hdr.dev    = dev;
+    hdr.lba    = lba;
+    hdr.commit = commit;
+    blk_write(s_dev, journal_lba_hdr(pos), &hdr);
+    if (data)
+        blk_write(s_dev, journal_lba_data(pos), data);
 }
 
 /* =========================================================
@@ -114,14 +125,16 @@ int journal_commit(void) {
 
 int journal_replay(void) {
     if (!s_n_blocks) return 0;
-    JournalRecord rec;
+    JournalHdr hdr;
+    uint8_t    data[BLK_SIZE];
     uint64_t pos = 0;
     while (pos < s_n_blocks) {
-        if (blk_read(s_dev, journal_lba(pos), &rec) != 0) break;
-        if (rec.magic != JOURNAL_MAGIC) break;
-        if (!rec.commit) {
-            /* Uncommitted — re-apply the saved old_data to restore pre-crash state */
-            blk_write(rec.dev, rec.lba, rec.data);
+        if (blk_read(s_dev, journal_lba_hdr(pos), &hdr) != 0) break;
+        if (hdr.magic != JOURNAL_MAGIC) break;
+        if (!hdr.commit) {
+            /* Uncommitted — restore old data from adjacent data block */
+            if (blk_read(s_dev, journal_lba_data(pos), data) == 0)
+                blk_write(hdr.dev, hdr.lba, data);
         }
         pos++;
     }

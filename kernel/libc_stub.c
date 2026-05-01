@@ -439,8 +439,41 @@ char* strtok(char* str, const char* delim) {
     else { last = NULL; }
     return token;
 }
-char* strdup(const char* str) { (void)str; return NULL; }
+char* strdup(const char* str) {
+    if (!str) return NULL;
+    size_t n = strlen(str) + 1;
+    char *p = malloc(n);
+    if (p) memcpy(p, str, n);
+    return p;
+}
 char* strerror(int errnum) { (void)errnum; return "error"; }
+
+long strtol(const char *nptr, char **endptr, int base) {
+    long res = 0;
+    int sign = 1;
+    const char *p = nptr;
+    while (isspace((unsigned char)*p)) p++;
+    if (*p == '-') { sign = -1; p++; }
+    else if (*p == '+') p++;
+    if (base == 0) {
+        if (*p == '0') { p++; base = (*p == 'x' || *p == 'X') ? (p++, 16) : 8; }
+        else base = 10;
+    }
+    while (*p) {
+        unsigned char c = (unsigned char)*p;
+        int d = (c >= '0' && c <= '9') ? c - '0'
+              : (c >= 'a' && c <= 'f') ? c - 'a' + 10
+              : (c >= 'A' && c <= 'F') ? c - 'A' + 10 : base;
+        if (d >= base) break;
+        res = res * base + d;
+        p++;
+    }
+    if (endptr) *endptr = (char *)p;
+    return res * sign;
+}
+unsigned long strtoul(const char *nptr, char **endptr, int base) {
+    return (unsigned long)strtol(nptr, endptr, base);
+}
 
 long long atoll(const char *nptr) {
     long long res = 0;
@@ -471,7 +504,7 @@ double atof(const char *nptr) {
 }
 int atoi(const char *nptr) { return (int)atoll(nptr); }
 int system(const char *command) { (void)command; return -1; }
-void exit(int status) { (void)status; __asm__ volatile("cli"); while(1) { __asm__ volatile("hlt"); } }
+void exit(int status) { (void)status; nexs_hal_halt(); }
 
 int isspace(int c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f'; }
 int isdigit(int c) { return c >= '0' && c <= '9'; }
@@ -522,7 +555,7 @@ int tcgetattr(int fd, struct termios *termios_p) { (void)fd; (void)termios_p; re
 int tcsetattr(int fd, int optional_actions, const struct termios *termios_p) { (void)fd; (void)optional_actions; (void)termios_p; return 0; }
 pid_t wait(int *wstatus) { (void)wstatus; return -1; }
 pid_t waitpid(pid_t pid, int *wstatus, int options) { (void)pid; (void)wstatus; (void)options; return -1; }
-int poll(struct pollfd *fds, unsigned int nfds, int timeout) { (void)fds; (void)nfds; (void)timeout; return -1; }
+int poll(struct pollfd *fds, unsigned int nfds, int timeout) { (void)fds; (void)nfds; (void)timeout; return 0; }
 int usleep(useconds_t usec) { (void)usec; return 0; }
 unsigned int alarm(unsigned int seconds) { (void)seconds; return 0; }
 pid_t fork(void) { return -1; }

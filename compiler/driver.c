@@ -180,7 +180,7 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
                   " lang/eval.c lang/builtins.c"
                   " sys/sysio.c sys/sysproc.c"
                   " runtime/runtime.c runtime/nexs_line.c"
-                  " hal/bc/nexs_hal_bc.c",
+                  " hal/bc/nexs_hal_bc.c hal/module/nexs_hal_module.c",
                   script_c);
 
   if (tc->is_baremetal) {
@@ -193,7 +193,7 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
   /* Bare-metal extras */
   if (tc->is_baremetal) {
     if (tc->ld_script)
-      pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -T %s",
+      pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -T '%s'",
                       tc->ld_script);
     pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
                     " -nostdlib -nostartfiles -ffreestanding -Ikernel/include "

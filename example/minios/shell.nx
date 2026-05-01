@@ -1,99 +1,155 @@
-# ===================================================================
-# Modulo Shell (Userspace CLI) v2
-# Aggiunto: error handler, source, errlog, modules, rm, cp, mv
+# example/minios/shell.nx — NEXS Shell v2.2
+# VFS cwd tracked in /proc/1/vfs_cwd (registry key).
+# NEXS 'cd'/'pwd' keywords operate on eval scope — they are NOT used
+# here for user-facing navigation to avoid literal-path confusion.
 # ===================================================================
 
 fn shell_help() {
   out "  Comandi standard:"
-  out "  ls [dir]      - Mostra i file nel VFS"
-  out "  cat file      - Legge un file dal VFS"
-  out "  rm file       - Rimuove un file dal VFS"
-  out "  cp src dst    - Copia un file"
-  out "  mv src dst    - Sposta un file"
-  out "  ps            - Mostra i processi allocati"
-  out "  devtree       - Mostra il Device Tree hardware"
-  out "  fm [dir]      - Avvia il Plan 9 File Manager"
-  out "  modules       - Elenca moduli .nx caricati nel VFS"
-  out "  source file   - Esegue un file .nx dal VFS"
-  out "  errlog        - Mostra l'ultimo errore registrato"
-  out "  runvm         - Esegue il bytecode Wasm di test"
-  out "  nxed          - Editor di testo (VFS/Host)"
-  out "  exit          - Spegne il sistema"
+  out "  ls [dir]      - Elenca file nel VFS"
+  out "  ls /reg/path  - Elenca figli nel Registry"
+  out "  cd [dir]      - Cambia directory VFS"
+  out "  pwd           - Mostra directory corrente"
+  out "  clear         - Pulisce lo schermo"
+  out "  cat file      - Visualizza contenuto file VFS"
+  out "  rm file       - Rimuove file dal VFS"
+  out "  cp src dst    - Copia file nel VFS"
+  out "  mv src dst    - Sposta file nel VFS"
+  out "  touch file    - Crea un file vuoto nel VFS"
+  out "  ps            - Elenca processi attivi"
+  out "  devtree       - Mostra hardware Device Tree"
+  out "  fm [dir]      - Avvia Plan 9 File Manager"
+  out "  modules       - Elenca moduli di sistema"
+  out "  source file   - Esegue script .nx dal VFS"
+  out "  errlog        - Mostra ultimo errore kernel"
+  out "  nxed [file]   - Editor di testo"
+  out "  exit          - Arresta il sistema"
   out ""
-  out "  Funzioni NEXS (valutate direttamente):"
-  out "  reg_get(path) reg_set(path val) keys(path)"
-  out "  sendmessage(q msg) receivemessage(q) msgpending(q)"
+  out "  Espressioni NEXS native: digita qualsiasi espressione valida."
+}
+
+fn shell_cwd() {
+  v = reg_get("/proc/1/vfs_cwd")
+  if type(v) == "err" || v == "" { ret "" }
+  ret str(v)
+}
+
+fn shell_cwd_display() {
+  c = shell_cwd()
+  if c == "" { ret "/" }
+  ret "/" + c
 }
 
 fn shell_loop() {
   out "---------------------------------------------------"
-  out " NEXS Shell v2.0. Digita 'help' per i comandi."
+  out " NEXS Shell v2.2. Type 'help' for commands."
   out "---------------------------------------------------"
 
+  reg_set("/proc/1/vfs_cwd" "")
+
   loop {
-    write(1 "\033[s\033[24;1H\033[1;37;44m NEXS OS v0.2.0 | PID 101: Shell | VFS: / | Reg: OK \033[0K\033[u")
-    cmd_full = input("nexs-os> \033[5m_\033[0m\b")
+    p = shell_cwd_display()
+    prompt = "nexs-os:" + p + "> "
+    cmd_full = input(prompt)
+    if cmd_full == "" { continue }
+
     parts = split(cmd_full " ")
-    parts_len = len(parts)
-    if parts_len == 0 { continue }
-
     cmd = parts[0]
-    arg = ""
-    if parts_len > 1 { arg = parts[1] }
-    arg2 = ""
-    if parts_len > 2 { arg2 = parts[2] }
 
-    if cmd == "exit" || cmd == ":exit" {
-      out "Esecuzione sequenza di spegnimento..."
-      exits("")
-    }
+    arg = ""
+    if len(parts) > 1 { arg = parts[1] }
+    arg2 = ""
+    if len(parts) > 2 { arg2 = parts[2] }
 
     handled = 0
 
-    if cmd == "help"    { shell_help()
-                          handled = 1 }
-    if cmd == "ls"      { vfs_ls(arg)
-                          handled = 1 }
-    if cmd == "ps"      { pm_ps()
-                          handled = 1 }
-    if cmd == "devtree" { hw_dt_dump()
-                          handled = 1 }
-    if cmd == "fm"      { p9_file_manager(arg)
-                          handled = 1 }
+    if cmd == "help" {
+      shell_help()
+      handled = 1
+    }
+
+    if cmd == "ls" {
+      if arg != "" && substr(arg 0 1) == "/" {
+        # Registry listing via keys()
+        children = keys(arg)
+        ci = 0
+        loop {
+          if ci >= len(children) { break }
+          out "  " + str(children[ci])
+          ci = ci + 1
+        }
+      } else {
+        vfs_ls(vfs_resolve(arg shell_cwd()))
+      }
+      handled = 1
+    }
+
+    if cmd == "clear" {
+      term_cls()
+      handled = 1
+    }
+
+    if cmd == "cd" {
+      if arg == "" || arg == "/" {
+        reg_set("/proc/1/vfs_cwd" "")
+      } else {
+        if substr(arg 0 1) == "/" {
+          new_cwd = substr(arg 1 len(arg)-1)
+        } else {
+          new_cwd = vfs_resolve(arg shell_cwd())
+        }
+        reg_set("/proc/1/vfs_cwd" new_cwd)
+      }
+      handled = 1
+    }
+
+    if cmd == "pwd" {
+      out shell_cwd_display()
+      handled = 1
+    }
 
     if cmd == "cat" {
-      if arg == "" {
-        out "Uso: cat <file>"
-      } else {
-        out vfs_read(arg)
-      }
+      if arg == "" { out "cat: manca il file" }
+      else { out vfs_read(vfs_resolve(arg shell_cwd())) }
       handled = 1
     }
 
     if cmd == "rm" {
-      if arg == "" {
-        out "Uso: rm <file>"
-      } else {
-        vfs_rm(arg)
-      }
+      if arg == "" { out "rm: manca il file" }
+      else { vfs_rm(vfs_resolve(arg shell_cwd())) }
       handled = 1
     }
 
     if cmd == "cp" {
-      if arg == "" {
-        out "Uso: cp <src> <dst>"
-      } else {
-        cp(arg arg2)
-      }
+      if arg == "" || arg2 == "" { out "cp: sorgente o destinazione mancante" }
+      else { vfs_cp(vfs_resolve(arg shell_cwd()) vfs_resolve(arg2 shell_cwd())) }
       handled = 1
     }
 
     if cmd == "mv" {
-      if arg == "" {
-        out "Uso: mv <src> <dst>"
-      } else {
-        mv(arg arg2)
-      }
+      if arg == "" || arg2 == "" { out "mv: sorgente o destinazione mancante" }
+      else { vfs_mv(vfs_resolve(arg shell_cwd()) vfs_resolve(arg2 shell_cwd())) }
+      handled = 1
+    }
+
+    if cmd == "touch" {
+      if arg == "" { out "touch: manca il file" }
+      else { vfs_write(vfs_resolve(arg shell_cwd()) "") }
+      handled = 1
+    }
+
+    if cmd == "ps" {
+      pm_ps()
+      handled = 1
+    }
+
+    if cmd == "devtree" {
+      hw_dt_dump()
+      handled = 1
+    }
+
+    if cmd == "fm" {
+      p9_file_manager(vfs_resolve(arg shell_cwd()))
       handled = 1
     }
 
@@ -102,56 +158,41 @@ fn shell_loop() {
       handled = 1
     }
 
+    if cmd == "errlog" {
+      last = reg_get("/sys/errors/last")
+      if type(last) == "err" { last = "(nessun errore)" }
+      out "Ultimo errore: " + str(last)
+      handled = 1
+    }
+
     if cmd == "source" {
-      if arg == "" {
-        out "Uso: source <vfs_path>"
-      } else {
-        src = vfs_read(arg)
-        if type(src) == "err" {
-          out "[ERR] File non trovato: " + arg
-        } else {
-          result = eval(src)
-          if type(result) == "err" { out "[ERR] " + str(result) }
-        }
+      if arg == "" { out "source: manca il file" }
+      else {
+        src = vfs_read(vfs_resolve(arg shell_cwd()))
+        if type(src) != "err" { eval(src) }
+        else { out src }
       }
       handled = 1
     }
 
-    if cmd == "errlog" {
-      last = reg_get("/sys/errors/last")
-      if type(last) == "err" { last = "(nessun errore)" }
-      if last == "" { last = "(nessun errore)" }
-      out "Ultimo errore: " + last
-      handled = 1
-    }
-
-    if cmd == "runvm" {
-      bytecode[0] = 0
-      bytecode[1] = 10
-      bytecode[2] = 0
-      bytecode[3] = 20
-      bytecode[4] = 1
-      bytecode[5] = 0
-      bytecode[6] = 2
-      bytecode[7] = 2
-      bytecode[8] = 3
-      bytecode[9] = 4
-      vm_run(bytecode 10)
-      handled = 1
-    }
-
     if cmd == "nxed" {
-      nxed_start()
+      nxed_start(vfs_resolve(arg shell_cwd()))
       handled = 1
     }
 
-    # Fallback: Valuta come codice NEXS puro con error handler
+    if cmd == "exit" {
+      exits("")
+      handled = 1
+    }
+
     if handled == 0 {
       result = eval(cmd_full)
       if type(result) == "err" {
         errmsg = str(result)
-        out "[ERR] " + errmsg
+        out "[ERR] eval: " + errmsg
         reg_set("/sys/errors/last" errmsg)
+      } else {
+        if type(result) != "nil" { out result }
       }
     }
   }

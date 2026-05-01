@@ -15,6 +15,7 @@
 #include "../lang/include/nexs_fn.h"
 #include "../lang/include/nexs_eval.h"
 #include "../sys/include/nexs_sys.h"
+#include "../hal/include/nexs_hal_module.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -70,8 +71,11 @@ void nexs_runtime_init(void) {
   /* 7. Register Plan 9 process built-ins */
   sysproc_register_builtins();
 
+  /* 8. Register HAL module builtins */
+  hal_module_register_builtins();
+
 #ifndef NEXS_BAREMETAL
-  /* 8. Auto-load modules/ .nx files — standard library functions */
+  /* 9. Auto-load modules/ .nx files — standard library functions */
   {
     DIR *d = opendir("modules");
     if (d) {

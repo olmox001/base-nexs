@@ -32,7 +32,7 @@ EvalCtx *nexs_g_eval_ctx = NULL;
 
 void eval_ctx_init(EvalCtx *ctx) {
   if (!ctx) return;
-  strncpy(ctx->scope, REG_LOCAL, REG_PATH_MAX - 1);
+  strncpy(ctx->scope, "/", REG_PATH_MAX - 1);
   ctx->scope[REG_PATH_MAX - 1] = '\0';
   ctx->call_depth = 0;
   ctx->debug      = 0;
@@ -91,8 +91,16 @@ static EvalResult eval_block(EvalCtx *ctx, ASTNode *block) {
    CORE EVALUATOR
    ========================================================= */
 
+#define DEBUG_PRINT(ctx, fmt, ...) \
+    if (g_nexs_debug) { \
+        nexs_fprintf((ctx)->err ? (ctx)->err : stderr, "[DEBUG] " fmt "\n", ##__VA_ARGS__); \
+    }
+
 static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
   if (!n) return ok(val_nil());
+  if (!ctx) return err_result("NULL EvalCtx in eval_node");
+
+  DEBUG_PRINT(ctx, "eval_node kind=%d", n->kind);
 
   switch (n->kind) {
 
@@ -142,6 +150,7 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
 
   /* --- Identifier lookup --- */
   case AST_IDENT: {
+    if (n->name[0] == '\0') return ok(val_nil());
     RegKey *k = reg_resolve(n->name, ctx->scope);
     if (!k) {
       char msg[128];
@@ -155,9 +164,17 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
   case AST_ASSIGN: {
     EvalResult vr = eval_node(ctx, n->right);
     if (vr.sig != CTRL_NONE) return vr;
+
     char path[REG_PATH_MAX];
-    snprintf(path, sizeof(path), "%s/%s", ctx->scope, n->name);
-    reg_set(path, vr.ret_val, RK_ALL);
+    RegKey *existing = reg_resolve(n->name, ctx->scope);
+    if (existing) {
+      /* Update existing key */
+      reg_set(existing->path, vr.ret_val, RK_ALL);
+    } else {
+      /* Create new in current scope */
+      snprintf(path, sizeof(path), "%s/%s", ctx->scope, n->name);
+      reg_set(path, vr.ret_val, RK_ALL);
+    }
     Value ret = val_clone(&vr.ret_val);
     val_free(&vr.ret_val);
     return ok(ret);
@@ -169,19 +186,14 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
     if (ir.sig != CTRL_NONE) return ir;
     int64_t idx = val_to_int(&ir.ret_val);
     val_free(&ir.ret_val);
-
     DynArray *arr = NULL;
-    char path[REG_PATH_MAX];
-    snprintf(path, sizeof(path), "%s/%s", ctx->scope, n->name);
-    RegKey *k = reg_lookup(path);
-    if (k && k->val.type == TYPE_ARR && k->val.data)
+    RegKey *k = reg_resolve(n->name, ctx->scope);
+    if (k && k->val.type == TYPE_ARR && k->val.data) {
       arr = (DynArray *)k->val.data;
-    if (!arr) {
-      k = reg_resolve(n->name, ctx->scope);
-      if (k && k->val.type == TYPE_ARR && k->val.data)
-        arr = (DynArray *)k->val.data;
+    } else {
+      arr = arr_get(n->name);
     }
-    if (!arr) arr = arr_get(n->name);
+
     if (!arr) return err_result("array not found");
     if (idx < 0) return err_result("negative index");
     return ok(arr_get_at(arr, (size_t)idx));
@@ -196,14 +208,23 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
     int64_t idx = val_to_int(&ir.ret_val);
     val_free(&ir.ret_val);
     if (idx < 0) { val_free(&vr.ret_val); return err_result("negative index"); }
-    DynArray *arr = arr_get_or_create(n->name);
+
+    DynArray *arr = NULL;
+    RegKey *k = reg_resolve(n->name, ctx->scope);
+    if (k && k->val.type == TYPE_ARR && k->val.data) {
+      arr = (DynArray *)k->val.data;
+    } else {
+      arr = arr_get_or_create(n->name);
+      /* If we created/found it via name, ensure it's in the current scope too */
+      char path[REG_PATH_MAX];
+      snprintf(path, sizeof(path), "%s/%s", ctx->scope, n->name);
+      Value av;
+      av.type = TYPE_ARR; av.data = arr; av.ival = 0;
+      av.fval = 0; av.err_code = 0; av.err_msg = NULL;
+      reg_set(path, av, RK_ALL);
+    }
+
     arr_set(arr, (size_t)idx, vr.ret_val);
-    char path[REG_PATH_MAX];
-    snprintf(path, sizeof(path), "%s/%s", ctx->scope, n->name);
-    Value av;
-    av.type = TYPE_ARR; av.data = arr; av.ival = 0;
-    av.fval = 0; av.err_code = 0; av.err_msg = NULL;
-    reg_set(path, av, RK_ALL);
     Value ret = val_clone(&vr.ret_val);
     val_free(&vr.ret_val);
     return ok(ret);
@@ -215,17 +236,27 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
     if (ir.sig != CTRL_NONE) return ir;
     int64_t idx = val_to_int(&ir.ret_val);
     val_free(&ir.ret_val);
-    DynArray *arr = arr_get(n->name);
+
+    DynArray *arr = NULL;
+    RegKey *k = reg_resolve(n->name, ctx->scope);
+    if (k && k->val.type == TYPE_ARR && k->val.data) {
+      arr = (DynArray *)k->val.data;
+    } else {
+      arr = arr_get(n->name);
+    }
+
     if (arr && idx >= 0) arr_delete(arr, (size_t)idx);
     return ok(val_nil());
   }
 
   /* --- Output --- */
+  /* --- Output --- */
   case AST_OUT: {
     EvalResult vr = eval_node(ctx, n->left);
     if (vr.sig != CTRL_NONE) return vr;
-    val_print(&vr.ret_val, ctx->out);
-    nexs_fprintf(ctx->out, "\n");
+    FILE *out = (ctx && ctx->out) ? ctx->out : stdout;
+    val_print(&vr.ret_val, out);
+    nexs_fprintf(out, "\n");
     val_free(&vr.ret_val);
     return ok(val_nil());
   }
@@ -245,9 +276,50 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
   }
 
   /* --- Registry list --- */
-  case AST_REG_LS:
-    reg_ls(n->path, ctx->out);
+  case AST_REG_LS: {
+    char target[REG_PATH_MAX];
+    if (n->path[0] != '/') {
+      REG_PATH(target, ctx->scope, n->path);
+    } else {
+      strncpy(target, n->path, REG_PATH_MAX - 1);
+      target[REG_PATH_MAX - 1] = '\0';
+    }
+    DEBUG_PRINT(ctx, "LS: %s", target);
+    reg_ls(target, ctx->out);
     return ok(val_nil());
+  }
+
+  /* --- Navigation --- */
+  case AST_CD: {
+    char target[REG_PATH_MAX];
+    if (n->path[0] != '\0') {
+      if (n->path[0] != '/') {
+        REG_PATH(target, ctx->scope, n->path);
+      } else {
+        strncpy(target, n->path, REG_PATH_MAX - 1);
+        target[REG_PATH_MAX - 1] = '\0';
+      }
+      strncpy(ctx->scope, target, REG_PATH_MAX - 1);
+    } else if (n->left) {
+      EvalResult vr = eval_node(ctx, n->left);
+      if (vr.sig != CTRL_NONE) return vr;
+      const char *p = (vr.ret_val.type == TYPE_STR && vr.ret_val.data) ? (char *)vr.ret_val.data : "";
+      if (p[0] != '/') {
+        REG_PATH(target, ctx->scope, p);
+      } else {
+        strncpy(target, p, REG_PATH_MAX - 1);
+        target[REG_PATH_MAX - 1] = '\0';
+      }
+      strncpy(ctx->scope, target, REG_PATH_MAX - 1);
+      val_free(&vr.ret_val);
+    }
+    ctx->scope[REG_PATH_MAX - 1] = '\0';
+    DEBUG_PRINT(ctx, "CD: Scope is now %s", ctx->scope);
+    return ok(val_nil());
+  }
+
+  case AST_PWD:
+    return ok(val_str(ctx->scope));
 
   /* --- Function declaration ---
    * fn_table takes ownership of n->right (the body).
@@ -475,6 +547,15 @@ EvalResult eval_str(EvalCtx *ctx, const char *src) {
     return err_result(par.error_msg);
   }
   EvalResult r = eval(ctx, prog);
+  
+  /* 
+   * IMPORTANT: If the result is a string, it might point into the AST we are about to free.
+   * We must clone it to ensure it remains valid after ast_free.
+   */
+  Value final_val = val_clone(&r.ret_val);
+  val_free(&r.ret_val);
+  r.ret_val = final_val;
+
   /*
    * Safe to free prog: fn bodies have been NULL'd by eval (AST_FN_DECL case),
    * so ast_free() will not touch fn_table-owned AST nodes.

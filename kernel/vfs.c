@@ -82,6 +82,35 @@ static VfsFd *fd_get(int fd) {
     return &s_fd_table[fd];
 }
 
+int vfs_dup(int oldfd, int newfd) {
+    VfsFd *src = fd_get(oldfd);
+    if (!src) return -1;
+    if (newfd == -1) {
+        for (int i = 3; i < VFS_MAX_FD; i++) {
+            if (!s_fd_table[i].in_use) { newfd = i; break; }
+        }
+    }
+    if (newfd < 0 || newfd >= VFS_MAX_FD) return -1;
+    if (s_fd_table[newfd].in_use) vfs_close(newfd);
+    s_fd_table[newfd] = *src;
+    return newfd;
+}
+
+int vfs_seek(int fd, int64_t offset, int whence) {
+    VfsFd *f = fd_get(fd);
+    if (!f) return -1;
+    int64_t new_pos;
+    switch (whence) {
+        case 0: new_pos = offset; break;                        /* SEEK_SET */
+        case 1: new_pos = (int64_t)f->pos + offset; break;     /* SEEK_CUR */
+        case 2: new_pos = offset; break;                        /* SEEK_END — size unknown, treat as SET */
+        default: return -1;
+    }
+    if (new_pos < 0) return -1;
+    f->pos = (uint64_t)new_pos;
+    return (int)new_pos;
+}
+
 /* =========================================================
    MOUNT TABLE
    ========================================================= */

@@ -194,8 +194,74 @@ int fat_read(int handle, void *buf, size_t n) {
 }
 
 int fat_readdir(int handle, FatEntry *entry_out) {
-    (void)handle; (void)entry_out;
-    return -1; /* stub */
+    if (!s_mounted || handle < 0 || handle >= FAT_MAX_HANDLES) return -1;
+    FatHandle *fh = &s_handles[handle];
+    if (!fh->in_use || !fh->is_dir) return -1;
+    if (!entry_out) return -1;
+
+    uint8_t sector[BLK_SIZE];
+    const uint32_t entries_per_sector = 512 / sizeof(Fat16DirEntry);
+
+    for (;;) {
+        uint32_t idx = fh->dir_idx;
+
+        /* Determine which sector and offset to read */
+        uint32_t lba;
+        uint32_t entry_in_sector;
+        if (fh->first_cluster == 0) {
+            /* Root directory — fixed LBA range */
+            if (idx >= s_root_entries) return -1; /* end of directory */
+            lba = s_root_start_lba + idx / entries_per_sector;
+            entry_in_sector = idx % entries_per_sector;
+        } else {
+            /* Subdirectory in cluster chain */
+            uint32_t entries_per_cluster = s_cluster_size * entries_per_sector;
+            uint32_t cluster_idx = idx / entries_per_cluster;
+            uint32_t cluster = fh->first_cluster;
+            const uint32_t MAX_FAT_CLUSTERS = 0xFFF0u;
+            uint32_t guard = 0;
+            for (uint32_t i = 0; i < cluster_idx; i++) {
+                if (++guard > MAX_FAT_CLUSTERS) return -1;
+                uint16_t next = fat_entry(cluster);
+                if (next >= 0xFFF8) return -1;
+                cluster = next;
+            }
+            uint32_t idx_in_cluster = idx % entries_per_cluster;
+            lba = s_data_start_lba + (cluster - 2) * s_cluster_size
+                  + idx_in_cluster / entries_per_sector;
+            entry_in_sector = idx_in_cluster % entries_per_sector;
+        }
+
+        blk_read(s_dev, lba, sector);
+        const Fat16DirEntry *de = (const Fat16DirEntry *)sector + entry_in_sector;
+        fh->dir_idx++;
+
+        if ((uint8_t)de->name[0] == 0x00) return -1; /* no more entries */
+        if ((uint8_t)de->name[0] == 0xE5) continue;  /* deleted */
+        if (de->attr & 0x08) continue;                /* volume label */
+        if (de->attr & 0x02) continue;                /* hidden */
+
+        /* Decode 8.3 name */
+        char out_name[13];
+        int ni = 0;
+        for (int i = 0; i < 8 && de->name[i] != ' '; i++)
+            out_name[ni++] = de->name[i];
+        if (de->ext[0] != ' ' && !(de->attr & 0x10)) {
+            out_name[ni++] = '.';
+            for (int i = 0; i < 3 && de->ext[i] != ' '; i++)
+                out_name[ni++] = de->ext[i];
+        }
+        out_name[ni] = '\0';
+
+        entry_out->handle  = handle;
+        entry_out->cluster = de->first_cluster;
+        entry_out->size    = de->file_size;
+        entry_out->pos     = 0;
+        entry_out->is_dir  = (de->attr & 0x10) ? 1 : 0;
+        for (int i = 0; i < ni + 1 && i < FAT_NAME_MAX; i++)
+            entry_out->name[i] = out_name[i];
+        return 0;
+    }
 }
 
 void fat_close(int handle) {
