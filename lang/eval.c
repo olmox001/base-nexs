@@ -414,11 +414,15 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
     char *new_scope = reg_push_scope(n->name);
     ctx->call_depth++;
 
-    /* Bind parameters into scope */
-    for (int i = 0; i < def->n_params && i < n_args; i++) {
+    /* Bind parameters into scope (initialize missing ones to nil) */
+    for (int i = 0; i < def->n_params; i++) {
       char ppath[REG_PATH_MAX];
       snprintf(ppath, sizeof(ppath), "%s/%s", new_scope, def->params[i]);
-      reg_set(ppath, args[i], RK_ALL);
+      if (i < n_args) {
+        reg_set(ppath, args[i], RK_ALL);
+      } else {
+        reg_set(ppath, val_nil(), RK_ALL);
+      }
     }
 
     char saved_scope[REG_PATH_MAX];
@@ -449,7 +453,7 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
     int truthy = val_is_truthy(&cr.ret_val);
     val_free(&cr.ret_val);
     if (truthy)  return eval_block(ctx, n->right);
-    if (n->alt)  return eval_block(ctx, n->alt);
+    if (n->alt)  return eval_node(ctx, n->alt);
     return ok(val_nil());
   }
 
@@ -541,9 +545,15 @@ EvalResult eval_str(EvalCtx *ctx, const char *src) {
   parser_init(&par, &lex);
   ASTNode *prog = parse_program(&par);
   if (par.had_error) {
-    if (ctx->err)
-      nexs_fprintf(ctx->err, "\033[1;31m[PARSE ERR]\033[0m %s\n", par.error_msg);
-    ast_free(prog);
+    /* Use stderr directly as a safe fallback — ctx->err might be corrupt
+     * in reentrant eval scenarios (shell → eval → eval_str). */
+#ifndef NEXS_BAREMETAL
+    FILE *safe_err = ctx->err ? ctx->err : stderr;
+    nexs_fprintf(safe_err, "\033[1;31m[PARSE ERR]\033[0m %s\n", par.error_msg);
+#else
+    nexs_fprintf(ctx->err, "\033[1;31m[PARSE ERR]\033[0m %s\n", par.error_msg);
+#endif
+    ast_free_safe(prog);
     return err_result(par.error_msg);
   }
   EvalResult r = eval(ctx, prog);
@@ -560,7 +570,7 @@ EvalResult eval_str(EvalCtx *ctx, const char *src) {
    * Safe to free prog: fn bodies have been NULL'd by eval (AST_FN_DECL case),
    * so ast_free() will not touch fn_table-owned AST nodes.
    */
-  ast_free(prog);
+  ast_free_safe(prog);
   return r;
 }
 

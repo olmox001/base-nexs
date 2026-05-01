@@ -101,9 +101,14 @@ static void buddy_free_node(size_t node, size_t node_size, size_t node_offset,
 void buddy_free(void *ptr) {
   if (!ptr)
     return;
-  size_t offset = (uint8_t *)ptr - memory_pool;
-  if (offset >= POOL_SIZE)
+  /* Guard: ensure pointer is within our memory pool boundaries.
+   * Use uintptr_t to avoid unsigned underflow if ptr < memory_pool. */
+  uintptr_t p   = (uintptr_t)ptr;
+  uintptr_t lo  = (uintptr_t)memory_pool;
+  uintptr_t hi  = lo + POOL_SIZE;
+  if (p < lo || p >= hi)
     return;
+  size_t offset = (size_t)(p - lo);
   buddy_free_node(0, POOL_SIZE, 0, offset);
 }
 

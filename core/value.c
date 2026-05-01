@@ -183,9 +183,9 @@ void val_print(const Value *v, FILE *out) {
     break;
   case TYPE_STR:
     if (v->data) {
-      fprintf(out, "%s", (char *)v->data);
+      nexs_fprintf(out, "%s", (char *)v->data);
     } else {
-      fprintf(out, "(null str)");
+      nexs_fprintf(out, "(null str)");
     }
     break;
   case TYPE_ARR: {

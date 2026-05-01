@@ -1,10 +1,16 @@
 # services/stdlib.nx — NEXS Standard Library
 # ===================================================================
 
-fn input(prompt) {
+fn input(prompt defval) {
   write(1 prompt)
   rawon()
+  
   buffer = ""
+  if type(defval) == "str" {
+    buffer = defval
+    write(1 buffer)
+  }
+
   loop {
     ch = readkey()
     if ch == "" { continue }

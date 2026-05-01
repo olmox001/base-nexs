@@ -1,0 +1,3 @@
+out "Test runtime error:"
+out non_esistente
+out "Successo: il sistema non è crashato."

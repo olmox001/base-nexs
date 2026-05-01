@@ -86,15 +86,15 @@ fn ed_render_text() {
 # GESTIONE MENU E IO
 # ===================================================================
 
-fn ed_prompt(prompt_testo) {
+fn ed_prompt(prompt_testo valore_default) {
     term_at(term_h 1 G_ESC + "[K") # Pulisce l'ultima riga
     term_at(term_h 1 G_ESC + "[7m " + prompt_testo + ": " + G_ESC + "[0m ")
     term_flush()
     
-    # input() della stdlib chiama rawoff() alla fine...
-    res = input("")
+    # input() della stdlib ora supporta un valore di default
+    res = input("" valore_default)
     
-    # ...quindi dobbiamo ripristinare la modalità raw per l'editor!
+    # Ripristiniamo la modalità raw per l'editor
     rawon() 
     
     ret res
@@ -108,9 +108,10 @@ fn ed_render_menu() {
 
     term_at(4  5 "[CTRL-X] RITORNA   - Torna all'editor")
     term_at(6  5 "[s]      SALVA VFS - Salva nel Virtual File System")
-    term_at(8  5 "[e]      ESPORTA   - Esporta file verso l'host")
-    term_at(10 5 "[i]      IMPORTA   - Importa file dall'host")
-    term_at(12 5 "[q]      ESCI      - Chiudi senza salvare")
+    term_at(8  5 "[o]      APRI VFS  - Carica un file dal VFS")
+    term_at(10 5 "[e]      ESPORTA   - Esporta file verso l'host")
+    term_at(12 5 "[i]      IMPORTA   - Importa file dall'host")
+    term_at(14 5 "[q]      ESCI      - Chiudi senza salvare")
 
     if ed_status != "" {
         term_at(16 5 G_ESC + "[33mSTATO: " + ed_status + G_ESC + "[0m")
@@ -219,10 +220,18 @@ fn ed_handle_menu_key(k) {
         ret 0
     }
     if k == "s" {
-        if ed_filename == "" {
-            ed_filename = ed_prompt("Nome file (VFS)")
+        default_name = ed_filename
+        if default_name == "" {
+            # Suggerisce la cartella corrente se il file è nuovo
+            cwd = reg_get("/proc/1/vfs_cwd")
+            if type(cwd) != "err" && cwd != "" {
+                default_name = cwd + "/"
+            }
         }
-        if ed_filename != "" {
+        
+        nuovo_nome = ed_prompt("Salva come" default_name)
+        if nuovo_nome != "" {
+            ed_filename = nuovo_nome
             ed_status = "Salvataggio..."
             testo_intero = tb_to_str(ed_buf)
             vfs_write(ed_filename testo_intero)
@@ -231,8 +240,33 @@ fn ed_handle_menu_key(k) {
         ed_mode = 0
         ret 0
     }
+    if k == "o" {
+        default_path = ""
+        cwd = reg_get("/proc/1/vfs_cwd")
+        if type(cwd) != "err" && cwd != "" {
+            default_path = cwd + "/"
+        }
+        
+        fname = ed_prompt("Apri file (VFS)" default_path)
+        if fname != "" {
+            lettura = vfs_read(fname)
+            # Verifica che non sia un messaggio d'errore (stringa che inizia con ERR:)
+            if type(lettura) != "err" && substr(lettura 0 4) != "ERR:" {
+                tb_load(ed_buf lettura)
+                ed_filename = fname
+                cy = 0
+                cx = 0
+                scroll_y = 0
+                ed_status = "Caricato: " + fname
+            } else {
+                ed_status = "Errore: file non trovato (" + fname + ")"
+            }
+        }
+        ed_mode = 0
+        ret 0
+    }
     if k == "e" {
-        fname = ed_prompt("Host Path Export")
+        fname = ed_prompt("Host Path Export" "")
         if fname != "" {
             fd = create(fname 1 0644)
             if fd >= 0 {
@@ -247,7 +281,7 @@ fn ed_handle_menu_key(k) {
         ret 0
     }
     if k == "i" {
-        fname = ed_prompt("Host Path Import")
+        fname = ed_prompt("Host Path Import" "")
         if fname != "" {
             fd = open(fname 0)
             if fd >= 0 {
@@ -288,11 +322,13 @@ fn nxed_start(initial_file) {
     # Se è stato passato un file, proviamo a leggerlo dal VFS
     if ed_filename != "" {
         lettura = vfs_read(ed_filename)
-        if type(lettura) != "err" {
+        # Verifica robusta che il file esista e non sia un messaggio d'errore
+        if type(lettura) != "err" && substr(lettura 0 4) != "ERR:" {
             tb_load(ed_buf lettura)
-            ed_status = "File caricato."
+            ed_status = "File caricato: " + ed_filename
         } else {
-            ed_status = "Nuovo file."
+            # Se il file non esiste, lo consideriamo un nuovo file con quel nome
+            ed_status = "Nuovo file: " + ed_filename
         }
     } else {
         ed_status = "Editor Pronto. Premi CTRL-X per il menu."

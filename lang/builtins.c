@@ -566,19 +566,23 @@ static Value builtin_eval_builtin(Value *args, int n) {
     return val_err(4, "eval: argument must be a string");
 
   const char *src = (const char *)args[0].data;
-  EvalCtx local_ctx;
-  EvalCtx *ctx = nexs_g_eval_ctx;
-  if (!ctx) {
-    eval_ctx_init(&local_ctx);
-    local_ctx.out = NULL;
-    ctx = &local_ctx;
-  }
+
+  /* Create a completely fresh context for reentrant eval.
+   * DO NOT inherit FILE* pointers from the global context — they may
+   * be corrupt if the global ctx pointer has been invalidated.
+   * eval_ctx_init sets safe defaults (stdout/stderr on host, NULL on baremetal). */
+  EvalCtx inner_ctx;
+  eval_ctx_init(&inner_ctx);
 
   EvalCtx *old_ctx = nexs_g_eval_ctx;
-  EvalResult r = eval_str(ctx, src);
+  EvalResult r = eval_str(&inner_ctx, src);
   nexs_g_eval_ctx = old_ctx;
 
   if (r.sig == CTRL_ERR) {
+    /* Preserve the original error message from the inner eval */
+    if (r.ret_val.type == TYPE_ERR && r.ret_val.err_msg) {
+      return r.ret_val; /* pass through the original error */
+    }
     val_free(&r.ret_val);
     return val_err(4, "eval: execution failed");
   }
