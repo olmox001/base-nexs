@@ -286,6 +286,26 @@ run-iso: iso-amd64
 	@./scripts/qemu-amd64.sh --iso
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Asset Compilation (Logos/Images)
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: compile-logos
+compile-logos:
+	@echo "Compilazione loghi (.png → .nxtimg)..."
+	@mkdir -p example/minios/logos
+	@if command -v python3 >/dev/null 2>&1; then \
+		for img in $$(find example/minios -name "*.png" -type f); do \
+			name=$$(basename "$$img" .png); \
+			outdir=$$(dirname "$$img" | sed 's|/logo$$|/logos|'); \
+			mkdir -p "$$outdir"; \
+			echo "  Compilando $$img → $$outdir/$$name.nxtimg"; \
+			python3 compile_to_nxtimg.py "$$img" "$$outdir/$$name.nxtimg" --width 80 --height 24; \
+		done; \
+		echo "[OK] Loghi compilati in example/minios/logos/"; \
+	else \
+		echo "[WARN] python3 non trovato, skipping logo compilation"; \
+	fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Clean
 # ─────────────────────────────────────────────────────────────────────────────
 clean:

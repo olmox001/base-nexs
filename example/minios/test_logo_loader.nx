@@ -1,0 +1,93 @@
+# example/minios/test_logo_loader.nx — Test del caricamento loghi
+# =============================================================================
+# Questo script testa il caricamento manuale di un logo nel VFS
+# Utile per debug e verifica del funzionamento della pipeline
+
+fn test_load_logo(host_file vfs_path) {
+  out "[TEST] Caricamento: " + host_file + " -> " + vfs_path
+  
+  fd = open(host_file 0)
+  if fd < 0 {
+    out "  [ERR] Impossibile aprire: " + host_file
+    ret -1
+  }
+  
+  # Leggi il file interamente per vedere la dimensione
+  entire = ""
+  chunk_sz = 4096
+  loop {
+    chunk = read(fd chunk_sz)
+    if chunk == "" { break }
+    entire = entire + chunk
+  }
+  close(fd)
+  
+  out "  [INFO] Dimensione file: " + str(len(entire)) + " bytes"
+  
+  # Conta le righe
+  lines = split(entire "\n")
+  num_lines = len(lines)
+  out "  [INFO] Numero righe: " + str(num_lines)
+  
+  # Carica ogni riga nel VFS come nodo separato
+  i = 0
+  loop {
+    if i >= num_lines { break }
+    node_name = vfs_path + "@@" + str(i)
+    vfs_write(node_name lines[i])
+    i = i + 1
+  }
+  
+  # Scrivi il conteggio totale
+  vfs_write(vfs_path + "@@n" str(num_lines))
+  
+  out "  [OK] Caricamento completato"
+  ret num_lines
+}
+
+fn test_read_logo_line(vfs_path line_num) {
+  node = vfs_path + "@@" + str(line_num)
+  content = vfs_read(node)
+  
+  if type(content) == "err" {
+    out "[ERR] Impossibile leggere riga " + str(line_num)
+    ret ""
+  }
+  
+  out "[Riga " + str(line_num) + "] Lunghezza: " + str(len(content))
+  ret content
+}
+
+fn test_main() {
+  out "========== TEST LOGO LOADER =========="
+  out ""
+  
+  # Carica logo1 come test
+  n = test_load_logo("base-nexs/example/minios/logos/logo1.nxtimg" "/tmp/test_logo.nxtimg")
+  if n < 0 { ret -1 }
+  
+  out ""
+  out "Verifica caricamento:"
+  
+  # Verifica che il conteggio sia corretto
+  meta = vfs_read("/tmp/test_logo.nxtimg@@n")
+  if type(meta) == "err" {
+    out "  [ERR] Metadato @@n mancante"
+  } else {
+    out "  [OK] Metadato @@n: " + str(meta)
+  }
+  
+  # Leggi alcune righe di test
+  out ""
+  out "Lettura righe di test:"
+  test_read_logo_line("/tmp/test_logo.nxtimg" 0)
+  test_read_logo_line("/tmp/test_logo.nxtimg" 5)
+  test_read_logo_line("/tmp/test_logo.nxtimg" int(n) - 1)
+  
+  out ""
+  out "=========================================="
+  ret 0
+}
+
+# Esegui il test
+test_main()

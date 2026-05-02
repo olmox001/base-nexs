@@ -6,7 +6,7 @@
 
 fn shell_help() {
   out "  Comandi standard:"
-  out "  ls [dir]      - Elenca file nel VFS"
+  out "  ls [dir]      - Elenca file nel VFS (es. sd02/logos)"
   out "  ls /reg/path  - Elenca figli nel Registry"
   out "  cd [dir]      - Cambia directory VFS"
   out "  pwd           - Mostra directory corrente"
@@ -24,9 +24,62 @@ fn shell_help() {
   out "  source file   - Esegue script .nx dal VFS"
   out "  errlog        - Mostra ultimo errore kernel"
   out "  nxed [file]   - Editor di testo"
+  out "  termimg [file] - Visualizzatore immagini NEXS (.nxtimg)"
+  out "                   (es. termimg logo1 oppure termimg sd02/logos/logo1.nxtimg)"
+  out "  logos         - Elenca loghi disponibili nel registro"
   out "  exit          - Arresta il sistema"
   out ""
   out "  Espressioni NEXS native: digita qualsiasi espressione valida."
+}
+
+fn shell_resolve_logo(name) {
+  # Se il nome non contiene "/" e non finisce con ".nxtimg", 
+  # prova a cercare nel registry dei loghi
+  if substr(name 0 1) == "/" || len(name) > 7 && substr(name len(name)-7 7) == ".nxtimg" {
+    ret name
+  }
+  
+  # Prova a cercare come nome breve: logo, logo1, logo2
+  full_path = "sd02/logos/" + name + ".nxtimg"
+  
+  # Controlla prima se esiste il file con i chunk @@n
+  probe = vfs_read(full_path + "@@n")
+  if len(probe) < 4 || substr(probe 0 4) != "ERR:" {
+    ret "/" + full_path
+  }
+  
+  # Altrimenti controlla il file monolitico
+  probe = vfs_read(full_path)
+  if len(probe) < 4 || substr(probe 0 4) != "ERR:" {
+    ret "/" + full_path
+  }
+  
+  ret name
+}
+
+fn shell_list_logos() {
+  out "Loghi disponibili nel sistema:"
+  logos_cnt = reg_get("/sys/logos/count")
+  if type(logos_cnt) == "err" { logos_cnt = 0 }
+  else { logos_cnt = int(logos_cnt) }
+  
+  if logos_cnt > 0 {
+    out "  (registry count: " + str(logos_cnt) + ")"
+    reg_keys = keys("/sys/logos/")
+    i = 0
+    loop {
+      if i >= len(reg_keys) { break }
+      key = reg_keys[i]
+      val = reg_get("/sys/logos/" + key)
+      out "  " + key + " -> " + str(val)
+      i = i + 1
+    }
+  } else {
+    out "  (Nessun logo trovato nel registry)"
+  }
+  # Elenca anche i file fisici nel VFS
+  out "File .nxtimg nel VFS:"
+  vfs_ls("sd02/logos")
 }
 
 fn shell_cwd() {
@@ -101,9 +154,8 @@ fn shell_loop() {
         }
         
         # FIX: Verifica che la cartella esista davvero nel VFS prima di cambiare
-        # Utilizziamo vfs_ls per controllare la validità del percorso
-        test_ls = vfs_ls(new_cwd)
-        if type(test_ls) == "err" {
+        # Utilizziamo vfs_dir_exists per controllare la validità del percorso senza stampare output
+        if vfs_dir_exists(new_cwd) == 0 {
            out "cd: la cartella specificata non esiste (" + new_cwd + ")"
         } else {
            reg_set("/proc/1/vfs_cwd" new_cwd)
@@ -196,6 +248,22 @@ fn shell_loop() {
       } else {
         nxed_start(vfs_resolve(arg shell_cwd()))
       }
+      handled = 1
+    }
+
+    if cmd == "termimg" {
+      if arg == "" {
+        out "termimg: manca il file immagine (.nxtimg)"
+        out "         Uso: termimg <file> oppure termimg logo1"
+      } else {
+        resolved = shell_resolve_logo(arg)
+        nxed_termimg(resolved)
+      }
+      handled = 1
+    }
+
+    if cmd == "logos" {
+      shell_list_logos()
       handled = 1
     }
 

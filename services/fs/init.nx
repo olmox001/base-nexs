@@ -116,6 +116,25 @@ fn vfs_mv(src dst) {
   vfs_rm(src)
 }
 
+fn vfs_dir_exists(dir) {
+  if dir == "" || dir == "/" { ret 1 }
+  if substr(dir 0 1) == "/" { dir = substr(dir 1 len(dir)-1) }
+  prefix = dir + "/"
+  plen = len(prefix)
+  count = reg /sys/vfs/count
+  i = 0
+  loop {
+    if i >= count { break }
+    n = reg_get("/sys/vfs/idx/" + str(i))
+    if n != "" {
+      if substr(n 0 plen) == prefix { ret 1 }
+      if n == dir { ret 1 }
+    }
+    i = i + 1
+  }
+  ret 0
+}
+
 fn vfs_ls(dir) {
   # Normalizzazione dir
   if dir == "" || dir == "/" {

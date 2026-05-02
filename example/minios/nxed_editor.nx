@@ -109,15 +109,16 @@ fn ed_render_menu() {
     term_at(4  5 "[CTRL-X] RITORNA   - Torna all'editor")
     term_at(6  5 "[s]      SALVA VFS - Salva nel Virtual File System")
     term_at(8  5 "[o]      APRI VFS  - Carica un file dal VFS")
-    term_at(10 5 "[e]      ESPORTA   - Esporta file verso l'host")
-    term_at(12 5 "[i]      IMPORTA   - Importa file dall'host")
-    term_at(14 5 "[q]      ESCI      - Chiudi senza salvare")
+    term_at(10 5 "[v]      VISUALIZZA - Visualizza immagine .nxtimg")
+    term_at(12 5 "[e]      ESPORTA   - Esporta file verso l'host")
+    term_at(14 5 "[i]      IMPORTA   - Importa file dall'host")
+    term_at(16 5 "[q]      ESCI      - Chiudi senza salvare")
 
     if ed_status != "" {
-        term_at(16 5 G_ESC + "[33mSTATO: " + ed_status + G_ESC + "[0m")
+        term_at(18 5 G_ESC + "[33mSTATO: " + ed_status + G_ESC + "[0m")
     }
     
-    term_at(20 1 "Premi un tasto per selezionare...")
+    term_at(22 1 "Premi un tasto per selezionare...")
     term_flush()
 }
 
@@ -265,14 +266,43 @@ fn ed_handle_menu_key(k) {
         ed_mode = 0
         ret 0
     }
+    if k == "v" {
+        # Visualizza file .nxtimg (immagini ANSI)
+        default_path = ""
+        cwd = reg_get("/proc/1/vfs_cwd")
+        if type(cwd) != "err" && cwd != "" {
+            default_path = cwd + "/"
+        }
+        
+        img_path = ed_prompt("Visualizza immagine (.nxtimg)" default_path)
+        if img_path != "" {
+            # Chiama termimg per visualizzare
+            if type(nxed_termimg) != "err" {
+                nxed_termimg(img_path)
+                ed_status = "Immagine visualizzata."
+            } else {
+                ed_status = "Errore: termimg non disponibile"
+            }
+        }
+        ed_mode = 0
+        ret 0
+    }
     if k == "e" {
         fname = ed_prompt("Host Path Export" "")
         if fname != "" {
             fd = create(fname 1 0644)
             if fd >= 0 {
-                write(fd tb_to_str(ed_buf))
+                ts = term_size()
+                tw = 80
+                th = 24
+                if len(ts) >= 2 {
+                    tw = int(ts[0])
+                    th = int(ts[1])
+                }
+                hdr = "# nxtimg-term: " + str(tw) + "x" + str(th) + "\n"
+                write(fd hdr + tb_to_str(ed_buf))
                 close(fd)
-                ed_status = "Esportato su Host."
+                ed_status = "Esportato su Host (" + str(tw) + "x" + str(th) + ")."
             } else {
                 ed_status = "Errore creazione file Host."
             }

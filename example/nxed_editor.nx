@@ -2,7 +2,8 @@
 # ===================================================================
 # NXED v13 - VIM STYLE + CTRL-X MENU (Scope Monolitico)
 # ===================================================================
-exec("example/minios/vfs.nx")
+# NB: Il servizio VFS viene già inizializzato da example/minios/boot.nx
+# exec("example/minios/vfs.nx")
 
 fn get_ln(y) {
   l = reg_get("/sys/ed/buf/" + str(y))
@@ -107,14 +108,14 @@ fn start() {
         write(O, ESC + "[?25l") # Nascondi di nuovo cursore
         
         if len(fname) > 0 {
-          fd = create(fname 1 0644)
+          full_content = ""
           idx = 0
           loop {
             if idx > MAX_Y { break }
-            write(fd, get_ln(idx) + "\n")
+            full_content = full_content + get_ln(idx) + "\n"
             idx = idx + 1
           }
-          close(fd)
+          vfs_write(fname full_content)
           write(O, "\n[ Salvataggio di " + fname + " completato. Premi un tasto per tornare. ]")
           read(I, 1) # Attende un tasto qualsiasi
         }

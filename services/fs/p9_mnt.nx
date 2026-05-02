@@ -25,6 +25,10 @@ fn p9_mnt_init() {
   vfs_write("sd02/user.id"        "User-2-user1")
   vfs_write("sd02/home/user1.txt"  "Ciao user1! Benvenuto.")
 
+  # Cartella loghi sempre visibile in `ls sd02` (init_logos aggiunge i .nxtimg dopo)
+  vfs_mkdir("sd02/logos/")
+  vfs_write("sd02/logos/README.txt" "Immagini .nxtimg (sharded @@i / monolite). Vedi init_logos.nx e termimg.\n")
+
   vfs_write("sd99/user.id"        "User-Guest")
   vfs_write("sd99/tmp/test"       "Temporary guest cache")
 

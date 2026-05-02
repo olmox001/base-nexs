@@ -1,0 +1,64 @@
+# example/minios/diag_logos.nx — Diagnostica del caricamento loghi
+# =============================================================================
+# Verifica che i loghi siano stati caricati correttamente nel VFS durante il boot
+# Può essere eseguito durante il boot o successivamente dal shell
+
+fn diag_logos() {
+  out "========== DIAGNOSTICA LOGHI =========="
+  out ""
+  
+  # Controlla il registry
+  out "[Registry] Loghi registrati in /sys/logos/:"
+  main_logo = reg_get("/sys/logos/main")
+  count = reg_get("/sys/logos/count")
+  
+  if type(main_logo) == "err" {
+    out "  main: (non impostato)"
+  } else {
+    out "  main: " + str(main_logo)
+  }
+  
+  if type(count) == "err" {
+    out "  count: (non impostato)"
+  } else {
+    out "  count: " + str(count)
+  }
+  
+  out ""
+  out "[VFS] Percorsi nel VFS:"
+  
+  # Controlla logo1
+  test1 = vfs_read("/sd02/logos/logo1.nxtimg@@n")
+  if type(test1) == "err" {
+    out "  /sd02/logos/logo1.nxtimg: MANCANTE"
+  } else {
+    out "  /sd02/logos/logo1.nxtimg: OK (" + str(test1) + " righe)"
+  }
+  
+  # Controlla logo
+  test0 = vfs_read("/sd02/logos/logo.nxtimg@@n")
+  if type(test0) == "err" {
+    out "  /sd02/logos/logo.nxtimg: MANCANTE"
+  } else {
+    out "  /sd02/logos/logo.nxtimg: OK (" + str(test0) + " righe)"
+  }
+  
+  # Controlla logo2
+  test2 = vfs_read("/sd02/logos/logo2.nxtimg@@n")
+  if type(test2) == "err" {
+    out "  /sd02/logos/logo2.nxtimg: MANCANTE"
+  } else {
+    out "  /sd02/logos/logo2.nxtimg: OK (" + str(test2) + " righe)"
+  }
+  
+  out ""
+  out "[Listing] Contenuto di /sd02/logos/ nel VFS:"
+  vfs_ls("sd02/logos")
+  
+  out ""
+  out "=========================================="
+  ret 0
+}
+
+# Esegui automaticamente durante il caricamento
+diag_logos()

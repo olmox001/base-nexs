@@ -19,16 +19,20 @@ exec("services/ui/init.nx")     # UI framebuffer
 exec("services/fs/p9_mnt.nx")   # 9P
 exec("services/hw_dt.nx")       # HW Device Tree
 exec("services/textbuf.nx")     # Text Buffer Library
+exec("services/logos/init.nx")  # Logo Registry Service
 
 out "[INIT] Fase 2: Inizializzazione Sottosistemi..."
 hw_dt_init()
 p9_mnt_init()
 
-out "[INIT] Fase 3: Popolamento Root FS..."
+out "[INIT] Fase 3: Popolamento Root FS e Caricamento Loghi..."
 # I mount standard sono già fatti da services/fs/init.nx
+exec("example/minios/logo.nx")  # Carica loghi nel VFS (sd02/logos) - wrapper riutilizzabile
+exec("example/minios/logos_config.nx")  # Configurazione loghi e shortcut
 
 # Avvio dei demoni di sistema
 exec("example/minios/nxed_editor.nx")
+exec("example/minios/termimg.nx")        # TermImg — Image Viewer
 exec("example/minios/shell.nx")
 
 out "==================================================="

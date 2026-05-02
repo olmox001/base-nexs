@@ -11,6 +11,8 @@ fn input(prompt defval) {
     write(1 buffer)
   }
 
+  cur = len(buffer)
+
   loop {
     ch = readkey()
     if ch == "" { continue }
@@ -21,27 +23,70 @@ fn input(prompt defval) {
     }
     
     if ch == "BACKSPACE" {
-      blen = len(buffer)
-      if blen > 0 {
-        write(1 "\b \b")
-        buffer = substr(buffer 0 blen - 1)
+      if cur > 0 {
+        left = substr(buffer 0 cur - 1)
+        right = substr(buffer cur len(buffer) - cur)
+        buffer = left + right
+        cur = cur - 1
+        
+        write(1 "\r\e[K" + prompt + buffer)
+        diff = len(buffer) - cur
+        if diff > 0 {
+          write(1 "\e[" + str(diff) + "D")
+        }
       }
       continue
     }
 
-    # Gestione esplicita tasti speciali per evitare che finiscano nel buffer
+    if ch == "LEFT" || ch == "KEY_LEFT" {
+      if cur > 0 {
+        cur = cur - 1
+        write(1 "\e[1D")
+      }
+      continue
+    }
+
+    if ch == "RIGHT" || ch == "KEY_RIGHT" {
+      if cur < len(buffer) {
+        cur = cur + 1
+        write(1 "\e[1C")
+      }
+      continue
+    }
+
+    if ch == "HOME" || ch == "KEY_HOME" {
+      if cur > 0 {
+        write(1 "\e[" + str(cur) + "D")
+        cur = 0
+      }
+      continue
+    }
+    
+    if ch == "END" || ch == "KEY_END" {
+      diff = len(buffer) - cur
+      if diff > 0 {
+        write(1 "\e[" + str(diff) + "C")
+        cur = len(buffer)
+      }
+      continue
+    }
+
     if ch == "UP" || ch == "KEY_UP" { continue }
     if ch == "DOWN" || ch == "KEY_DOWN" { continue }
-    if ch == "LEFT" || ch == "KEY_LEFT" { continue }
-    if ch == "RIGHT" || ch == "KEY_RIGHT" { continue }
-    if ch == "HOME" || ch == "KEY_HOME" { continue }
-    if ch == "END" || ch == "KEY_END" { continue }
     if ch == "ESC" { continue }
     if ch == "TAB" { continue }
 
     if len(ch) == 1 {
-      write(1 ch)
-      buffer = buffer + ch
+      left = substr(buffer 0 cur)
+      right = substr(buffer cur len(buffer) - cur)
+      buffer = left + ch + right
+      cur = cur + 1
+      
+      write(1 "\r\e[K" + prompt + buffer)
+      diff = len(buffer) - cur
+      if diff > 0 {
+        write(1 "\e[" + str(diff) + "D")
+      }
     }
   }
   rawoff()

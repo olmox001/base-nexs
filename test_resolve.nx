@@ -1,0 +1,3 @@
+exec("services/fs/init.nx")
+fp = vfs_resolve("logo.nxtimg", "sd02/logos")
+out "fp: " + fp
