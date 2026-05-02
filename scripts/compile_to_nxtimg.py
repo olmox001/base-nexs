@@ -166,8 +166,38 @@ def image_to_nxtimg(input_path, output_path, term_width=80, term_height=24):
 
 
 def main():
+    # Handle batch logo compilation
+    if "--logos" in sys.argv:
+        # Determine paths relative to the script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        src_dir = os.path.join(script_dir, "logo")
+        dst_dir = os.path.join(script_dir, "..", "example", "minios", "logos")
+        
+        # Ensure destination exists
+        if not os.path.exists(dst_dir):
+            os.makedirs(dst_dir, exist_ok=True)
+            
+        if not os.path.exists(src_dir):
+            print(f"[ERR] Sorgente loghi non trovata in: {src_dir}")
+            sys.exit(1)
+            
+        print(f"[*] Batch mode: Compilazione loghi da {src_dir}...")
+        count = 0
+        for f in os.listdir(src_dir):
+            if f.lower().endswith(('.png', '.jpg', '.jpeg')):
+                in_p = os.path.join(src_dir, f)
+                out_name = os.path.splitext(f)[0] + ".nxtimg"
+                out_p = os.path.join(dst_dir, out_name)
+                if image_to_nxtimg(in_p, out_p):
+                    count += 1
+        
+        print(f"[*] Completato. {count} loghi compilati in {dst_dir}")
+        sys.exit(0)
+
     if len(sys.argv) < 3:
-        print("Uso: python3 compile_to_nxtimg.py input.png output.nxtimg [--width 80] [--height 24]")
+        print("Uso:")
+        print("  python3 compile_to_nxtimg.py input.png output.nxtimg [--width 80] [--height 24]")
+        print("  python3 compile_to_nxtimg.py --logos (Batch mode for scripts/logo/)")
         sys.exit(1)
     
     input_path = sys.argv[1]
@@ -175,23 +205,21 @@ def main():
     
     term_width = 80
     term_height = 24
-    # Allinea alla shell corrente se COLUMNS/LINES sono impostati (bash/zsh)
+    # Allinea alla shell corrente se COLUMNS/LINES sono impostati
     try:
         cw = os.environ.get("COLUMNS")
         cl = os.environ.get("LINES")
         if cw and cw.isdigit():
             w = int(cw)
-            if w >= 20:
-                term_width = w
+            if w >= 20: term_width = w
         if cl and cl.isdigit():
             h = int(cl)
-            if h >= 5:
-                term_height = h
+            if h >= 5: term_height = h
     except Exception:
         pass
 
     # Parse optional arguments
-    for i in range(3, len(sys.argv)):
+    for i in range(1, len(sys.argv)):
         if sys.argv[i] == "--width" and i + 1 < len(sys.argv):
             term_width = int(sys.argv[i + 1])
         elif sys.argv[i] == "--height" and i + 1 < len(sys.argv):

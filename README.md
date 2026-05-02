@@ -351,8 +351,33 @@ nexs-os:/>
 
 ---
 
+## Asset Pipeline (Images)
+
+NEXS uses an optimized `.nxtimg` format for rendering images in the terminal with low overhead.
+
+### Compiling images
+To convert a standard image (PNG, JPG) to NEXS format:
+
+```sh
+python3 scripts/compile_to_nxtimg.py input.png example/minios/logos/logo1.nxtimg --width 80 --height 24
+```
+
+### Dependencies
+Before compiling images or building the OS, download the external dependencies:
+```sh
+bash scripts/setup_deps.sh
+```
+
+The compilation script itself requires **Pillow**:
+```sh
+pip install pillow
+```
+
+---
+
 ## References
 
 - Plan 9 from Bell Labs: https://9p.io/plan9/
 - seL4 IPC model: https://sel4.systems/
 - utf8.h: https://github.com/sheredom/utf8.h
+- termimg: https://github.com/olmox001/termimg.git

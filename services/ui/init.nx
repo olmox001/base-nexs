@@ -12,14 +12,14 @@ fn ui_init(w h) {
   reg /sys/ui/height = h
   term_cls()
   term_cursor_show(0)
-  out "[ui] Framebuffer " + str(w) + "x" + str(h) + " initialised."
+  kout("[ui] Framebuffer " + str(w) + "x" + str(h) + " initialised.")
   ret 0
 }
 
 fn ui_launch(app_path) {
   prev = reg /sys/ui/active_app
   if prev != "" {
-    out "[ui] Suspending: " + prev
+    kout("[ui] Suspending: " + prev)
   }
   reg /sys/ui/active_app = app_path
   term_cls()
@@ -45,4 +45,4 @@ fn ui_clear() {
 }
 
 reg /sys/ui/status = "ready"
-out "[ui] UI service initialised."
+kout("[ui] UI service initialised.")

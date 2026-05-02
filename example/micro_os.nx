@@ -4,7 +4,7 @@
 # ===================================================================
 
 out "---------------------------------------------------"
-out "[Boot] NEXS Cooperative Micro-OS v0.4"
+out "[Boot] NEXS Cooperative Micro-OS 0.0.1"
 out "[Boot] Initializing Registry and IPC Queues..."
 out "---------------------------------------------------"
 

@@ -59,32 +59,32 @@ fn try_seed_logo(name vfs_base) {
 # Caricamento dei loghi nel VFS
 fn load_logos() {
   debug = reg_get("/sys/config/debug")
-  if (debug == 1) { out "[INIT] Caricamento loghi nel VFS (formato .nxtimg)..." }
+  kout("[INIT] Caricamento loghi nel VFS (formato .nxtimg)...")
 
   loaded = 0
 
   # Logo principale (logo1 come default)
   n1 = try_seed_logo("logo1.nxtimg" "sd02/logos/logo1.nxtimg")
   if (n1 > 0) {
-    if (debug == 1) { out "  [OK] logo1.nxtimg → " + str(n1) + " bytes" }
+    kout("  [OK] logo1.nxtimg → " + str(n1) + " bytes")
     loaded = loaded + 1
     reg_set("/sys/logos/main" "sd02/logos/logo1.nxtimg")
   } else {
-    if (debug == 1) { out "  [WARN] logo1.nxtimg non trovato in percorsi relativi" }
+    kout("  [WARN] logo1.nxtimg non trovato in percorsi relativi")
   }
 
   # Logo alternativo 2
   n2 = try_seed_logo("logo2.nxtimg" "sd02/logos/logo2.nxtimg")
   if (n2 > 0) {
-    if (debug == 1) { out "  [OK] logo2.nxtimg → " + str(n2) + " bytes" }
+    kout("  [OK] logo2.nxtimg → " + str(n2) + " bytes")
     loaded = loaded + 1
   } else {
-    if (debug == 1) { out "  [WARN] logo2.nxtimg non trovato in percorsi relativi" }
+    kout("  [WARN] logo2.nxtimg non trovato in percorsi relativi")
   }
 
   # Registra il conteggio totale
   reg_set("/sys/logos/count" str(loaded))
-  if (debug == 1) { out "[INIT] Loghi caricati: " + str(loaded) + " asset nel registry (/sys/logos/)" }
+  kout("[INIT] Loghi caricati: " + str(loaded) + " asset nel registry (/sys/logos/)")
   
   ret loaded
 }

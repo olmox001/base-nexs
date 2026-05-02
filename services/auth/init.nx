@@ -8,7 +8,7 @@ fn auth_set_ring(r) {
   if r < 0 { r = 0 }
   if r > 3 { r = 3 }
   reg /sys/auth/ring = r
-  out "[auth] Ring set to " + str(r)
+  kout("[auth] Ring set to " + str(r))
   ret 0
 }
 
@@ -18,13 +18,13 @@ fn auth_get_ring() {
 
 fn auth_cap_grant(name cap) {
   reg_set("/sys/auth/caps/" + name + "/" + cap "1")
-  out "[auth] Granted cap=" + cap + " to " + name
+  kout("[auth] Granted cap=" + cap + " to " + name)
   ret 0
 }
 
 fn auth_cap_revoke(name cap) {
   reg_del("/sys/auth/caps/" + name + "/" + cap)
-  out "[auth] Revoked cap=" + cap + " from " + name
+  kout("[auth] Revoked cap=" + cap + " from " + name)
   ret 0
 }
 
@@ -37,7 +37,7 @@ fn auth_cap_check(name cap) {
 fn auth_require_ring(r) {
   cur = reg /sys/auth/ring
   if cur > r {
-    out "[auth] EPERM: ring " + str(cur) + " cannot perform ring-" + str(r) + " operation"
+    kout("[auth] [ERR] EPERM: ring " + str(cur) + " cannot perform ring-" + str(r) + " operation")
     ret 0
   }
   ret 1
@@ -49,4 +49,4 @@ auth_cap_grant("root" "mount")
 auth_cap_grant("root" "exec")
 
 reg /sys/auth/status = "ready"
-out "[auth] Auth service initialised."
+kout("[auth] Auth service initialised.")

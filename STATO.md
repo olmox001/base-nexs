@@ -10,7 +10,7 @@
 
 ### minios demo (`example/minios/boot.nx`)
 - Boot completo: stdlib → fs → pm → auth → tty → p9 → hw_dt → textbuf → shell ✅
-- Shell v2.2 con VFS cwd corretto (tracciato in `/proc/1/vfs_cwd`) ✅
+- Shell v0.1.7 con VFS cwd corretto (tracciato in `/proc/1/vfs_cwd`) ✅
 - Navigazione VFS: `cd`, `pwd`, `ls`, `cat`, `touch`, `cp`, `mv`, `rm` ✅
 - `ls /reg/path` → lista figli nel registry tramite `keys()` ✅
 - `ps` → elenca processi reali da PID 100 in su ✅

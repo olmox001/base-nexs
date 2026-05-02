@@ -40,4 +40,4 @@ fn tty_resize(n w h) {
 }
 
 reg /sys/tty/status = "ready"
-out "[tty] TTY service initialised."
+kout("[tty] TTY service initialised.")

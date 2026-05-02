@@ -210,4 +210,4 @@ fn vfs_ls(dir) {
 }
 
 reg /sys/fs/status = "ready"
-out "[fs] Filesystem service initialised."
+kout("[fs] Filesystem service initialised.")

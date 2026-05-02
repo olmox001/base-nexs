@@ -1,4 +1,4 @@
-# example/minios/shell.nx — NEXS Shell v2.2
+# example/minios/shell.nx — NEXS Shell v0.1.7
 # VFS cwd tracked in /proc/1/vfs_cwd (registry key).
 # NEXS 'cd'/'pwd' keywords operate on eval scope — they are NOT used
 # here for user-facing navigation to avoid literal-path confusion.
@@ -97,7 +97,7 @@ fn shell_cwd_display() {
 fn shell_loop() {
   out ""
   out "---------------------------------------------------"
-  out " NEXS Shell v2.2. Type 'help' for commands."
+  out " NEXS Shell v0.1.7 Type 'help' for commands."
   out "---------------------------------------------------"
 
   reg_set("/proc/1/vfs_cwd" "")
