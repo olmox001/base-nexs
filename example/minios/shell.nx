@@ -95,6 +95,7 @@ fn shell_cwd_display() {
 }
 
 fn shell_loop() {
+  out ""
   out "---------------------------------------------------"
   out " NEXS Shell v2.2. Type 'help' for commands."
   out "---------------------------------------------------"
@@ -258,6 +259,7 @@ fn shell_loop() {
       } else {
         resolved = shell_resolve_logo(arg)
         nxed_termimg(resolved)
+        out ""
       }
       handled = 1
     }

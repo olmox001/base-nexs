@@ -14,7 +14,7 @@ fn fs_mount(src dst fstype) {
   reg_set(p + "/state"  "mounted")
   mount(src dst 0)
   reg /sys/fs/mount_count = n + 1
-  out "[fs] Mounted " + src + " -> " + dst + " (" + fstype + ")"
+  kout("[fs] Mounted " + src + " -> " + dst + " (" + fstype + ")")
   ret n
 }
 

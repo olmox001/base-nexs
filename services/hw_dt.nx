@@ -2,7 +2,7 @@
 # ===================================================================
 
 fn hw_dt_init() {
-  out "[HW] Scansione dell'hardware e popolamento del Device Tree..."
+  kout("[HW] Scansione dell'hardware e popolamento del Device Tree...")
 
   # CPU Topology
   reg /sys/hw/cpu/vendor = "AuthenticAMD"
@@ -26,7 +26,7 @@ fn hw_dt_init() {
   reg /sys/hw/dev/com1/io_port = "0x3F8"
   reg /sys/hw/dev/com2/io_port = "0x2F8"
 
-  out "[HW] Trovati 10 nodi nel Device Tree."
+  kout("[HW] Trovati 10 nodi nel Device Tree.")
 }
 
 fn hw_dt_dump() {

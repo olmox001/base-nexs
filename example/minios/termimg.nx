@@ -21,7 +21,9 @@ term_h = 24
 ti_buf = tb_create()
 
 fn vfs_err_msg(s) {
-  if type(s) == "err" { ret 1 }
+  t = type(s)
+  if t == "err" { ret 1 }
+  if t != "string" { ret 0 }
   if len(s) >= 4 && substr(s 0 4) == "ERR:" { ret 1 }
   ret 0
 }
@@ -160,6 +162,8 @@ fn ti_probe(filepath) {
   ti_filepath = filepath
   ti_use_shards = 0
   ti_shard_n = 0
+  
+  # Controlla se è uno shard bundle
   meta = vfs_read(filepath + "@@n")
   if !vfs_err_msg(meta) {
     ti_shard_n = int(meta)
@@ -169,10 +173,11 @@ fn ti_probe(filepath) {
     }
   }
   
+  # Controlla se è un file monolite nel VFS
   probe = vfs_read(filepath)
   if !vfs_err_msg(probe) { ret 0 }
 
-  # Fallback: real kernel VFS
+  # Fallback: controlla se esiste su disco reale (kernel host)
   fd = open(filepath 0)
   if fd >= 0 {
     close(fd)
@@ -180,30 +185,18 @@ fn ti_probe(filepath) {
     ret 0
   }
 
-  out "[DEBUG] ti_probe err: VFS=" + str(probe)
   ret -1
-}
-
-fn ti_reload() {
-  ti_term_dims()
-  ti_status = "ricaricato"
-  err = ti_load_from_vfs()
-  if err < 0 {
-    ti_status = "errore lettura"
-  }
-  ti_clamp_scroll()
-  ti_render()
 }
 
 fn termimg_start(filepath) {
   if filepath == "" {
-    out "Uso: termimg /path/to/image.nxtimg"
+    out "Uso: termimg <file.nxtimg>"
     ret -1
   }
 
-  ti_term_dims()
-  if ti_probe(filepath) < 0 {
-    out "Errore: file o bundle @@n non trovato."
+  p = ti_probe(filepath)
+  if p < 0 {
+    out "Errore: il file '" + filepath + "' non esiste."
     ret -1
   }
 
@@ -240,15 +233,35 @@ fn termimg_start(filepath) {
   if !vfs_err_msg(content) {
     write(1 content)
     write(1 "\033[0m\n\n")
+    ret 0
   }
+  
+  out "Errore durante la lettura del file."
+  ret -1
 }
 
 fn nxed_termimg(filename) {
   if filename == "" {
-    out "termimg: manca il file"
+    out "termimg: specificare un file immagine."
     ret -1
   }
+  
+  # Risoluzione percorso
   cwd = reg_get("/proc/1/vfs_cwd")
   fp = vfs_resolve(filename cwd)
+  
+  # Prova percorso diretto
+  if ti_probe(fp) == 0 {
+    termimg_start(fp)
+    ret 0
+  }
+  
+  # Prova con estensione .nxtimg
+  if ti_probe(fp + ".nxtimg") == 0 {
+    termimg_start(fp + ".nxtimg")
+    ret 0
+  }
+  
+  # Se proprio non lo trova, lascia che termimg_start dia l'errore definitivo
   termimg_start(fp)
 }

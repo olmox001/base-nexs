@@ -124,3 +124,34 @@ fn exists(path) {
   }
   ret 1
 }
+
+# Output condizionale (usato dai servizi per rispettare debug=0/1)
+# Gli errori [ERR] e i [WARN] vengono mostrati sempre per sicurezza.
+fn kout(msg) {
+  d = reg_get("/sys/config/debug")
+  
+  is_crit = 0
+  if (type(msg) == "err") { is_crit = 1 }
+  else {
+    # Check per prefissi critici
+    if (len(msg) >= 5) {
+       s5 = substr(msg 0 5)
+       if (s5 == "[ERR]") { is_crit = 1 }
+       if (len(msg) >= 6) {
+          s6 = substr(msg 0 6)
+          if (s6 == "[WARN]") { is_crit = 1 }
+       }
+       # Check con indentazione (es. "  [WARN]")
+       if (len(msg) >= 8) {
+          s8 = substr(msg 2 6)
+          if (s8 == "[WARN]") { is_crit = 1 }
+          s7 = substr(msg 2 5)
+          if (s7 == "[ERR]") { is_crit = 1 }
+       }
+    }
+  }
+  
+  if (type(d) == "err" || d == 1 || is_crit == 1) {
+    out msg
+  }
+}

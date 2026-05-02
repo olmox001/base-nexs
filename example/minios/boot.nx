@@ -1,13 +1,16 @@
-# example/minios/boot.nx — NEXS Boot Script
-# ===================================================================
+# Configurazione Debug (1 = verbose, 0 = silent/logo only)
+G_DEBUG = 0
+reg_set("/sys/config/debug" G_DEBUG)
 
-# Enable kernel trace
+# Enable kernel trace (off by default)
 sys_debug(false)
 
-out "==================================================="
-out " [INIT] Booting NEXS Modular Micro-OS"
-out "==================================================="
-out "[INIT] Fase 1: Caricamento Driver e Servizi (Librerie di Sistema)..."
+if (G_DEBUG == 1) {
+  out "==================================================="
+  out " [INIT] Booting NEXS Modular Micro-OS"
+  out "==================================================="
+  out "[INIT] Fase 1: Caricamento Driver e Servizi (Librerie di Sistema)..."
+} else {}
 
 # Caricamento dei servizi di sistema
 exec("services/stdlib.nx")
@@ -21,11 +24,15 @@ exec("services/hw_dt.nx")       # HW Device Tree
 exec("services/textbuf.nx")     # Text Buffer Library
 exec("services/logos/init.nx")  # Logo Registry Service
 
-out "[INIT] Fase 2: Inizializzazione Sottosistemi..."
+if (G_DEBUG == 1) {
+  out "[INIT] Fase 2: Inizializzazione Sottosistemi..."
+} else {}
 hw_dt_init()
 p9_mnt_init()
 
-out "[INIT] Fase 3: Popolamento Root FS e Caricamento Loghi..."
+if (G_DEBUG == 1) {
+  out "[INIT] Fase 3: Popolamento Root FS e Caricamento Loghi..."
+} else {}
 # I mount standard sono già fatti da services/fs/init.nx
 exec("example/minios/logo.nx")  # Carica loghi nel VFS (sd02/logos) - wrapper riutilizzabile
 exec("example/minios/logos_config.nx")  # Configurazione loghi e shortcut
@@ -35,8 +42,14 @@ exec("example/minios/nxed_editor.nx")
 exec("example/minios/termimg.nx")        # TermImg — Image Viewer
 exec("example/minios/shell.nx")
 
-out "==================================================="
-out " [INIT] Boot completato. Cessione controllo alla UI."
-out "==================================================="
+if (G_DEBUG == 1) {
+  out "==================================================="
+  out " [INIT] Boot completato. Cessione controllo alla UI."
+  out "==================================================="
+} else {
+  # In modalità silent (debug=0), mostriamo solo il logo prima della shell
+  term_cls()
+  termimg_start("sd02/logos/logo1.nxtimg")
+}
 
 shell_loop()

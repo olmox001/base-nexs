@@ -2,7 +2,7 @@
 # ===================================================================
 
 fn p9_mnt_init() {
-  out "[P9] Montaggio delle gerarchie di sistema..."
+  kout("[P9] Montaggio delle gerarchie di sistema...")
 
   # Setup logical nodes in VFS
   vfs_write("krnl/registry/type"   "Plan 9 Virtual Kernel Registry")
@@ -32,7 +32,7 @@ fn p9_mnt_init() {
   vfs_write("sd99/user.id"        "User-Guest")
   vfs_write("sd99/tmp/test"       "Temporary guest cache")
 
-  out "[P9] Hierarchy mounted successfully via 9P bindings."
+  kout("[P9] Hierarchy mounted successfully via 9P bindings.")
 }
 
 fn p9_file_manager(dir) {

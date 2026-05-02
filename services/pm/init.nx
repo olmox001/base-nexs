@@ -11,19 +11,19 @@ fn pm_spawn(nome_processo) {
   reg_set("/sys/pm/procs/" + str(pid) + "/state", "running")
   reg_set("/sys/pm/procs/" + str(pid) + "/mem",   0)
 
-  out "[PM] Task '" + nome_processo + "' creato con PID: " + str(pid)
+  kout("[PM] Task '" + nome_processo + "' creato con PID: " + str(pid))
   ret pid
 }
 
 fn pm_alloc(pid pagine) {
   byte_allocati = pagine * 4096
   reg_set("/sys/pm/procs/" + str(pid) + "/mem", byte_allocati)
-  out "[MMU] Mappati " + str(byte_allocati) + " byte per PID " + str(pid)
+  kout("[MMU] Mappati " + str(byte_allocati) + " byte per PID " + str(pid))
 }
 
 fn pm_kill(pid) {
   reg_set("/sys/pm/procs/" + str(pid) + "/state", "zombie")
-  out "[PM] PID " + str(pid) + " terminato."
+  kout("[PM] PID " + str(pid) + " terminato.")
 }
 
 fn pm_ps() {
@@ -44,4 +44,4 @@ fn pm_ps() {
 }
 
 reg /sys/pm/status = "ready"
-out "[pm] Process manager initialised."
+kout("[pm] Process manager initialised.")
