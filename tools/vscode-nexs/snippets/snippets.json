@@ -1,0 +1,45 @@
+{
+  "Function Declaration": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:name}(${2:params}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Crea una nuova funzione"
+  },
+  "If Statement": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Blocco condizionale"
+  },
+  "Loop": {
+    "prefix": "loop",
+    "body": [
+      "loop {",
+      "\t$0",
+      "\tbreak",
+      "}"
+    ],
+    "description": "Ciclo infinito con break"
+  },
+  "Print Output": {
+    "prefix": "out",
+    "body": "out ${1:expression}",
+    "description": "Stampa a video"
+  },
+  "Registry Write": {
+    "prefix": "regw",
+    "body": "reg /${1:path} = ${2:value}",
+    "description": "Scrivi nel registro"
+  },
+  "Registry Read": {
+    "prefix": "regr",
+    "body": "reg /${1:path}",
+    "description": "Leggi dal registro"
+  }
+}

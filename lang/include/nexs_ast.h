@@ -92,6 +92,10 @@ typedef struct {
   Token  peek;
   int    had_error;
   char   error_msg[256];
+  char   filename[256];
+  int    loop_depth;
+  char   local_fn_names[MAX_FN_DEFS][NAME_LEN];
+  int    local_fn_count;
 } Parser;
 
 /* =========================================================
@@ -119,7 +123,7 @@ NEXS_API void ast_free_safe(ASTNode *n);
    PARSER API (declarations only; implementation in nexs_parse.h)
    ========================================================= */
 
-NEXS_API void     parser_init(Parser *p, Lexer *lex);
+NEXS_API void     parser_init(Parser *p, Lexer *lex, const char *filename);
 NEXS_API ASTNode *parse_program(Parser *p);
 NEXS_API ASTNode *parse_stmt(Parser *p);
 

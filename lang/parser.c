@@ -13,6 +13,7 @@
 #include "../core/include/nexs_value.h"
 #include "include/nexs_ast.h"
 #include "include/nexs_lex.h"
+#include "include/nexs_fn.h"
 
 #include <string.h>
 
@@ -123,7 +124,8 @@ static int parser_expect(Parser *p, TokenKind k) {
   if (p->cur.kind != k) {
     if (!p->had_error) {
       snprintf(p->error_msg, sizeof(p->error_msg),
-               "Line %d: expected '%s', found '%s' ('%s')", p->cur.line,
+               "%s:%d:%d: error: expected '%s', found '%s' ('%s')",
+               p->filename, p->cur.line, p->cur.col,
                token_kind_name(k), token_kind_name(p->cur.kind), p->cur.text);
       p->had_error = 1;
     }
@@ -242,6 +244,24 @@ static ASTNode *parse_primary(Parser *p) {
         ast_free(n);
         return NULL;
       }
+      if (g_nexs_lint_mode) {
+          NexsFnDef *def = fn_lookup(t.text);
+          int found_local = 0;
+          for (int i = 0; i < p->local_fn_count; i++) {
+              if (strcmp(p->local_fn_names[i], t.text) == 0) {
+                  found_local = 1;
+                  break;
+              }
+          }
+
+          if (!def && !found_local) {
+              fprintf(stderr, "%s:%d:%d: warning: call to unknown function '%s'\n",
+                      p->filename, t.line, t.col, t.text);
+          } else if (def && !def->is_builtin && n->n_args != def->n_params) {
+              fprintf(stderr, "%s:%d:%d: warning: function '%s' expects %d arguments, but found %d\n",
+                      p->filename, t.line, t.col, t.text, def->n_params, n->n_args);
+          }
+      }
       return n;
     }
     ASTNode *n = ast_alloc(AST_IDENT, t);
@@ -349,7 +369,8 @@ static ASTNode *parse_primary(Parser *p) {
   }
   default:
     snprintf(p->error_msg, sizeof(p->error_msg),
-             "Line %d: unexpected token '%s'", t.line, t.text);
+             "%s:%d:%d: error: unexpected token '%s'",
+             p->filename, t.line, t.col, t.text);
     p->had_error = 1;
     return NULL;
   }
@@ -485,8 +506,8 @@ ASTNode *parse_stmt(Parser *p) {
     if (name_tok.kind != TK_IDENT && name_tok.kind != TK_KW_LS) {
       if (!p->had_error) {
         snprintf(p->error_msg, sizeof(p->error_msg),
-                 "Line %d: expected identifier after 'fn', found '%s'",
-                 name_tok.line, name_tok.text);
+                 "%s:%d:%d: error: expected identifier after 'fn', found '%s'",
+                 p->filename, name_tok.line, name_tok.col, name_tok.text);
         p->had_error = 1;
       }
       return NULL;
@@ -495,6 +516,24 @@ ASTNode *parse_stmt(Parser *p) {
     ASTNode *n = ast_alloc(AST_FN_DECL, name_tok);
     strncpy(n->name, name_tok.text, NAME_LEN - 1);
     n->name[NAME_LEN - 1] = '\0';
+
+    if (g_nexs_lint_mode) {
+        /* Check global redefinition */
+        if (fn_lookup(name_tok.text)) {
+            fprintf(stderr, "%s:%d:%d: warning: redefinition of global function '%s'\n",
+                    p->filename, name_tok.line, name_tok.col, name_tok.text);
+        }
+        /* Check local redefinition and track */
+        for (int i = 0; i < p->local_fn_count; i++) {
+            if (strcmp(p->local_fn_names[i], name_tok.text) == 0) {
+                fprintf(stderr, "%s:%d:%d: warning: redefinition of function '%s' in same file\n",
+                        p->filename, name_tok.line, name_tok.col, name_tok.text);
+            }
+        }
+        if (p->local_fn_count < MAX_FN_DEFS) {
+            strncpy(p->local_fn_names[p->local_fn_count++], name_tok.text, NAME_LEN - 1);
+        }
+    }
     if (!parser_expect(p, TK_LPAREN)) {
       ast_free(n);
       return NULL;
@@ -537,16 +576,24 @@ ASTNode *parse_stmt(Parser *p) {
   if (t.kind == TK_KW_LOOP) {
     parser_advance(p);
     ASTNode *n = ast_alloc(AST_LOOP, t);
+    p->loop_depth++;
     n->right = parse_block(p);
+    p->loop_depth--;
     return n;
   }
 
   /* break / cont / ret */
   if (t.kind == TK_KW_BREAK) {
+    if (p->loop_depth == 0) {
+      fprintf(stderr, "%s:%d:%d: error: 'break' outside of loop\n", p->filename, t.line, t.col);
+    }
     parser_advance(p);
     return ast_alloc(AST_BREAK, t);
   }
   if (t.kind == TK_KW_CONT) {
+    if (p->loop_depth == 0) {
+      fprintf(stderr, "%s:%d:%d: error: 'continue' outside of loop\n", p->filename, t.line, t.col);
+    }
     parser_advance(p);
     return ast_alloc(AST_CONT, t);
   }
@@ -853,12 +900,21 @@ ASTNode *parse_stmt(Parser *p) {
    PARSER INIT & PARSE PROGRAM
    ========================================================= */
 
-void parser_init(Parser *p, Lexer *lex) {
+void parser_init(Parser *p, Lexer *lex, const char *filename) {
   if (!p || !lex)
     return;
   p->lex = lex;
   p->had_error = 0;
   p->error_msg[0] = '\0';
+  if (filename) {
+    strncpy(p->filename, filename, sizeof(p->filename) - 1);
+    p->filename[sizeof(p->filename) - 1] = '\0';
+  } else {
+    strncpy(p->filename, "input.nx", sizeof(p->filename) - 1);
+    p->filename[sizeof(p->filename) - 1] = '\0';
+  }
+  p->loop_depth = 0;
+  p->local_fn_count = 0;
   p->peek.kind = TK_EOF;
   parser_advance(p);
 }
@@ -879,8 +935,8 @@ ASTNode *parse_program(Parser *p) {
       if (!p->had_error && p->cur.kind != TK_NEWLINE && p->cur.kind != TK_EOF &&
           p->cur.kind != TK_RBRACE) {
         snprintf(p->error_msg, sizeof(p->error_msg),
-                 "Line %d: expected end of line after statement, found '%s'",
-                 p->cur.line, p->cur.text);
+                 "%s:%d:%d: error: expected end of line after statement, found '%s'",
+                 p->filename, p->cur.line, p->cur.col, p->cur.text);
         p->had_error = 1;
         break;
       }

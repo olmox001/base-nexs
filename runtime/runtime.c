@@ -77,21 +77,25 @@ void nexs_runtime_init(void) {
 #ifndef NEXS_BAREMETAL
   /* 9. Auto-load modules/ .nx files — standard library functions */
   {
-    DIR *d = opendir("modules");
-    if (d) {
-      struct dirent *ent;
-      while ((ent = readdir(d)) != NULL) {
-        size_t nlen = strlen(ent->d_name);
-        if (nlen > 3 && strcmp(ent->d_name + nlen - 3, ".nx") == 0) {
-          char path[512];
-          snprintf(path, sizeof(path), "modules/%s", ent->d_name);
-          EvalCtx ctx;
-          eval_ctx_init(&ctx);
-          EvalResult r = eval_file(&ctx, path);
-          val_free(&r.ret_val);
+    const char *paths[] = { "modules", "/usr/local/share/nexs/modules" };
+    for (int i = 0; i < 2; i++) {
+        DIR *d = opendir(paths[i]);
+        if (d) {
+          struct dirent *ent;
+          while ((ent = readdir(d)) != NULL) {
+            size_t nlen = strlen(ent->d_name);
+            if (nlen > 3 && strcmp(ent->d_name + nlen - 3, ".nx") == 0) {
+              char full_path[1024];
+              snprintf(full_path, sizeof(full_path), "%s/%s", paths[i], ent->d_name);
+              EvalCtx ctx;
+              eval_ctx_init(&ctx);
+              EvalResult r = eval_file(&ctx, full_path);
+              val_free(&r.ret_val);
+            }
+          }
+          closedir(d);
+          break; /* Load only first found path */
         }
-      }
-      closedir(d);
     }
   }
 #endif

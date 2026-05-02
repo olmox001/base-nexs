@@ -151,14 +151,30 @@ static int scan_source(const char *src_path, const char *src,
                                 FILE *probe = fopen(abs_path, "r");
                                 if (!probe) {
                                     char alt[NEXS_DEP_PATH_MAX];
+                                    
+                                    /* 1. Try parent-dir-relative */
                                     path_join(parent_dir, rel_path, alt, sizeof(alt));
-                                    FILE *probe2 = fopen(alt, "r");
-                                    if (probe2) {
-                                        fclose(probe2);
+                                    probe = fopen(alt, "r");
+                                    if (probe) {
                                         strncpy(abs_path, alt, NEXS_DEP_PATH_MAX - 1);
-                                        abs_path[NEXS_DEP_PATH_MAX - 1] = '\0';
+                                    } else {
+                                        /* 2. Try global paths */
+                                        const char *global_dirs[] = {
+                                            "services", "/usr/local/share/nexs/services",
+                                            "modules", "/usr/local/share/nexs/modules"
+                                        };
+                                        for (int i = 0; i < 4; i++) {
+                                            snprintf(alt, sizeof(alt), "%s/%s", global_dirs[i], rel_path);
+                                            probe = fopen(alt, "r");
+                                            if (probe) {
+                                                strncpy(abs_path, alt, NEXS_DEP_PATH_MAX - 1);
+                                                break;
+                                            }
+                                        }
                                     }
-                                } else {
+                                }
+
+                                if (probe) {
                                     fclose(probe);
                                 }
                             }

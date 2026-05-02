@@ -1,0 +1,50 @@
+{
+  "name": "nexs-lang",
+  "displayName": "NeXs Language Support",
+  "description": "Syntax highlighting and linting for the NeXs language",
+  "version": "0.1.0",
+  "publisher": "olmo",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:nexs"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "nexs",
+        "aliases": [
+          "NeXs",
+          "nexs"
+        ],
+        "extensions": [
+          ".nx"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "nexs",
+        "scopeName": "source.nexs",
+        "path": "./syntaxes/nexs.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "nexs",
+        "path": "./snippets/snippets.json"
+      }
+    ]
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "node ./test/runTest.js"
+  }
+}

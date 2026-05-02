@@ -231,8 +231,9 @@ extern "C" {
 
 NEXS_API void nexs_fprintf(FILE *out, const char *fmt, ...);
 
-/* Global Debug Flag */
+/* Global Flags */
 extern int g_nexs_debug;
+extern int g_nexs_lint_mode;
 
 #ifdef __cplusplus
 }

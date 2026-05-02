@@ -1,0 +1,30 @@
+name: Nexs Linter & Auto-Fix
+
+on:
+  pull_request:
+    paths:
+      - '**.nx'
+  push:
+    branches: [ "main" ]
+
+jobs:
+  check-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del codice
+        uses: actions/checkout@v3
+
+      - name: Installa dipendenze per la build
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc make
+
+      - name: Compila il toolchain Nexs
+        run: make nexs
+
+      - name: Registra il Problem Matcher
+        run: echo "::add-matcher::.github/nexs-matcher.json"
+
+      - name: Esegui Nexs Compiler sui file modificati
+        run: |
+          find . -name "*.nx" -type f -exec ./nexs --syntax-only {} +

@@ -293,7 +293,10 @@ int main(int argc, char *argv[]) {
             "Usage: nexs [options] [file.nx]\n"
             "  -v, --version                  Show version\n"
             "  -h, --help                     Show this help\n"
+            "  --syntax-only <file.nx>        Check syntax without executing\n"
+            "  --lint <file.nx>               Perform semantic linting\n"
             "  <file.nx>                      Run a NEXS source file\n"
+            "                                 (use '-' for stdin)\n"
             "  --compile <file.nx>            Compile file to native binary\n"
             "  --standalone-program <file.nx> Alias for --compile (bundled deps on by default)\n"
             "    --target <target>            Compilation target:\n"
@@ -306,6 +309,37 @@ int main(int argc, char *argv[]) {
             "    --dep-only                   List exec() dependencies and exit\n"
             "  (no args)                      Start interactive REPL\n");
     return 0;
+  }
+
+  /* --syntax-only <file.nx> */
+  if (strcmp(argv[1], "--syntax-only") == 0) {
+    if (argc < 3) {
+      fprintf(stderr, "nexs: --syntax-only requires a source file\n");
+      return 1;
+    }
+    int rc = 0;
+    for (int i = 2; i < argc; i++) {
+        if (nexs_check_syntax_file(argv[i]) != 0) {
+            rc = 1;
+        }
+    }
+    return rc;
+  }
+
+  /* --lint <file.nx> */
+  if (strcmp(argv[1], "--lint") == 0) {
+    if (argc < 3) {
+      fprintf(stderr, "nexs: --lint requires a source file\n");
+      return 1;
+    }
+    g_nexs_lint_mode = 1;
+    int rc = 0;
+    for (int i = 2; i < argc; i++) {
+        if (nexs_check_syntax_file(argv[i]) != 0) {
+            rc = 1;
+        }
+    }
+    return rc;
   }
 
   /* --compile / --standalone-program <file.nx> [--target <t>] [-o <out>] [--no-dep] [--dep-only] */

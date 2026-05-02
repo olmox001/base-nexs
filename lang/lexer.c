@@ -51,12 +51,12 @@ static void lexer_skip_ws(Lexer *lex) {
    TOKEN FACTORY
    ========================================================= */
 
-static Token make_tok(TokenKind k, const char *text, int line) {
+static Token make_tok(TokenKind k, const char *text, int line, int col) {
   Token t;
   memset(&t, 0, sizeof(t));
   t.kind = k;
   t.line = line;
-  t.col = 0;
+  t.col = col;
   t.ival = 0;
   t.fval = 0.0;
   strncpy(t.text, text ? text : "", NAME_LEN - 1);
@@ -113,9 +113,10 @@ Token lexer_next(Lexer *lex) {
 
   lexer_skip_ws(lex);
   if (lex->pos >= lex->len)
-    return make_tok(TK_EOF, "", lex->line);
+    return make_tok(TK_EOF, "", lex->line, lex->col);
 
   int line = lex->line;
+  int col = lex->col;
   char c = lex->src[lex->pos];
   char buf[MAX_STR_LEN];
 
@@ -124,18 +125,21 @@ Token lexer_next(Lexer *lex) {
     lex->pos++;
     lex->line++;
     lex->col = 1;
-    return make_tok(TK_NEWLINE, "\\n", line);
+    return make_tok(TK_NEWLINE, "\\n", line, col);
   }
 
   /* String literal */
   if (c == '"') {
     size_t i = 0;
     lex->pos++;
+    lex->col++;
     while (lex->pos < lex->len && lex->src[lex->pos] != '"' &&
            i < MAX_STR_LEN - 1) {
       char ch = lex->src[lex->pos++];
+      lex->col++;
       if (ch == '\\' && lex->pos < lex->len) {
         ch = lex->src[lex->pos++];
+        lex->col++;
         if (ch == 'n')
           ch = '\n';
         else if (ch == 'r')
@@ -157,11 +161,15 @@ Token lexer_next(Lexer *lex) {
     }
     buf[i] = '\0';
     /* If buffer filled before closing quote, scan forward to consume it */
-    while (lex->pos < lex->len && lex->src[lex->pos] != '"')
+    while (lex->pos < lex->len && lex->src[lex->pos] != '"') {
       lex->pos++;
-    if (lex->pos < lex->len)
+      lex->col++;
+    }
+    if (lex->pos < lex->len) {
       lex->pos++; /* consume closing " */
-    return make_tok(TK_STRING, buf, line);
+      lex->col++;
+    }
+    return make_tok(TK_STRING, buf, line, col);
   }
 
   /* Number */
@@ -170,8 +178,10 @@ Token lexer_next(Lexer *lex) {
        isdigit((unsigned char)lex->src[lex->pos + 1]))) {
     size_t i = 0;
     int is_float = 0;
-    if (c == '-')
+    if (c == '-') {
       buf[i++] = lex->src[lex->pos++];
+      lex->col++;
+    }
     while (lex->pos < lex->len &&
            (isdigit((unsigned char)lex->src[lex->pos]) ||
             lex->src[lex->pos] == '.') &&
@@ -179,9 +189,10 @@ Token lexer_next(Lexer *lex) {
       if (lex->src[lex->pos] == '.')
         is_float = 1;
       buf[i++] = lex->src[lex->pos++];
+      lex->col++;
     }
     buf[i] = '\0';
-    Token t = make_tok(is_float ? TK_FLOAT : TK_INT, buf, line);
+    Token t = make_tok(is_float ? TK_FLOAT : TK_INT, buf, line, col);
     t.ival = atoll(buf);
     t.fval = atof(buf);
     return t;
@@ -191,22 +202,26 @@ Token lexer_next(Lexer *lex) {
   if (c == '/') {
     size_t i = 0;
     size_t saved_pos = lex->pos;
+    int saved_col = lex->col;
     buf[i++] = lex->src[lex->pos++];
+    lex->col++;
 
     while (lex->pos < lex->len &&
            (isalnum((unsigned char)lex->src[lex->pos]) ||
             lex->src[lex->pos] == '_' || lex->src[lex->pos] == '/') &&
            i < MAX_STR_LEN - 1) {
       buf[i++] = lex->src[lex->pos++];
+      lex->col++;
     }
     buf[i] = '\0';
 
     if (i >= 2 && (isalpha((unsigned char)buf[1]) || buf[1] == '_'))
-      return make_tok(TK_REGPATH, buf, line);
+      return make_tok(TK_REGPATH, buf, line, col);
     if (i == 1)
-      return make_tok(TK_REGPATH, buf, line);
+      return make_tok(TK_REGPATH, buf, line, col);
     lex->pos = saved_pos + 1;
-    return make_tok(TK_SLASH, "/", line);
+    lex->col = saved_col + 1;
+    return make_tok(TK_SLASH, "/", line, col);
   }
 
   /* Identifier and keywords */
@@ -215,81 +230,90 @@ Token lexer_next(Lexer *lex) {
     while (lex->pos < lex->len &&
            (isalnum((unsigned char)lex->src[lex->pos]) ||
             lex->src[lex->pos] == '_') &&
-           i < MAX_STR_LEN - 1)
+           i < MAX_STR_LEN - 1) {
       buf[i++] = lex->src[lex->pos++];
+      lex->col++;
+    }
     buf[i] = '\0';
     for (int j = 0; keywords[j].word; j++)
       if (strcmp(buf, keywords[j].word) == 0)
-        return make_tok(keywords[j].kind, buf, line);
-    return make_tok(TK_IDENT, buf, line);
+        return make_tok(keywords[j].kind, buf, line, col);
+    return make_tok(TK_IDENT, buf, line, col);
   }
 
   /* Operators and symbols */
   lex->pos++;
+  lex->col++;
   switch (c) {
   case '+':
-    return make_tok(TK_PLUS, "+", line);
+    return make_tok(TK_PLUS, "+", line, col);
   case '-':
-    return make_tok(TK_MINUS, "-", line);
+    return make_tok(TK_MINUS, "-", line, col);
   case '*':
-    return make_tok(TK_STAR, "*", line);
+    return make_tok(TK_STAR, "*", line, col);
   case '%':
-    return make_tok(TK_PERCENT, "%", line);
+    return make_tok(TK_PERCENT, "%", line, col);
   case '.':
-    return make_tok(TK_DOT, ".", line);
+    return make_tok(TK_DOT, ".", line, col);
   case '[':
-    return make_tok(TK_LBRACKET, "[", line);
+    return make_tok(TK_LBRACKET, "[", line, col);
   case ']':
-    return make_tok(TK_RBRACKET, "]", line);
+    return make_tok(TK_RBRACKET, "]", line, col);
   case '{':
-    return make_tok(TK_LBRACE, "{", line);
+    return make_tok(TK_LBRACE, "{", line, col);
   case '}':
-    return make_tok(TK_RBRACE, "}", line);
+    return make_tok(TK_RBRACE, "}", line, col);
   case '(':
-    return make_tok(TK_LPAREN, "(", line);
+    return make_tok(TK_LPAREN, "(", line, col);
   case ')':
-    return make_tok(TK_RPAREN, ")", line);
+    return make_tok(TK_RPAREN, ")", line, col);
   case ',':
-    return make_tok(TK_COMMA, ",", line);
+    return make_tok(TK_COMMA, ",", line, col);
   case '=':
     if (lex->pos < lex->len && lex->src[lex->pos] == '=') {
       lex->pos++;
-      return make_tok(TK_EQEQ, "==", line);
+      lex->col++;
+      return make_tok(TK_EQEQ, "==", line, col);
     }
-    return make_tok(TK_EQ, "=", line);
+    return make_tok(TK_EQ, "=", line, col);
   case '!':
     if (lex->pos < lex->len && lex->src[lex->pos] == '=') {
       lex->pos++;
-      return make_tok(TK_NEQ, "!=", line);
+      lex->col++;
+      return make_tok(TK_NEQ, "!=", line, col);
     }
-    return make_tok(TK_NOT, "!", line);
+    return make_tok(TK_NOT, "!", line, col);
   case '<':
     if (lex->pos < lex->len && lex->src[lex->pos] == '=') {
       lex->pos++;
-      return make_tok(TK_LE, "<=", line);
+      lex->col++;
+      return make_tok(TK_LE, "<=", line, col);
     }
-    return make_tok(TK_LT, "<", line);
+    return make_tok(TK_LT, "<", line, col);
   case '>':
     if (lex->pos < lex->len && lex->src[lex->pos] == '=') {
       lex->pos++;
-      return make_tok(TK_GE, ">=", line);
+      lex->col++;
+      return make_tok(TK_GE, ">=", line, col);
     }
-    return make_tok(TK_GT, ">", line);
+    return make_tok(TK_GT, ">", line, col);
   case '&':
     if (lex->pos < lex->len && lex->src[lex->pos] == '&') {
       lex->pos++;
-      return make_tok(TK_AND, "&&", line);
+      lex->col++;
+      return make_tok(TK_AND, "&&", line, col);
     }
     break;
   case '|':
     if (lex->pos < lex->len && lex->src[lex->pos] == '|') {
       lex->pos++;
-      return make_tok(TK_OR, "||", line);
+      lex->col++;
+      return make_tok(TK_OR, "||", line, col);
     }
     break;
   }
   snprintf(buf, sizeof(buf), "unknown character '%c'", c);
-  return make_tok(TK_EOF, buf, line);
+  return make_tok(TK_EOF, buf, line, col);
 }
 
 /* =========================================================

@@ -1,0 +1,86 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "NeXs",
+  "scopeName": "source.nexs",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#registry_paths"
+    },
+    {
+      "include": "#numbers"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.nexs",
+          "match": "#.*$"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.nexs",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.nexs",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.nexs",
+          "match": "\\b(fn|ret|if|else|loop|break|cont|continue|import|proc)\\b"
+        },
+        {
+          "name": "keyword.other.nexs",
+          "match": "\\b(del|out|reg|ls|cd|pwd|ptr|deref|sendmessage|receivemessage|msgpending)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.nexs",
+          "match": "\\b(and|or|not)\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.nexs",
+          "match": "\\b(true|false|nil)\\b"
+        }
+      ]
+    },
+    "registry_paths": {
+      "patterns": [
+        {
+          "name": "variable.other.registry.nexs",
+          "match": "/[a-zA-Z0-9_/]+"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.nexs",
+          "match": "\\b[0-9]+(\\.[0-9]+)?\\b"
+        }
+      ]
+    }
+  }
+}

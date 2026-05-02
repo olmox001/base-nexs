@@ -286,10 +286,32 @@ run-iso: iso-amd64
 	@./scripts/qemu-amd64.sh --iso
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Installation
+# ─────────────────────────────────────────────────────────────────────────────
+PREFIX ?= /usr/local
+BINDIR = $(PREFIX)/bin
+DATADIR = $(PREFIX)/share/nexs
+
+install: $(TARGET) nexsd
+	@echo "Installing NEXS to $(BINDIR)..."
+	@mkdir -p $(DESTDIR)$(BINDIR)
+	@cp $(TARGET) $(DESTDIR)$(BINDIR)/$(TARGET)
+	@cp tools/nexsd/nexsd $(DESTDIR)$(BINDIR)/nexsd
+	@mkdir -p $(DESTDIR)$(DATADIR)/modules
+	@mkdir -p $(DESTDIR)$(DATADIR)/services
+	@cp -r modules/*.nx $(DESTDIR)$(DATADIR)/modules/ 2>/dev/null || true
+	@cp -r services/* $(DESTDIR)$(DATADIR)/services/ 2>/dev/null || true
+	@echo "Install complete."
+
+nexsd:
+	@$(MAKE) -C tools/nexsd
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Clean
 # ─────────────────────────────────────────────────────────────────────────────
 clean:
 	rm -f $(TARGET) $(TARGET)_dbg $(OBJS)
+	$(MAKE) -C tools/nexsd clean
 	rm -rf build/linux-amd64 build/linux-arm64 \
 	       build/baremetal-arm64 build/baremetal-amd64 \
 	       build/iso_root build/nexs-amd64.iso

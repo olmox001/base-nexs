@@ -89,3 +89,4 @@ void nexs_fprintf(FILE *out, const char *fmt, ...) {
 }
 
 int g_nexs_debug = 0;
+int g_nexs_lint_mode = 0;

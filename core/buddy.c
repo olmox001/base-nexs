@@ -152,6 +152,48 @@ void *xmalloc(size_t size) {
   return p;
 }
 
+static size_t buddy_get_node_size(size_t node, size_t node_size, size_t node_offset,
+                                  size_t target_offset) {
+  if (node >= TREE_NODES)
+    return 0;
+  if (buddy_tree[node] == BNODE_USED && node_offset == target_offset)
+    return node_size;
+  if (buddy_tree[node] == BNODE_FREE)
+    return 0;
+  size_t cs = node_size / 2;
+  if (target_offset < node_offset + cs)
+    return buddy_get_node_size(2 * node + 1, cs, node_offset, target_offset);
+  else
+    return buddy_get_node_size(2 * node + 2, cs, node_offset + cs,
+                               target_offset);
+}
+
+void *xrealloc(void *ptr, size_t size) {
+  if (!ptr)
+    return xmalloc(size);
+  if (size == 0) {
+    xfree(ptr);
+    return NULL;
+  }
+
+  uintptr_t p = (uintptr_t)ptr;
+  uintptr_t lo = (uintptr_t)memory_pool;
+  uintptr_t hi = lo + POOL_SIZE;
+  if (p < lo || p >= hi)
+    die("xrealloc: pointer outside of pool");
+
+  size_t offset = (size_t)(p - lo);
+  size_t old_size = buddy_get_node_size(0, POOL_SIZE, 0, offset);
+
+  if (size <= old_size)
+    return ptr;
+
+  void *new_p = xmalloc(size);
+  memcpy(new_p, ptr, old_size);
+  xfree(ptr);
+  return new_p;
+}
+
 void xfree(void *ptr) { buddy_free(ptr); }
 
 char *buddy_strdup(const char *s) {
