@@ -1,3 +1,0 @@
-val = reg_get("/does/not/exist")
-out "type: " + type(val)
-out "val: '" + str(val) + "'"

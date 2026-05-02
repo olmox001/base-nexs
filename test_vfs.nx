@@ -1,9 +1,0 @@
-exec("services/fs/init.nx")
-exec("services/stdlib.nx")
-exec("example/minios/logo.nx")
-content = vfs_read("sd02/logos/logo.nxtimg")
-if type(content) == "err" {
-  out "Error reading: " + str(content)
-} else {
-  out "Success! Length: " + str(len(content))
-}
