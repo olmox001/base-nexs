@@ -76,19 +76,8 @@ fn shell_loop() {
       handled = 1
     }
 
-    if cmd == "ls" {
-      if arg != "" && substr(arg 0 1) == "/" {
-        # Registry listing via keys()
-        children = keys(arg)
-        ci = 0
-        loop {
-          if ci >= len(children) { break }
-          out "  " + str(children[ci])
-          ci = ci + 1
-        }
-      } else {
-        vfs_ls(vfs_resolve(arg shell_cwd()))
-      }
+    if (cmd == "ls") {
+      ls(arg)
       handled = 1
     }
 
@@ -97,30 +86,13 @@ fn shell_loop() {
       handled = 1
     }
 
-    if cmd == "cd" {
-      if arg == "" || arg == "/" {
-        reg_set("/proc/1/vfs_cwd" "")
-      } else {
-        if substr(arg 0 1) == "/" {
-          new_cwd = substr(arg 1 len(arg)-1)
-        } else {
-          new_cwd = vfs_resolve(arg shell_cwd())
-        }
-        
-        # FIX: Verifica che la cartella esista davvero nel VFS prima di cambiare
-        # Utilizziamo vfs_ls per controllare la validità del percorso
-        test_ls = vfs_ls(new_cwd)
-        if type(test_ls) == "err" {
-           out "cd: la cartella specificata non esiste (" + new_cwd + ")"
-        } else {
-           reg_set("/proc/1/vfs_cwd" new_cwd)
-        }
-      }
+    if (cmd == "cd") {
+      cd(arg)
       handled = 1
     }
 
-    if cmd == "pwd" {
-      out shell_cwd_display()
+    if (cmd == "pwd") {
+      pwd
       handled = 1
     }
 

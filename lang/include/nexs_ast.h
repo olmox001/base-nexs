@@ -46,9 +46,12 @@ typedef enum {
   AST_DEL,
   AST_OUT,
   AST_REG_SET,
-  AST_REG_LS,
-  AST_CD,
-  AST_PWD,
+  AST_RG_LS,    /* :ls */
+  AST_RG_CD,    /* :cd */
+  AST_RG_PWD,   /* :pwd */
+  AST_LS,       /* ls (VFS) */
+  AST_CD,       /* cd (VFS) */
+  AST_PWD,      /* pwd (VFS) */
   AST_BLOCK,
 
   /* New: pointer and IPC nodes */

@@ -1,0 +1,7 @@
+# Final verification
+exec("services/stdlib.nx")
+exec("services/fs/init.nx")
+out "--- VFS LS ---"
+ls
+out "--- VFS PWD ---"
+pwd

@@ -180,36 +180,7 @@ static ASTNode *parse_primary(Parser *p) {
     parser_advance(p);
     return n;
   }
-  case TK_KW_PWD: {
-    ASTNode *n = ast_alloc(AST_PWD, t);
-    parser_advance(p);
-    return n;
-  }
-  case TK_KW_LS: {
-    Token kw = t;
-    parser_advance(p);
-    if (p->cur.kind == TK_LPAREN) {
-      ASTNode *fn = ast_alloc(AST_FN_CALL, kw);
-      strncpy(fn->name, "ls", NAME_LEN - 1);
-      parser_advance(p);
-      fn->n_args = 0;
-      while (p->cur.kind != TK_RPAREN && p->cur.kind != TK_EOF) {
-        if (fn->n_args < MAX_PARAMS)
-          fn->args[fn->n_args++] = parse_expr(p);
-        if (p->cur.kind == TK_COMMA)
-          parser_advance(p);
-      }
-      if (!parser_expect(p, TK_RPAREN)) {
-        ast_free(fn);
-        return NULL;
-      }
-      return fn;
-    }
-    /* Simple ls in expression -> default registry list / */
-    ASTNode *n = ast_alloc(AST_REG_LS, kw);
-    strncpy(n->path, "/", REG_PATH_MAX - 1);
-    return n;
-  }
+    /* IDENTIFIER fallthrough handled below */
   case TK_IDENT: {
     parser_advance(p);
     if (p->cur.kind == TK_LBRACKET) {
@@ -659,8 +630,22 @@ ASTNode *parse_stmt(Parser *p) {
       }
       return n;
     }
-    /* Fallback to built-in registry listing */
-    ASTNode *n = ast_alloc(AST_REG_LS, t);
+    /* Fallback to VFS listing */
+    ASTNode *n = ast_alloc(AST_LS, t);
+    if (p->cur.kind == TK_REGPATH || p->cur.kind == TK_STRING || p->cur.kind == TK_IDENT) {
+      strncpy(n->path, p->cur.text, REG_PATH_MAX - 1);
+      n->path[REG_PATH_MAX - 1] = '\0';
+      parser_advance(p);
+    } else {
+      n->path[0] = '\0';
+    }
+    return n;
+  }
+
+  /* :ls (registry) */
+  if (t.kind == TK_KW_RG_LS) {
+    parser_advance(p);
+    ASTNode *n = ast_alloc(AST_RG_LS, t);
     if (p->cur.kind == TK_REGPATH || p->cur.kind == TK_STRING || p->cur.kind == TK_IDENT) {
       strncpy(n->path, p->cur.text, REG_PATH_MAX - 1);
       n->path[REG_PATH_MAX - 1] = '\0';
@@ -685,10 +670,30 @@ ASTNode *parse_stmt(Parser *p) {
     return n;
   }
 
+  /* :cd (registry) */
+  if (t.kind == TK_KW_RG_CD) {
+    parser_advance(p);
+    ASTNode *n = ast_alloc(AST_RG_CD, t);
+    if (p->cur.kind == TK_REGPATH || p->cur.kind == TK_STRING || p->cur.kind == TK_IDENT) {
+      strncpy(n->path, p->cur.text, REG_PATH_MAX - 1);
+      n->path[REG_PATH_MAX - 1] = '\0';
+      parser_advance(p);
+    } else {
+      n->left = parse_expr(p);
+    }
+    return n;
+  }
+
   /* pwd */
   if (t.kind == TK_KW_PWD) {
     parser_advance(p);
     return ast_alloc(AST_PWD, t);
+  }
+
+  /* :pwd (registry) */
+  if (t.kind == TK_KW_RG_PWD) {
+    parser_advance(p);
+    return ast_alloc(AST_RG_PWD, t);
   }
 
   /* reg /path [= expr] */
@@ -935,8 +940,8 @@ ASTNode *parse_program(Parser *p) {
       if (!p->had_error && p->cur.kind != TK_NEWLINE && p->cur.kind != TK_EOF &&
           p->cur.kind != TK_RBRACE) {
         snprintf(p->error_msg, sizeof(p->error_msg),
-                 "%s:%d:%d: error: expected end of line after statement, found '%s'",
-                 p->filename, p->cur.line, p->cur.col, p->cur.text);
+                 "%s:%d:%d: error: expected end of line after statement, found '%s' (kind %d)",
+                 p->filename, p->cur.line, p->cur.col, p->cur.text, p->cur.kind);
         p->had_error = 1;
         break;
       }

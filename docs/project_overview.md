@@ -4,7 +4,7 @@ description: Current state of the NEXS language project — modules, features, p
 type: project
 ---
 
-NEXS is a Plan 9-inspired scripting language at /Users/olmo/Documents/git/base-nexs/base-nexs.
+NEXS is a Plan 9-inspired scripting language and modular micro-OS.
 
 **Why:** Long-term goal is a bootable OS with 9P filesystem. PLAN.md has 20-step roadmap.
 

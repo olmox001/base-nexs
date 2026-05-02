@@ -41,154 +41,27 @@ fs_mount("/sd02"         "/apps"     "regfs")
 fs_mount("/sd98"         "/guest"    "regfs")
 fs_mount("/sd99"         "/cache"    "regfs")
 
-# VFS logic (integrated)
-reg /sys/vfs/count = 0
-
-fn vfs_write(nome_file contenuto) {
-  count = reg /sys/vfs/count
-  i = 0
-  loop {
-    if i >= count { break }
-    nome_chiave = "/sys/vfs/idx/" + str(i)
-    nome_esistente = reg_get(nome_chiave)
-    if nome_esistente == nome_file {
-      reg_set("/sys/vfs/files/" + nome_file, contenuto)
-      ret nil
+fn vfs_cp(src, dst) {
+    var data = vfs_read(src)
+    if (type(data) != "err") {
+        vfs_write(dst, data)
     }
-    i = i + 1
-  }
-  reg_set("/sys/vfs/files/" + nome_file, contenuto)
-  reg_set("/sys/vfs/idx/" + str(count), nome_file)
-  reg /sys/vfs/count = count + 1
 }
 
-fn vfs_read(nome_file) {
-  val = reg_get("/sys/vfs/files/" + nome_file)
-  if type(val) == "err" { ret "ERR: File '" + nome_file + "' non trovato" }
-  ret val
+fn vfs_mv(src, dst) {
+    vfs_cp(src, dst)
+    vfs_rm(src)
 }
 
-fn vfs_resolve(path cwd) {
-  if path == "" { ret cwd }
-  if substr(path 0 1) == "/" { ret substr(path 1 len(path)-1) }
-  if cwd == "" || cwd == "/" { ret path }
-  if substr(cwd 0 1) == "/" { cwd = substr(cwd 1 len(cwd)-1) }
-  ret cwd + "/" + path
-}
 
-fn vfs_rm(nome_file) {
-  reg_del("/sys/vfs/files/" + nome_file)
-  count = reg /sys/vfs/count
-  i = 0
-  loop {
-    if i >= count { break }
-    slot_key = "/sys/vfs/idx/" + str(i)
-    if reg_get(slot_key) == nome_file {
-      reg_set(slot_key "")
-      break
-    }
-    i = i + 1
-  }
-}
+# Initialize VFS hierarchy
+vfs_mkdir("/system")
+vfs_mkdir("/usr")
+vfs_mkdir("/dev")
+vfs_mkdir("/home")
 
-fn vfs_mkdir(nome_dir) {
-  # Se il percorso non termina con /, lo aggiungiamo
-  if substr(nome_dir len(nome_dir) - 1 1) != "/" {
-    nome_dir = nome_dir + "/"
-  }
-  
-  # Verifichiamo se esiste già (opzionale, ma consigliato)
-  # Per ora aggiungiamo semplicemente all'indice
-  count = reg /sys/vfs/count
-  reg_set("/sys/vfs/idx/" + str(count), nome_dir)
-  reg /sys/vfs/count = count + 1
-}
-
-fn vfs_cp(src dst) {
-  data = vfs_read(src)
-  if type(data) != "err" {
-    vfs_write(dst data)
-  }
-}
-
-fn vfs_mv(src dst) {
-  vfs_cp(src dst)
-  vfs_rm(src)
-}
-
-fn vfs_ls(dir) {
-  # Normalizzazione dir
-  if dir == "" || dir == "/" {
-    dir = ""
-    out "  === VFS [/] ==="
-  } else {
-    # Rimuovi leading / se presente
-    if substr(dir 0 1) == "/" { dir = substr(dir 1 len(dir)-1) }
-    out "  === VFS [" + dir + "] ==="
-  }
-  
-  prefix = dir
-  if prefix != "" { prefix = prefix + "/" }
-  plen = len(prefix)
-  
-  found_any = 0
-  if dir == "" { found_any = 1 } # Root exists always
-
-  seen_dirs = "|"
-  count = reg /sys/vfs/count
-  i = 0
-  loop {
-    if i >= count { break }
-    n = reg_get("/sys/vfs/idx/" + str(i))
-    if n != "" {
-      # Controllo se il file è nel path richiesto
-      match = 0
-      if dir == "" {
-        match = 1
-      } else {
-        if substr(n 0 plen) == prefix {
-          match = 1
-        }
-      }
-      
-      if match == 1 {
-        found_any = 1
-        rest = substr(n plen len(n) - plen)
-        # Se rest contiene "/", allora è in una sottodirectory
-        slash_pos = -1
-        j = 0
-        loop {
-          if j >= len(rest) { break }
-          if substr(rest j 1) == "/" {
-            slash_pos = j
-            break
-          }
-          j = j + 1
-        }
-        
-        if slash_pos != -1 {
-          # È una directory
-          dname = substr(rest 0 slash_pos)
-          if !contains(seen_dirs "|" + dname + "|") {
-            out "  [DIR]  " + dname + "/"
-            seen_dirs = seen_dirs + dname + "|"
-          }
-        } else {
-          # È un file
-          if rest != "" {
-            out "  [FILE] " + rest
-          }
-        }
-      }
-    }
-    i = i + 1
-  }
-
-  if found_any == 0 {
-    # Restituiamo un errore del registry per far scattare type() == "err"
-    ret reg_get("/sys/vfs/errors/not_found")
-  }
-}
+# Set initial VFS CWD
+reg_set("/proc/1/vfs_cwd" "/")
 
 reg /sys/fs/status = "ready"
 out "[fs] Filesystem service initialised."

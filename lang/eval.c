@@ -326,54 +326,89 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
     return ok(ret);
   }
 
-  /* --- Registry list --- */
-  case AST_REG_LS: {
+  /* --- Registry list (:ls) --- */
+  case AST_RG_LS: {
     char target[REG_PATH_MAX];
     if (n->path[0] != '/') {
       REG_PATH(target, ctx->scope, n->path);
     } else {
       strncpy(target, n->path, REG_PATH_MAX - 1);
-      target[REG_PATH_MAX - 1] = '\0';
     }
-    DEBUG_PRINT(ctx, "LS: %s", target);
+    target[REG_PATH_MAX - 1] = '\0';
+    DEBUG_PRINT(ctx, "RG_LS: %s", target);
     reg_ls(target, ctx->out);
     return ok(val_nil());
   }
 
-  /* --- Navigation --- */
-  case AST_CD: {
+  /* --- Registry CD (:cd) --- */
+  case AST_RG_CD: {
     char target[REG_PATH_MAX];
     if (n->path[0] != '\0') {
       if (n->path[0] != '/') {
         REG_PATH(target, ctx->scope, n->path);
       } else {
         strncpy(target, n->path, REG_PATH_MAX - 1);
-        target[REG_PATH_MAX - 1] = '\0';
       }
-      strncpy(ctx->scope, target, REG_PATH_MAX - 1);
-    } else if (n->left) {
+    } else {
       EvalResult vr = eval_node(ctx, n->left);
-      if (vr.sig != CTRL_NONE)
-        return vr;
-      const char *p = (vr.ret_val.type == TYPE_STR && vr.ret_val.data)
-                          ? (char *)vr.ret_val.data
-                          : "";
-      if (p[0] != '/') {
-        REG_PATH(target, ctx->scope, p);
-      } else {
-        strncpy(target, p, REG_PATH_MAX - 1);
-        target[REG_PATH_MAX - 1] = '\0';
+      if (vr.sig != CTRL_NONE) return vr;
+      if (vr.ret_val.type != TYPE_STR) {
+        val_free(&vr.ret_val);
+        return (EvalResult){CTRL_ERR, val_err(5, ":cd requires a string path")};
       }
-      strncpy(ctx->scope, target, REG_PATH_MAX - 1);
+      strncpy(target, (char*)vr.ret_val.data, REG_PATH_MAX - 1);
       val_free(&vr.ret_val);
     }
-    ctx->scope[REG_PATH_MAX - 1] = '\0';
-    DEBUG_PRINT(ctx, "CD: Scope is now %s", ctx->scope);
+    target[REG_PATH_MAX - 1] = '\0';
+    
+    /* Check if registry path exists */
+    if (reg_lookup(target)) {
+      strncpy(ctx->scope, target, REG_PATH_MAX - 1);
+      return ok(val_nil());
+    }
+    return (EvalResult){CTRL_ERR, val_err(5, "registry path not found")};
+  }
+
+  /* --- Registry PWD (:pwd) --- */
+  case AST_RG_PWD: {
+    nexs_fprintf(ctx->out, "REG_CWD: %s\n", ctx->scope);
     return ok(val_nil());
   }
 
-  case AST_PWD:
-    return ok(val_str(ctx->scope));
+  /* --- VFS list (ls) --- */
+  case AST_LS: {
+    Value arg = val_str(n->path);
+    /* We can call the builtin directly if we forward declare it, or use the registry */
+    extern Value builtin_vfs_ls(Value *args, int n);
+    Value res = builtin_vfs_ls(&arg, 1);
+    val_free(&arg);
+    return ok(res);
+  }
+
+  /* --- VFS CD (cd) --- */
+  case AST_CD: {
+    Value arg;
+    if (n->path[0] != '\0') {
+      arg = val_str(n->path);
+    } else {
+      EvalResult vr = eval_node(ctx, n->left);
+      if (vr.sig != CTRL_NONE) return vr;
+      arg = vr.ret_val;
+    }
+    extern Value builtin_vfs_cd(Value *args, int n);
+    Value res = builtin_vfs_cd(&arg, 1);
+    val_free(&arg);
+    return ok(res);
+  }
+  case AST_PWD: {
+    /* VFS pwd */
+    extern Value builtin_vfs_pwd(Value *args, int n);
+    Value r = builtin_vfs_pwd(NULL, 0);
+    if (r.type == TYPE_STR) {
+      printf("%s\n", (char *)r.data);
+    }
+    return ok(r);
+  }
 
   /* --- Function declaration ---
    * fn_table takes ownership of n->right (the body).
@@ -617,6 +652,8 @@ EvalResult eval_str(EvalCtx *ctx, const char *src) {
 EvalResult eval_str_ex(EvalCtx *ctx, const char *src, const char *filename) {
   if (!ctx || !src)
     return err_result("NULL ctx or src");
+  
+  EvalCtx *old_ctx = nexs_g_eval_ctx;
   nexs_g_eval_ctx = ctx;
 
   Lexer lex;
@@ -634,6 +671,7 @@ EvalResult eval_str_ex(EvalCtx *ctx, const char *src, const char *filename) {
     nexs_fprintf(ctx->err, "%s\n", par.error_msg);
 #endif
     ast_free_safe(prog);
+    nexs_g_eval_ctx = old_ctx;
     return err_result(par.error_msg);
   }
   EvalResult r = eval(ctx, prog);
@@ -651,6 +689,8 @@ EvalResult eval_str_ex(EvalCtx *ctx, const char *src, const char *filename) {
    * so ast_free() will not touch fn_table-owned AST nodes.
    */
   ast_free_safe(prog);
+  
+  nexs_g_eval_ctx = old_ctx;
   return r;
 }
 

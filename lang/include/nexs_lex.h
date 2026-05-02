@@ -89,6 +89,9 @@ typedef enum {
   TK_KW_SEND,  /* sendmessage    — enqueue a value on a registry IPC queue */
   TK_KW_RECV,  /* receivemessage — dequeue a value from a registry IPC queue */
   TK_KW_PENDING, /* msgpending     — query pending message count */
+  TK_KW_RG_LS,   /* :ls            — registry list */
+  TK_KW_RG_CD,   /* :cd            — registry change scope */
+  TK_KW_RG_PWD,  /* :pwd           — registry current scope */
 } TokenKind;
 
 /* =========================================================

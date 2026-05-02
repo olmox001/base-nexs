@@ -3,7 +3,7 @@
   "displayName": "NeXs Language Support",
   "description": "Syntax highlighting and linting for the NeXs language",
   "version": "0.1.0",
-  "publisher": "olmo",
+  "publisher": "nexs",
   "engines": {
     "vscode": "^1.75.0"
   },

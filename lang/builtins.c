@@ -26,6 +26,7 @@
 #include "../core/include/nexs_alloc.h"
 #include "../core/include/nexs_value.h"
 #include "../core/include/nexs_common.h"
+#include "../core/include/nexs_utils.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -34,6 +35,7 @@
 #ifndef NEXS_BAREMETAL
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <dirent.h>
 #define nexs_sleep_ms(ms) usleep((ms) * 1000)
 #else
 #include "../hal/include/nexs_timer.h"
@@ -597,11 +599,437 @@ static Value builtin_sleep(Value *args, int n) {
 }
 
 /* =========================================================
+   VFS & REGISTRY NAVIGATION BUILT-INS
+   ========================================================= */
+
+/* vfs_resolve(path, cwd) -> absolute_path */
+Value builtin_vfs_resolve(Value *args, int n) {
+  if (n < 2) return val_err(4, "vfs_resolve: path, cwd");
+  const char *path = (args[0].type == TYPE_STR) ? (char*)args[0].data : "";
+  const char *cwd  = (args[1].type == TYPE_STR) ? (char*)args[1].data : "";
+
+  if (path[0] == '\0') return val_str(cwd);
+  if (path[0] == '/')  return val_str(path); /* Keep absolute as is */
+  
+  char buf[REG_PATH_MAX];
+  if (cwd[0] == '\0' || (cwd[0] == '/' && cwd[1] == '\0')) {
+    snprintf(buf, sizeof(buf), "/%s", path);
+  } else {
+    snprintf(buf, sizeof(buf), "%s/%s", cwd, path);
+  }
+  return val_str(buf);
+}
+
+/* vfs_pwd() -> str */
+Value builtin_vfs_pwd(Value *args, int n) {
+  Value cwd_val = reg_get("/proc/1/vfs_cwd");
+  if (cwd_val.type == TYPE_ERR) {
+    val_free(&cwd_val);
+    return val_str("/");
+  }
+  return cwd_val;
+}
+
+/* vfs_cd(path) -> nil */
+Value builtin_vfs_cd(Value *args, int n) {
+  if (n < 1 || args[0].type != TYPE_STR) return val_err(4, "vfs_cd: path");
+  const char *path = (char*)args[0].data;
+  
+  Value v_cwd = reg_get("/proc/1/vfs_cwd");
+  const char *cwd = (v_cwd.type == TYPE_STR) ? (char*)v_cwd.data : "/";
+
+  char target[REG_PATH_MAX];
+  if (path[0] == '/') {
+    strncpy(target, path, REG_PATH_MAX - 1);
+  } else {
+    if (strcmp(cwd, "/") == 0) snprintf(target, sizeof(target), "/%s", path);
+    else snprintf(target, sizeof(target), "%s/%s", cwd, path);
+  }
+  target[REG_PATH_MAX - 1] = '\0';
+  
+  reg_set("/proc/1/vfs_cwd", val_str(target), RK_ALL);
+  val_free(&v_cwd);
+  return val_nil();
+}
+
+/* vfs_ls(dir) -> nil */
+Value builtin_vfs_ls(Value *args, int n) {
+  const char *dir = (n >= 1 && args[0].type == TYPE_STR) ? (char*)args[0].data : "";
+  FILE *out = (nexs_g_eval_ctx && nexs_g_eval_ctx->out) ? nexs_g_eval_ctx->out : stdout;
+
+  char clean_dir[REG_PATH_MAX];
+  if (dir[0] == '\0') {
+    Value v = reg_get("/proc/1/vfs_cwd");
+    if (v.type == TYPE_STR && v.data) strncpy(clean_dir, (char*)v.data, REG_PATH_MAX - 1);
+    else strcpy(clean_dir, "/");
+    val_free(&v);
+  } else {
+    strncpy(clean_dir, dir, REG_PATH_MAX - 1);
+  }
+  clean_dir[REG_PATH_MAX - 1] = '\0';
+
+  nexs_fprintf(out, "  === VFS [%s] ===\n", clean_dir);
+
+  char prefix[REG_PATH_MAX];
+  if (strcmp(clean_dir, "/") == 0) {
+    strcpy(prefix, "");
+  } else {
+    const char *p = (clean_dir[0] == '/') ? clean_dir + 1 : clean_dir;
+    snprintf(prefix, sizeof(prefix), "%s/", p);
+  }
+  size_t plen = strlen(prefix);
+
+  Value v_count = reg_get("/sys/vfs/count");
+  int count = (int)val_to_int(&v_count);
+  val_free(&v_count);
+
+  DynArray *seen = arr_create_anon();
+
+  for (int i = 0; i < count; i++) {
+    char idx_path[64];
+    snprintf(idx_path, sizeof(idx_path), "/sys/vfs/idx/%d", i);
+    Value v_name = reg_get(idx_path);
+    if (v_name.type == TYPE_STR && v_name.data) {
+      const char *name = (char*)v_name.data;
+      if (name[0] == '/') name++;
+
+      if (plen == 0 || strncmp(name, prefix, plen) == 0) {
+        const char *rest = name + plen;
+        if (rest[0] != '\0') {
+          char *slash = strchr(rest, '/');
+          if (slash) {
+            char dname[NAME_LEN];
+            size_t dlen = (size_t)(slash - rest);
+            if (dlen >= NAME_LEN) dlen = NAME_LEN - 1;
+            strncpy(dname, rest, dlen);
+            dname[dlen] = '\0';
+
+            int already_seen = 0;
+            for (size_t j = 0; j < seen->size; j++) {
+              if (seen->items[j].type == TYPE_STR && seen->items[j].data && 
+                  strcmp((char*)seen->items[j].data, dname) == 0) {
+                already_seen = 1;
+                break;
+              }
+            }
+            if (!already_seen) {
+              nexs_fprintf(out, "  [DIR]  %s/\n", dname);
+              Value tmp = val_str(dname);
+              arr_set(seen, seen->size, tmp);
+              val_free(&tmp);
+            }
+          } else {
+            nexs_fprintf(out, "  [FILE] %s\n", rest);
+          }
+        }
+      }
+    }
+    val_free(&v_name);
+  }
+  arr_unref(seen);
+  return val_nil();
+}
+
+/* vfs_read(path) -> str|err */
+Value builtin_vfs_read(Value *args, int n) {
+  if (n < 1 || args[0].type != TYPE_STR) return val_err(4, "vfs_read: path");
+  const char *path = (char*)args[0].data;
+  
+  char target[REG_PATH_MAX];
+  snprintf(target, sizeof(target), "/sys/vfs/files/%s", path);
+  Value v = reg_get(target);
+  if (v.type == TYPE_ERR) {
+    val_free(&v);
+    return val_err(404, "File not found");
+  }
+  return v;
+}
+
+/* vfs_write(path, data) -> nil */
+Value builtin_vfs_write(Value *args, int n) {
+  if (n < 2 || args[0].type != TYPE_STR) return val_err(4, "vfs_write: path, data");
+  const char *path = (char*)args[0].data;
+  Value data = val_clone(&args[1]);
+
+  /* 1. Update/Set the data */
+  char target[REG_PATH_MAX];
+  snprintf(target, sizeof(target), "/sys/vfs/files/%s", path);
+  reg_set(target, data, RK_ALL);
+
+  /* 2. Update index if not already present */
+  Value v_count = reg_get("/sys/vfs/count");
+  int count = (int)val_to_int(&v_count);
+  val_free(&v_count);
+
+  int found = 0;
+  for (int i = 0; i < count; i++) {
+    char idx_path[64];
+    snprintf(idx_path, sizeof(idx_path), "/sys/vfs/idx/%d", i);
+    Value v_name = reg_get(idx_path);
+    if (v_name.type == TYPE_STR && v_name.data && strcmp((char*)v_name.data, path) == 0) {
+      found = 1;
+      val_free(&v_name);
+      break;
+    }
+    val_free(&v_name);
+  }
+
+  if (!found) {
+    char idx_path[64];
+    snprintf(idx_path, sizeof(idx_path), "/sys/vfs/idx/%d", count);
+    reg_set(idx_path, val_str(path), RK_ALL);
+    reg_set("/sys/vfs/count", val_int((int64_t)count + 1), RK_ALL);
+  }
+
+  return val_nil();
+}
+
+/* vfs_rm(path) -> nil */
+Value builtin_vfs_rm(Value *args, int n) {
+  if (n < 1 || args[0].type != TYPE_STR) return val_err(4, "vfs_rm: path");
+  const char *path = (char*)args[0].data;
+
+  /* 1. Delete data */
+  char target[REG_PATH_MAX];
+  snprintf(target, sizeof(target), "/sys/vfs/files/%s", path);
+  reg_delete(target);
+
+  /* 2. Null out index entry (simple approach: don't shift, just clear) */
+  Value v_count = reg_get("/sys/vfs/count");
+  int count = (int)val_to_int(&v_count);
+  val_free(&v_count);
+
+  for (int i = 0; i < count; i++) {
+    char idx_path[64];
+    snprintf(idx_path, sizeof(idx_path), "/sys/vfs/idx/%d", i);
+    Value v_name = reg_get(idx_path);
+    if (v_name.type == TYPE_STR && v_name.data && strcmp((char*)v_name.data, path) == 0) {
+      reg_set(idx_path, val_str(""), RK_ALL);
+      val_free(&v_name);
+      break;
+    }
+    val_free(&v_name);
+  }
+  return val_nil();
+}
+
+/* vfs_mkdir(path) -> nil */
+Value builtin_vfs_mkdir(Value *args, int n) {
+  if (n < 1 || args[0].type != TYPE_STR) return val_err(4, "vfs_mkdir: path");
+  const char *path = (char*)args[0].data;
+  
+  char dpath[REG_PATH_MAX];
+  strncpy(dpath, path, sizeof(dpath)-1);
+  size_t len = strlen(dpath);
+  if (len > 0 && dpath[len-1] != '/') {
+    strncat(dpath, "/", sizeof(dpath) - len - 1);
+  }
+
+  /* Add to index as a directory (ends with /) */
+  Value v_count = reg_get("/sys/vfs/count");
+  int count = (int)val_to_int(&v_count);
+  val_free(&v_count);
+
+  char idx_path[64];
+  snprintf(idx_path, sizeof(idx_path), "/sys/vfs/idx/%d", count);
+  reg_set(idx_path, val_str(dpath), RK_ALL);
+  reg_set("/sys/vfs/count", val_int((int64_t)count + 1), RK_ALL);
+  
+  return val_nil();
+}
+
+/* =========================================================
+   TEXT BUFFER BUILT-INS
+   ========================================================= */
+
+static Value builtin_tb_create(Value *args, int n) {
+  DynArray *arr = arr_create_anon();
+  arr_set(arr, 0, val_str(""));
+  Value v; v.type = TYPE_ARR; v.data = arr;
+  v.ival = 0; v.fval = 0; v.err_code = 0; v.err_msg = NULL;
+  return v;
+}
+
+static Value builtin_tb_load(Value *args, int n) {
+  if (n < 2 || args[0].type != TYPE_ARR || args[1].type != TYPE_STR)
+    return val_err(4, "tb_load: buffer array and content string required");
+  
+  DynArray *buf = (DynArray *)args[0].data;
+  const char *content = (char *)args[1].data;
+
+  /* Clear buffer */
+  for (size_t i = 0; i < buf->size; i++) val_free(&buf->items[i]);
+  buf->size = 0;
+
+  /* Split and insert */
+  char *copy = buddy_strdup(content);
+  char *p = copy;
+  char *line = p;
+  size_t idx = 0;
+  while (*p) {
+    if (*p == '\n') {
+      *p = '\0';
+      arr_set(buf, idx++, val_str(line));
+      line = p + 1;
+    }
+    p++;
+  }
+  if (*line || p > line) arr_set(buf, idx++, val_str(line));
+  if (idx == 0) arr_set(buf, 0, val_str(""));
+  
+  xfree(copy);
+  return val_int((int64_t)idx);
+}
+
+static Value builtin_tb_to_str(Value *args, int n) {
+  if (n < 1 || args[0].type != TYPE_ARR) return val_err(4, "tb_to_str: buffer required");
+  DynArray *buf = (DynArray *)args[0].data;
+  
+  char *res = xmalloc(1); res[0] = '\0';
+  size_t cur_len = 0;
+  
+  for (size_t i = 0; i < buf->size; i++) {
+    if (buf->items[i].type == TYPE_STR && buf->items[i].data) {
+      const char *line = (char *)buf->items[i].data;
+      size_t llen = strlen(line);
+      res = xrealloc(res, cur_len + llen + 2);
+      memcpy(res + cur_len, line, llen);
+      cur_len += llen;
+      if (i < buf->size - 1) {
+        res[cur_len++] = '\n';
+      }
+      res[cur_len] = '\0';
+    }
+  }
+  Value v = val_str(res);
+  xfree(res);
+  return v;
+}
+
+static Value builtin_tb_insert_char(Value *args, int n) {
+  if (n < 4 || args[0].type != TYPE_ARR) return val_err(4, "tb_insert_char args");
+  DynArray *buf = (DynArray *)args[0].data;
+  int y = (int)val_to_int(&args[1]);
+  int x = (int)val_to_int(&args[2]);
+  const char *ch = (args[3].type == TYPE_STR) ? (char *)args[3].data : "";
+
+  Value line_val = arr_get_at(buf, (size_t)y);
+  if (line_val.type != TYPE_STR) { val_free(&line_val); return val_nil(); }
+  const char *old = (char *)line_val.data;
+  size_t olen = strlen(old);
+  
+  if (x < 0) x = 0;
+  if (x > (int)olen) x = (int)olen;
+  
+  char *new_str = xmalloc(olen + strlen(ch) + 1);
+  strncpy(new_str, old, (size_t)x);
+  strcpy(new_str + x, ch);
+  strcat(new_str + x + strlen(ch), old + x);
+  
+  arr_set(buf, (size_t)y, val_str(new_str));
+  xfree(new_str);
+  val_free(&line_val);
+  return val_nil();
+}
+
+static Value builtin_tb_delete_char(Value *args, int n) {
+  if (n < 3 || args[0].type != TYPE_ARR) return val_err(4, "tb_delete_char args");
+  DynArray *buf = (DynArray *)args[0].data;
+  int y = (int)val_to_int(&args[1]);
+  int x = (int)val_to_int(&args[2]);
+
+  if (x <= 0) return val_int(0);
+
+  Value line_val = arr_get_at(buf, (size_t)y);
+  if (line_val.type != TYPE_STR) { val_free(&line_val); return val_int(0); }
+  const char *old = (char *)line_val.data;
+  size_t olen = strlen(old);
+  
+  if (x > (int)olen) x = (int)olen;
+  
+  char *new_str = xmalloc(olen + 1);
+  strncpy(new_str, old, (size_t)x - 1);
+  strcpy(new_str + x - 1, old + x);
+  
+  arr_set(buf, (size_t)y, val_str(new_str));
+  xfree(new_str);
+  val_free(&line_val);
+  return val_int(1);
+}
+
+/* Registry navigation built-in (legacy 'ls' for Registry) */
+Value builtin_ls(Value *args, int n) {
+  const char *path = (n >= 1 && args[0].type == TYPE_STR && args[0].data) ? (char *)args[0].data : "";
+  FILE *out = (nexs_g_eval_ctx && nexs_g_eval_ctx->out) ? nexs_g_eval_ctx->out : stdout;
+
+  if (path[0] == '/') {
+    reg_ls((char *)path, out);
+  } else {
+    /* Use Registry CWD */
+    char full[REG_PATH_MAX];
+    const char *cwd = nexs_g_eval_ctx ? nexs_g_eval_ctx->scope : "/";
+    if (strcmp(cwd, "/") == 0) snprintf(full, sizeof(full), "/%s", path);
+    else snprintf(full, sizeof(full), "%s/%s", cwd, path);
+    reg_ls(full, out);
+  }
+  return val_nil();
+}
+
+/* Registry navigation built-in (legacy 'cd' for Registry) */
+Value builtin_cd(Value *args, int n) {
+  if (n < 1 || args[0].type != TYPE_STR) return val_err(4, "cd: path");
+  const char *path = (char*)args[0].data;
+  if (nexs_g_eval_ctx) {
+    RegKey *k = reg_resolve(path, nexs_g_eval_ctx->scope);
+    if (k) {
+      strncpy(nexs_g_eval_ctx->scope, k->path, REG_PATH_MAX - 1);
+    } else {
+      return val_err(404, "Registry path not found");
+    }
+  }
+  return val_nil();
+}
+
+/* Registry navigation built-in (legacy 'pwd' for Registry) */
+Value builtin_pwd(Value *args, int n) {
+  if (nexs_g_eval_ctx) {
+    FILE *out = nexs_g_eval_ctx->out ? nexs_g_eval_ctx->out : stdout;
+    nexs_fprintf(out, "REG_CWD: %s\n", nexs_g_eval_ctx->scope);
+  }
+  return val_nil();
+}
+
+/* =========================================================
    REGISTRATION
    ========================================================= */
 
 /* Arrow UTF-8 → (U+2192) */
 #define SIG(s) s " \xe2\x86\x92 "
+
+static Value builtin_sys_bundled(Value *args, int n) {
+  (void)args; (void)n;
+  DynArray *arr = arr_create_anon();
+  size_t idx = 0;
+#ifndef NEXS_BAREMETAL
+  DIR *d = opendir("modules");
+  if (d) {
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+      if (ent->d_name[0] == '.') continue;
+      arr_set(arr, idx++, val_str(ent->d_name));
+    }
+    closedir(d);
+  }
+#else
+  /* Minimal set for baremetal if no FS is mounted yet */
+  arr_set(arr, idx++, val_str("stdlib.nx"));
+  arr_set(arr, idx++, val_str("init.nx"));
+#endif
+  Value v;
+  v.type = TYPE_ARR; v.data = arr; v.ival = 0;
+  v.fval = 0; v.err_code = 0; v.err_msg = NULL;
+  return v;
+}
 
 static Value builtin_sys_debug(Value *args, int n) {
   if (n > 0) g_nexs_debug = val_is_truthy(&args[0]);
@@ -696,6 +1124,37 @@ void builtins_register_all(void) {
     SIG("term_size()") "arr");
   register_builtin_sig("sys_debug", builtin_sys_debug,
     SIG("sys_debug(on bool)") "bool");
+  register_builtin_sig("sys_bundled", builtin_sys_bundled,
+    SIG("sys_bundled()") "arr");
+  register_builtin_sig("ls", builtin_vfs_ls,
+    SIG("ls(dir str)") "nil");
+  register_builtin_sig("cd", builtin_vfs_cd,
+    SIG("cd(path str)") "nil");
+  register_builtin_sig("pwd", builtin_vfs_pwd,
+    SIG("pwd()") "str");
+  register_builtin_sig("vfs_resolve", builtin_vfs_resolve,
+    SIG("vfs_resolve(path str, cwd str)") "str");
+  register_builtin_sig("vfs_ls", builtin_vfs_ls,
+    SIG("vfs_ls(dir str)") "nil");
+  register_builtin_sig("vfs_cd", builtin_vfs_cd,
+    SIG("vfs_cd(path str)") "nil");
+  register_builtin_sig("vfs_pwd", builtin_vfs_pwd,
+    SIG("vfs_pwd()") "str");
+  register_builtin_sig("vfs_read", builtin_vfs_read,
+    SIG("vfs_read(path str)") "str");
+  register_builtin_sig("vfs_write", builtin_vfs_write,
+    SIG("vfs_write(path str, data)") "nil");
+  register_builtin_sig("vfs_rm", builtin_vfs_rm,
+    SIG("vfs_rm(path str)") "nil");
+  register_builtin_sig("vfs_mkdir", builtin_vfs_mkdir,
+    SIG("vfs_mkdir(path str)") "nil");
+  
+  /* Text Buffer Library */
+  register_builtin_sig("tb_create", builtin_tb_create, SIG("tb_create()") "arr");
+  register_builtin_sig("tb_load",   builtin_tb_load,   SIG("tb_load(buf arr, content str)") "int");
+  register_builtin_sig("tb_to_str", builtin_tb_to_str, SIG("tb_to_str(buf arr)") "str");
+  register_builtin_sig("tb_insert_char", builtin_tb_insert_char, SIG("tb_insert_char(buf arr, y int, x int, ch str)") "nil");
+  register_builtin_sig("tb_delete_char", builtin_tb_delete_char, SIG("tb_delete_char(buf arr, y int, x int)") "int");
 }
 
 #undef SIG

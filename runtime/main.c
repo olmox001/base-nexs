@@ -9,26 +9,27 @@
  *   nexs_main_baremetal() — bare-metal entry point (NEXS_BAREMETAL only)
  */
 
-#include "include/nexs_runtime.h"
 #include "include/nexs_line.h"
+#include "include/nexs_runtime.h"
 
+#include "../compiler/include/nexs_compiler.h"
 #include "../core/include/nexs_alloc.h"
-#include "../core/include/nexs_value.h"
 #include "../core/include/nexs_common.h"
 #include "../core/include/nexs_utils.h"
-#include "../registry/include/nexs_registry.h"
-#include "../lang/include/nexs_fn.h"
-#include "../lang/include/nexs_eval.h"
-#include "../sys/include/nexs_sys.h"
-#include "../compiler/include/nexs_compiler.h"
+#include "../core/include/nexs_value.h"
 #include "../hal/include/nexs_hal.h"
+#include "../lang/include/nexs_eval.h"
+#include "../lang/include/nexs_fn.h"
+#include "../registry/include/nexs_registry.h"
+#include "../sys/include/nexs_sys.h"
 
-/* builtins_register_all is declared in lang/builtins.c — forward declare here */
+/* builtins_register_all is declared in lang/builtins.c — forward declare here
+ */
 extern void builtins_register_all(void);
 
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 
 /* =========================================================
    VERSION
@@ -47,25 +48,30 @@ void nexs_repl(void) {
   eval_ctx_init(&ctx);
 
   nexs_print_version(ctx.out);
-  nexs_fprintf(ctx.out,
-          "Special commands: :exit :help :ls [path] :reg [path] :debug :version\n"
-          "                  :fn  :ptr /path  :ipc /path  :ast\n"
-          "Syntax: x=42 | arr[0]=10 | fn add(a b){ret a+b} | out add(1 2)\n\n");
+  nexs_fprintf(
+      ctx.out,
+      "Special commands: :exit :help :ls [path] :reg [path] :debug :version\n"
+      "                  :fn  :ptr /path  :ipc /path  :ast\n"
+      "Syntax: x=42 | arr[0]=10 | fn add(a b){ret a+b} | out add(1 2)\n\n");
 
   NxLineEditor le;
   nexs_line_init(&le);
   char line[1024];
   while (1) {
-    if (nexs_line_read(&le, "\033[1;32mnexs\033[0m> ", line, sizeof(line)) < 0) break;
+    if (nexs_line_read(&le, "\033[1;32mnexs\033[0m> ", line, sizeof(line)) < 0)
+      break;
     nexs_trim(line);
-    if (strlen(line) == 0) continue;
-
+    if (strlen(line) == 0)
+      continue;
 
     nexs_line_add_history(&le, line);
-    if (strcmp(line, ":exit") == 0 || strcmp(line, ":q") == 0) break;
+    if (strcmp(line, ":exit") == 0 || strcmp(line, ":q") == 0)
+      break;
 
-
-    if (strcmp(line, ":version") == 0) { nexs_print_version(ctx.out); continue; }
+    if (strcmp(line, ":version") == 0) {
+      nexs_print_version(ctx.out);
+      continue;
+    }
 
     if (strcmp(line, ":debug") == 0) {
       ctx.debug = !ctx.debug;
@@ -86,9 +92,11 @@ void nexs_repl(void) {
         NexsFnDef *def = &g_fn_table[i];
         if (def->is_builtin) {
           if (def->signature[0])
-            fprintf(stdout, "  [%d] %s  ref=%d\n", i, def->signature, def->ref_count);
+            fprintf(stdout, "  [%d] %s  ref=%d\n", i, def->signature,
+                    def->ref_count);
           else
-            fprintf(stdout, "  [%d] <builtin: %s(...)>  ref=%d\n", i, def->name, def->ref_count);
+            fprintf(stdout, "  [%d] <builtin: %s(...)>  ref=%d\n", i, def->name,
+                    def->ref_count);
         } else {
           fprintf(stdout, "  [%d] fn %s(", i, def->name);
           for (int j = 0; j < def->n_params; j++)
@@ -110,7 +118,10 @@ void nexs_repl(void) {
       int hops = 0;
       while (hops < 32) {
         RegKey *k = reg_lookup(cur);
-        if (!k) { fprintf(stdout, "  -> (not found)\n"); break; }
+        if (!k) {
+          fprintf(stdout, "  -> (not found)\n");
+          break;
+        }
         fprintf(stdout, "  %s [%s]", cur, val_type_name(k->val.type));
         if (k->val.type == TYPE_PTR && k->val.data) {
           fprintf(stdout, " -> %s\n", (char *)k->val.data);
@@ -124,7 +135,8 @@ void nexs_repl(void) {
           break;
         }
       }
-      if (hops >= 32) fprintf(stdout, "  (chain too deep, possible cycle)\n");
+      if (hops >= 32)
+        fprintf(stdout, "  (chain too deep, possible cycle)\n");
       fprintf(stdout, "\n");
       continue;
     }
@@ -138,7 +150,8 @@ void nexs_repl(void) {
       } else if (!k->queue) {
         fprintf(stdout, "(no queue)\n");
       } else {
-        fprintf(stdout, "count=%d max=%d\n", k->queue->count, k->queue->max_count);
+        fprintf(stdout, "count=%d max=%d\n", k->queue->count,
+                k->queue->max_count);
       }
       fprintf(stdout, "\n");
       continue;
@@ -179,15 +192,32 @@ void nexs_repl(void) {
     }
 
     if (strncmp(line, ":ls", 3) == 0) {
-      const char *path = strlen(line) > 4 ? line + 4 : "";
-      char target[REG_PATH_MAX];
-      if (path[0] != '/') {
-        REG_PATH(target, ctx.scope, path);
-      } else {
-        strncpy(target, path, REG_PATH_MAX - 1);
-        target[REG_PATH_MAX - 1] = '\0';
+      /* Map to AST_RG_LS by evaluating it */
+      EvalResult r = eval_str(&ctx, line);
+      if (r.sig == CTRL_ERR && r.ret_val.type == TYPE_ERR) {
+        printf("[REG ERR] %s\n", r.ret_val.err_msg);
+        val_free(&r.ret_val);
       }
-      reg_ls(target, stdout);
+      continue;
+    }
+
+    if (strncmp(line, ":cd", 3) == 0) {
+      /* Map to AST_RG_CD by evaluating it */
+      EvalResult r = eval_str(&ctx, line);
+      if (r.sig == CTRL_ERR && r.ret_val.type == TYPE_ERR) {
+        printf("[REG ERR] %s\n", r.ret_val.err_msg);
+        val_free(&r.ret_val);
+      }
+      continue;
+    }
+
+    if (strcmp(line, ":pwd") == 0) {
+      /* Map to AST_RG_PWD by evaluating it */
+      EvalResult r = eval_str(&ctx, line);
+      if (r.sig == CTRL_ERR && r.ret_val.type == TYPE_ERR) {
+        printf("[REG ERR] %s\n", r.ret_val.err_msg);
+        val_free(&r.ret_val);
+      }
       continue;
     }
 
@@ -201,25 +231,6 @@ void nexs_repl(void) {
         target[REG_PATH_MAX - 1] = '\0';
       }
       reg_ls_recursive(target, stdout, 0);
-      continue;
-    }
-
-    if (strncmp(line, ":cd ", 4) == 0) {
-      const char *path = line + 4;
-      char target[REG_PATH_MAX];
-      if (path[0] != '/') {
-        REG_PATH(target, ctx.scope, path);
-      } else {
-        strncpy(target, path, REG_PATH_MAX - 1);
-        target[REG_PATH_MAX - 1] = '\0';
-      }
-      /* Check if path exists */
-      if (reg_lookup(target)) {
-        strncpy(ctx.scope, target, REG_PATH_MAX - 1);
-        ctx.scope[REG_PATH_MAX - 1] = '\0';
-      } else {
-        fprintf(stderr, "Path not found: %s\n", target);
-      }
       continue;
     }
 
@@ -289,25 +300,28 @@ int main(int argc, char *argv[]) {
 
   /* --help / -h */
   if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
-    fprintf(stdout,
-            "Usage: nexs [options] [file.nx]\n"
-            "  -v, --version                  Show version\n"
-            "  -h, --help                     Show this help\n"
-            "  --syntax-only <file.nx>        Check syntax without executing\n"
-            "  --lint <file.nx>               Perform semantic linting\n"
-            "  <file.nx>                      Run a NEXS source file\n"
-            "                                 (use '-' for stdin)\n"
-            "  --compile <file.nx>            Compile file to native binary\n"
-            "  --standalone-program <file.nx> Alias for --compile (bundled deps on by default)\n"
-            "    --target <target>            Compilation target:\n"
-            "      linux-amd64  linux-arm64\n"
-            "      macos-amd64  macos-arm64  plan9-amd64\n"
-            "      baremetal-arm64  baremetal-amd64\n"
-            "    -o <output>                  Output binary path\n"
-            "    --no-dep                     Skip dependency bundling\n"
-            "                                 (exec() calls will use fopen at runtime)\n"
-            "    --dep-only                   List exec() dependencies and exit\n"
-            "  (no args)                      Start interactive REPL\n");
+    fprintf(
+        stdout,
+        "Usage: nexs [options] [file.nx]\n"
+        "  -v, --version                  Show version\n"
+        "  -h, --help                     Show this help\n"
+        "  --syntax-only <file.nx>        Check syntax without executing\n"
+        "  --lint <file.nx>               Perform semantic linting\n"
+        "  <file.nx>                      Run a NEXS source file\n"
+        "                                 (use '-' for stdin)\n"
+        "  --compile <file.nx>            Compile file to native binary\n"
+        "  --standalone-program <file.nx> Alias for --compile (bundled deps on "
+        "by default)\n"
+        "    --target <target>            Compilation target:\n"
+        "      linux-amd64  linux-arm64\n"
+        "      macos-amd64  macos-arm64  plan9-amd64\n"
+        "      baremetal-arm64  baremetal-amd64\n"
+        "    -o <output>                  Output binary path\n"
+        "    --no-dep                     Skip dependency bundling\n"
+        "                                 (exec() calls will use fopen at "
+        "runtime)\n"
+        "    --dep-only                   List exec() dependencies and exit\n"
+        "  (no args)                      Start interactive REPL\n");
     return 0;
   }
 
@@ -319,9 +333,9 @@ int main(int argc, char *argv[]) {
     }
     int rc = 0;
     for (int i = 2; i < argc; i++) {
-        if (nexs_check_syntax_file(argv[i]) != 0) {
-            rc = 1;
-        }
+      if (nexs_check_syntax_file(argv[i]) != 0) {
+        rc = 1;
+      }
     }
     return rc;
   }
@@ -335,28 +349,30 @@ int main(int argc, char *argv[]) {
     g_nexs_lint_mode = 1;
     int rc = 0;
     for (int i = 2; i < argc; i++) {
-        if (nexs_check_syntax_file(argv[i]) != 0) {
-            rc = 1;
-        }
+      if (nexs_check_syntax_file(argv[i]) != 0) {
+        rc = 1;
+      }
     }
     return rc;
   }
 
-  /* --compile / --standalone-program <file.nx> [--target <t>] [-o <out>] [--no-dep] [--dep-only] */
-  if (strcmp(argv[1], "--compile") == 0 || strcmp(argv[1], "--standalone-program") == 0) {
+  /* --compile / --standalone-program <file.nx> [--target <t>] [-o <out>]
+   * [--no-dep] [--dep-only] */
+  if (strcmp(argv[1], "--compile") == 0 ||
+      strcmp(argv[1], "--standalone-program") == 0) {
     if (argc < 3) {
       fprintf(stderr, "nexs: --compile requires a source file\n");
       return 1;
     }
-    const char *src_file  = argv[2];
-    const char *out_file  = "nexs_out";
+    const char *src_file = argv[2];
+    const char *out_file = "nexs_out";
 #if defined(HOST_OS_MACOS)
-    CompileTarget target  = TARGET_MACOS_AMD64;
+    CompileTarget target = TARGET_MACOS_AMD64;
 #else
-    CompileTarget target  = TARGET_LINUX_AMD64;
+    CompileTarget target = TARGET_LINUX_AMD64;
 #endif
-    int no_dep            = 0;
-    int dep_only          = 0;
+    int no_dep = 0;
+    int dep_only = 0;
 
     for (int i = 3; i < argc; i++) {
       if (strcmp(argv[i], "--target") == 0 && i + 1 < argc) {
@@ -371,8 +387,9 @@ int main(int argc, char *argv[]) {
         }
         if (!found) {
           fprintf(stderr, "nexs: unknown target '%s'\n", tname);
-          fprintf(stderr, "Available: linux-amd64 linux-arm64 macos-amd64 "
-                          "macos-arm64 plan9-amd64 baremetal-arm64 baremetal-amd64\n");
+          fprintf(stderr,
+                  "Available: linux-amd64 linux-arm64 macos-amd64 "
+                  "macos-arm64 plan9-amd64 baremetal-arm64 baremetal-amd64\n");
           return 1;
         }
       } else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
@@ -400,9 +417,8 @@ int main(int argc, char *argv[]) {
       return 0;
     }
 
-    fprintf(stdout, "Compiling %s → %s [target: %s%s]\n",
-            src_file, out_file, target_name(target),
-            no_dep ? ", no-dep" : " + bundled deps");
+    fprintf(stdout, "Compiling %s → %s [target: %s%s]\n", src_file, out_file,
+            target_name(target), no_dep ? ", no-dep" : " + bundled deps");
     int rc = nexs_compile_file_ex(src_file, target, out_file, no_dep);
     if (rc != 0) {
       fprintf(stderr, "nexs: compilation failed\n");

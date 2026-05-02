@@ -99,6 +99,9 @@ static struct {
                 {"sendmessage", TK_KW_SEND},
                 {"receivemessage", TK_KW_RECV},
                 {"msgpending", TK_KW_PENDING},
+                {":ls", TK_KW_RG_LS},
+                {":cd", TK_KW_RG_CD},
+                {":pwd", TK_KW_RG_PWD},
                 {NULL, TK_EOF}};
 
 /* =========================================================
@@ -208,7 +211,7 @@ Token lexer_next(Lexer *lex) {
 
     while (lex->pos < lex->len &&
            (isalnum((unsigned char)lex->src[lex->pos]) ||
-            lex->src[lex->pos] == '_' || lex->src[lex->pos] == '/') &&
+            lex->src[lex->pos] == '_' || lex->src[lex->pos] == '/' || lex->src[lex->pos] == '.') &&
            i < MAX_STR_LEN - 1) {
       buf[i++] = lex->src[lex->pos++];
       lex->col++;
@@ -225,11 +228,14 @@ Token lexer_next(Lexer *lex) {
   }
 
   /* Identifier and keywords */
-  if (isalpha((unsigned char)c) || c == '_') {
+  if (isalpha((unsigned char)c) || c == '_' || c == ':') {
     size_t i = 0;
+    buf[i++] = c;
+    lex->pos++;
+    lex->col++;
     while (lex->pos < lex->len &&
            (isalnum((unsigned char)lex->src[lex->pos]) ||
-            lex->src[lex->pos] == '_') &&
+            lex->src[lex->pos] == '_' || lex->src[lex->pos] == '.') &&
            i < MAX_STR_LEN - 1) {
       buf[i++] = lex->src[lex->pos++];
       lex->col++;
