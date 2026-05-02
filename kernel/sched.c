@@ -116,12 +116,13 @@ void sched_tick(void) {
     NexsProc *prev = g_current_proc;
     g_current_proc = next;
     next->state = PROC_RUNNING;
-    if (prev) prev->state = PROC_READY;
+    if (prev && prev->state != PROC_BLOCKED) prev->state = PROC_READY;
 
     /* Context switch */
     if (prev)
         ctx_switch(prev->ctx, next->ctx);
-    /* If no prev (first process), just load next context */
+    else
+        ctx_load(next->ctx);
 }
 
 void sched_yield(void) {
