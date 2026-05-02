@@ -4,6 +4,9 @@
 # a due stati. Menu attivabile con CTRL-X.
 # ===================================================================
 
+exec("services/stdlib.nx")
+exec("services/textbuf.nx")
+
 # --- Costanti e Variabili Globali ---
 G_ESC = "\e"
 ed_running = 1

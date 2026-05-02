@@ -17,10 +17,14 @@
 #include "../../core/include/nexs_alloc.h"
 #include "../../lang/include/nexs_lex.h"
 #include "../../lang/include/nexs_ast.h"
-#include "../../compiler/include/nexs_compiler.h"
 #include "nexsd_protocol.h"
+#include "../../compiler/include/nexs_compiler.h"
+#include "../../lang/include/nexs_fn.h"
 
 #define MAX_SYMBOLS 16384
+
+/* Prototype */
+void scan_symbols_in_ast(ASTNode *node, const char *filename);
 
 typedef struct {
     char name[NAME_LEN];
@@ -158,11 +162,35 @@ void handle_client(int client_fd) {
         exit(0);
     }
 
-    char filename[256];
-    strncpy(filename, buffer, 255);
-    filename[255] = '\0';
-    char *content = buffer + strlen(filename) + 1;
+    char filename[MAX_FILENAME];
+    n = read(client_fd, filename, MAX_FILENAME);
+    if (n <= 0) { free(buffer); return; }
+    
+    /* Read the rest of the content */
+    int total_read = 0;
+    while (total_read < BUF_SIZE - 1) {
+        ssize_t rd = read(client_fd, buffer + total_read, BUF_SIZE - 1 - total_read);
+        if (rd <= 0) break;
+        total_read += rd;
+    }
+    buffer[total_read] = '\0';
+    char *content = buffer;
 
+    /* Check if file ends with .nx */
+    int flen = strlen(filename);
+    int is_nx = (flen > 3 && strcmp(filename + flen - 3, ".nx") == 0);
+
+    if (!is_nx) {
+        write(client_fd, "OK\n", 3);
+        free(buffer);
+        return;
+    }
+
+    /* Reset runtime to baseline (built-ins) */
+    void nexs_runtime_reset_to_baseline(void);
+    nexs_runtime_reset_to_baseline();
+
+    /* Reset symbol table to baseline (C symbols) */
     int nx_start = 0;
     while (nx_start < symbol_count && symbol_table[nx_start].is_c) nx_start++;
     symbol_count = nx_start;
@@ -176,6 +204,20 @@ void handle_client(int client_fd) {
     dup2(pipe_fds[1], STDERR_FILENO);
     close(pipe_fds[1]);
 
+    /* Register dependencies in fn_table so the parser can resolve calls */
+    void register_fns_in_fn_table(ASTNode *node);
+    for (int i = 0; i < n_deps; i++) {
+        if (deps[i].src) {
+            Lexer dlex; Parser dpar;
+            lexer_init(&dlex, deps[i].src);
+            parser_init(&dpar, &dlex, deps[i].path);
+            ASTNode *dprog = parse_program(&dpar);
+            register_fns_in_fn_table(dprog);
+            scan_symbols_in_ast(dprog, deps[i].path);
+            ast_free_safe(dprog);
+        }
+    }
+
     g_nexs_lint_mode = 1;
     Lexer lex;
     Parser par;
@@ -184,18 +226,8 @@ void handle_client(int client_fd) {
     ASTNode *prog = parse_program(&par);
     
     /* Scansione simboli (NeXs) */
-    void scan_symbols_in_ast(ASTNode *node, const char *filename);
     scan_symbols_in_ast(prog, filename);
-    for (int i = 0; i < n_deps; i++) {
-        if (deps[i].src) {
-            Lexer dlex; Parser dpar;
-            lexer_init(&dlex, deps[i].src);
-            parser_init(&dpar, &dlex, deps[i].path);
-            ASTNode *dprog = parse_program(&dpar);
-            scan_symbols_in_ast(dprog, deps[i].path);
-            ast_free_safe(dprog);
-        }
-    }
+
     nexs_free_deps(deps, n_deps);
 
     if (par.had_error) fprintf(stderr, "%s\n", par.error_msg);
@@ -216,10 +248,31 @@ void handle_client(int client_fd) {
                             symbol_table[i].line, symbol_table[i].col, symbol_table[i].n_params, symbol_table[i].is_c);
     }
 
-    if (err_n > 0) { err_buf[err_n] = '\0'; write(client_fd, err_buf, err_n); }
+    if (err_n > 0) { err_buf[err_n] = '\0'; write(client_fd, err_buf, (size_t)err_n); }
     else { write(client_fd, "OK\n", 3); }
-    write(client_fd, sym_buf, strlen(sym_buf));
+    write(client_fd, sym_buf, (size_t)strlen(sym_buf));
     free(buffer);
+}
+
+static int baseline_fn_count = 0;
+void nexs_runtime_reset_to_baseline(void) {
+    extern int g_fn_count;
+    g_fn_count = baseline_fn_count;
+}
+
+void register_fns_in_fn_table(ASTNode *node) {
+    if (!node) return;
+    if (node->kind == AST_FN_DECL) {
+        char params[MAX_PARAMS][NAME_LEN];
+        memset(params, 0, sizeof(params));
+        for (int i = 0; i < node->n_params; i++) strncpy(params[i], node->params[i], NAME_LEN - 1);
+        fn_register(node->name, NULL, params, node->n_params);
+    }
+    register_fns_in_fn_table(node->left);
+    register_fns_in_fn_table(node->right);
+    if (node->kind == AST_BLOCK || node->kind == AST_PROGRAM) {
+        for (int i = 0; i < node->n_args; i++) register_fns_in_fn_table(node->args[i]);
+    }
 }
 
 void scan_symbols_in_ast(ASTNode *node, const char *filename) {
@@ -251,6 +304,8 @@ int main(int argc, char *argv[]) {
     }
 
     scan_project_c(cwd);
+    extern int g_fn_count;
+    baseline_fn_count = g_fn_count;
     printf("nexsd indexed %d C built-ins\n", symbol_count);
 
     int server_fd = socket(AF_UNIX, SOCK_STREAM, 0);

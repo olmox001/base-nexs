@@ -20,6 +20,6 @@ fn power(base exp) {
 }
 
 # Esportiamo una costante nel Registry (Plan 9 style)
-reg /lib/math/version = "1.0.0"
+reg /lib/math/version = "0.0.1"
 
 out "[Lib] Libreria matematica caricata correttamente."

@@ -12,7 +12,7 @@
 
 set -e
 
-VERSION="v9.9.9"
+VERSION="V9.9.9"
 REL_DIR="RELEASE/$VERSION"
 
 # Salviamo i percorsi assoluti per poterli passare ai nuovi terminali

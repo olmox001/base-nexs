@@ -7,6 +7,9 @@
 
 set -euo pipefail
 
+# Ensure we are in the project root
+cd "$(dirname "$0")/.."
+
 VERSION="${1:-v9.9.9}"
 RELEASE_DIR="RELEASE/$VERSION"
 mkdir -p "$RELEASE_DIR"
@@ -40,7 +43,7 @@ echo "[*] Building MINIOS-amd64-$HOST_NAME (AOT)..."
 # 3. Build Baremetal Interpreter (STANDALONE)
 echo "[*] Building Nexs-amd64-STANDALONE (Interpreter)..."
 make clean > /dev/null
-make baremetal-amd64 POOL_PROFILE=16MB > /dev/null
+make baremetal-amd64 POOL_PROFILE=256MB > /dev/null
 cp build/baremetal-amd64/nexs.elf "$RELEASE_DIR/Nexs-amd64-STANDALONE.elf"
 
 echo "[*] Generating Nexs-amd64-STANDALONE.iso..."
@@ -82,8 +85,43 @@ make > /dev/null
        --target "$CROSS_TARGET" \
        -o "$RELEASE_DIR/MINIOS-amd64-$CROSS_NAME" || echo "Warning: Cross AOT build failed, skipping"
 
+# 7. Create directory structure (bin, extensions, services)
+echo "[*] Creating release directory structure..."
+mkdir -p "$RELEASE_DIR/bin/macos" "$RELEASE_DIR/bin/linux"
+mkdir -p "$RELEASE_DIR/extensions/nexs-lang"
+
+cp -r services "$RELEASE_DIR/"
+cp -r tools/vscode-nexs/* "$RELEASE_DIR/extensions/nexs-lang/"
+
+# Populate bin/ with binaries
+if [ -f "$RELEASE_DIR/Nexs-amd64-MacOS" ]; then cp "$RELEASE_DIR/Nexs-amd64-MacOS" "$RELEASE_DIR/bin/macos/nexs"; fi
+if [ -f "$RELEASE_DIR/Nexs-amd64-Linux" ]; then cp "$RELEASE_DIR/Nexs-amd64-Linux" "$RELEASE_DIR/bin/linux/nexs"; fi
+
+# 8. Building and packaging nexsd
+echo "[*] Building and packaging nexsd..."
+make nexsd > /dev/null
+if [ -f "tools/nexsd/nexsd" ]; then
+    if [ "$UNAME_S" = "Darwin" ]; then 
+        cp tools/nexsd/nexsd "$RELEASE_DIR/bin/macos/nexsd"
+    else
+        cp tools/nexsd/nexsd "$RELEASE_DIR/bin/linux/nexsd"
+    fi
+    zip -j "$RELEASE_DIR/demon.zip" tools/nexsd/nexsd > /dev/null
+fi
+
+# 9. Package lib.zip
+echo "[*] Packaging lib.zip..."
+zip -r "$RELEASE_DIR/lib.zip" services example > /dev/null
+zip -j "$RELEASE_DIR/lib.zip" scripts/install-extension.sh > /dev/null
+
+# 10. Cleanup and Final Zip
+echo "[*] Cleaning up temporary directories..."
+rm -rf "$RELEASE_DIR/bin" "$RELEASE_DIR/extensions" "$RELEASE_DIR/services"
+
+
 echo "-------------------------------------------"
 echo "[+] RELEASE COMPLETE: $VERSION"
+
 ls -lh "$RELEASE_DIR"
 echo "-------------------------------------------"
 echo "Test manuali consigliati:"

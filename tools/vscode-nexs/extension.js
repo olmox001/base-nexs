@@ -59,6 +59,7 @@ function activate(context) {
                 Buffer.from(content)
             ]);
             client.write(payload);
+            client.end();
         });
 
         let response = '';

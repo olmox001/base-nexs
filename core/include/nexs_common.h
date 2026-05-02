@@ -54,8 +54,8 @@ extern "C" {
    ========================================================= */
 
 #define NEXS_VERSION_MAJOR 0
-#define NEXS_VERSION_MINOR 2
-#define NEXS_VERSION_PATCH 0
+#define NEXS_VERSION_MINOR 1
+#define NEXS_VERSION_PATCH 7
 #define NEXS_VERSION_STR "0.1.7"
 
 /* =========================================================

@@ -4,6 +4,13 @@
 # here for user-facing navigation to avoid literal-path confusion.
 # ===================================================================
 
+exec("services/stdlib.nx")
+exec("services/fs/init.nx")
+exec("services/pm/init.nx")
+exec("services/hw_dt.nx")
+exec("services/fs/p9_mnt.nx")
+exec("example/minios/nxed_editor.nx")
+
 fn shell_help() {
   out "  Comandi standard:"
   out "  ls [dir]      - Elenca file nel VFS"
