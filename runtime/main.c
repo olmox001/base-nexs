@@ -244,20 +244,24 @@ void nexs_repl(void) {
    ========================================================= */
 
 #ifdef NEXS_BAREMETAL
-void nexs_main_baremetal(void) {
-  nexs_runtime_init();
+#include "../kernel/include/nexs_sched.h"
+#include "../kernel/include/nexs_vfs.h"
+#include "../kernel/include/nexs_msg.h"
+#include "../kernel/include/nexs_proc.h"
+
+static void dispatch_loop_entry(void *arg) {
+  (void)arg;
+  kmsg_dispatch_loop();
+}
+
+static void repl_script_entry(void *arg) {
+  (void)arg;
   EvalCtx ctx;
   eval_ctx_init(&ctx);
-  ctx.out = NULL; /* use nexs_hal_print instead of fprintf */
+  ctx.out = NULL;
 
   nexs_hal_print("NEXS v" NEXS_VERSION_STR " baremetal\n");
 
-  /*
-   * In a compiled bare-metal program, nexs_script_src is defined by
-   * the code generator (compiler/codegen.c).  Declare it as a weak
-   * symbol so that bare-metal REPL builds that do not provide a script
-   * still link cleanly.
-   */
   extern const char nexs_script_src[] __attribute__((weak));
   if (nexs_script_src && nexs_script_src[0]) {
     EvalResult r = eval_str(&ctx, nexs_script_src);
@@ -266,6 +270,25 @@ void nexs_main_baremetal(void) {
     nexs_repl();
   }
   nexs_hal_halt();
+}
+
+void nexs_main_baremetal(void) {
+  nexs_runtime_init();
+  sched_init();
+  vfs_init();
+
+  /* Dispatch loop: low priority — runs only when REPL blocks */
+  NexsProc *disp = proc_create("kernel/dispatch", dispatch_loop_entry, NULL);
+  if (disp) disp->priority = 200;
+
+  /* REPL/script proc: higher priority — runs first */
+  NexsProc *repl = proc_create("nexs/repl", repl_script_entry, NULL);
+  if (repl) repl->priority = 64;
+
+  /* Spin until the timer IRQ fires sched_tick for the first time.
+   * ctx_load will hand off to the highest-priority ready proc. */
+  nexs_hal_irq_enable();
+  while (1) { /* idle until preempted */ }
 }
 #endif /* NEXS_BAREMETAL */
 

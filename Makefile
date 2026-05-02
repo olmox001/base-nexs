@@ -211,7 +211,10 @@ macos-amd64: $(TARGET)
 KERNEL_SRCS = \
   kernel/libc_stub.c \
   kernel/proc.c \
-  kernel/sched.c
+  kernel/sched.c \
+  kernel/msg.c \
+  kernel/vfs.c \
+  kernel/syscall.c
 
 ARM64_HAL_SRCS = \
   hal/arm64/boot.S \
