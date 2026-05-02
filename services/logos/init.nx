@@ -1,0 +1,14 @@
+# services/logos/init.nx — Logo registry service
+# Loads .nxtimg logo assets into the VFS and registers paths.
+
+kout("[INIT] Caricamento loghi nel VFS...")
+
+fn logo_register(logo_name logo_path) {
+  reg_set("/sys/logos/" + logo_name logo_path)
+  kout("  [Logo] " + logo_name + " → " + logo_path)
+}
+
+logo_register("nexs-feather"  "sd02/logos/logo1.nxtimg")
+logo_register("system-splash" "sd02/logos/logo1.nxtimg")
+
+kout("[INIT] Loghi caricati nel registry (/sys/logos/*).")

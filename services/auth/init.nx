@@ -1,14 +1,19 @@
 # services/auth — Authentication / capability service
-# Security rings: 0=machine/HW, 1=root/NEXS-admin, 2=user, 3=guest
+# Security rings: 0=machine/HW (sd00), 1=root/NEXS-admin (sd01), 2=user (sd02-97), 3=guest (sd98)
 # Capabilities stored at /sys/auth/caps/<name>/
 
 reg /sys/auth/ring = 2
+reg /sys/auth/uid  = 2  # Current context UID
 
 fn auth_set_ring(r) {
   if r < 0 { r = 0 }
   if r > 3 { r = 3 }
   reg /sys/auth/ring = r
-  out "[auth] Ring set to " + str(r)
+  if r == 0 { reg /sys/auth/uid = 0 }
+  if r == 1 { reg /sys/auth/uid = 1 }
+  if r == 2 { reg /sys/auth/uid = 2 }
+  if r == 3 { reg /sys/auth/uid = 98 }
+  kout("[auth] Ring set to " + str(r) + " (UID: " + str(reg /sys/auth/uid) + ")")
   ret 0
 }
 
@@ -16,15 +21,19 @@ fn auth_get_ring() {
   ret reg /sys/auth/ring
 }
 
+fn auth_get_uid() {
+  ret reg /sys/auth/uid
+}
+
 fn auth_cap_grant(name cap) {
   reg_set("/sys/auth/caps/" + name + "/" + cap "1")
-  out "[auth] Granted cap=" + cap + " to " + name
+  kout("[auth] Granted cap=" + cap + " to " + name)
   ret 0
 }
 
 fn auth_cap_revoke(name cap) {
   reg_del("/sys/auth/caps/" + name + "/" + cap)
-  out "[auth] Revoked cap=" + cap + " from " + name
+  kout("[auth] Revoked cap=" + cap + " from " + name)
   ret 0
 }
 
@@ -37,7 +46,7 @@ fn auth_cap_check(name cap) {
 fn auth_require_ring(r) {
   cur = reg /sys/auth/ring
   if cur > r {
-    out "[auth] EPERM: ring " + str(cur) + " cannot perform ring-" + str(r) + " operation"
+    kout("[auth] [ERR] EPERM: ring " + str(cur) + " cannot perform ring-" + str(r) + " operation")
     ret 0
   }
   ret 1
@@ -48,5 +57,25 @@ auth_cap_grant("root" "admin")
 auth_cap_grant("root" "mount")
 auth_cap_grant("root" "exec")
 
+fn auth_user_add(uid name home ring) {
+  reg_set("/sys/auth/users/" + str(uid) + "/name" name)
+  reg_set("/sys/auth/homes/" + str(uid) home)
+  reg_set("/sys/auth/users/" + str(uid) + "/ring" str(ring))
+  kout("[auth] Created user '" + name + "' [UID:" + str(uid) + "]")
+  ret 0
+}
+
+fn auth_get_home(uid) {
+  h = reg_get("/sys/auth/homes/" + str(uid))
+  if type(h) == "err" { ret "/Users/guest" }
+  ret h
+}
+
+# Default Users initialization
+auth_user_add(0  "machine" "/reg"         0)
+auth_user_add(1  "root"    "/System"      1)
+auth_user_add(2  "user"    "/Users/user"  2)
+auth_user_add(98 "guest"   "/Users/guest" 3)
+
 reg /sys/auth/status = "ready"
-out "[auth] Auth service initialised."
+kout("[auth] Auth service initialised (UID-aware).")

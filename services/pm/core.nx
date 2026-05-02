@@ -1,0 +1,51 @@
+# services/pm/core.nx — NEXS Process & PID Manager Database
+# ===================================================================
+
+fn pm_alloc_pid() {
+  last = reg_get("/sys/pm/next_pid")
+  if type(last) == "err" { last = 100 }
+  next = last + 1
+  reg_set("/sys/pm/next_pid" next)
+  ret next
+}
+
+fn pm_alloc_window() {
+  i = 0
+  loop {
+    if i > 10 { ret -1 }
+    p = reg_get("/sys/pm/windows/" + str(i) + "/pid")
+    if type(p) == "err" || p == -1 { ret i }
+    i = i + 1
+  }
+}
+
+fn pm_register_proc(pid uid path window_id) {
+  base = "/sys/pm/procs/" + str(pid)
+  reg_set(base + "/uid"   uid)
+  reg_set(base + "/path"  path)
+  reg_set(base + "/window" window_id)
+  reg_set(base + "/state" "running")
+
+  if window_id != -1 {
+    reg_set("/sys/pm/windows/" + str(window_id) + "/pid" pid)
+  }
+}
+
+fn pm_unregister_proc(pid) {
+  win = reg_get("/sys/pm/procs/" + str(pid) + "/window")
+  if type(win) != "err" && win != -1 {
+    reg_set("/sys/pm/windows/" + str(win) + "/pid" -1)
+  }
+  reg_del("/sys/pm/procs/" + str(pid))
+}
+
+fn pm_set_focus(window_id) {
+  reg_set("/sys/pm/focus_window" window_id)
+  term_cls()
+}
+
+fn pm_get_focus_pid() {
+  win = reg_get("/sys/pm/focus_window")
+  if type(win) == "err" { ret -1 }
+  ret reg_get("/sys/pm/windows/" + str(win) + "/pid")
+}

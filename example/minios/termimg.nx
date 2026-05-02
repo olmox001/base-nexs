@@ -1,0 +1,34 @@
+# example/minios/termimg.nx — NEXS Image Viewer
+# ===================================================================
+
+ti_filepath = ""
+
+fn termimg_usage() {
+  out "Uso: termimg <file.nxtimg>"
+  out "Esempio: termimg /user/logos/logo1.nxtimg"
+}
+
+fn termimg_main() {
+  arg = reg_get(get_proc_base() + "/args")
+  if type(arg) == "err" || arg == "" {
+    termimg_usage()
+    ret -1
+  }
+
+  ti_filepath = arg
+
+  if !vfs_exists(ti_filepath) {
+    if vfs_exists(ti_filepath + ".nxtimg") {
+       ti_filepath = ti_filepath + ".nxtimg"
+    } else {
+       out "Errore: il file '" + ti_filepath + "' non esiste nel VFS."
+       ret -1
+    }
+  }
+
+  ui_draw_image(ti_filepath -1 -1)
+  out ""
+  ret 0
+}
+
+termimg_main()

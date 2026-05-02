@@ -1,8 +1,7 @@
 # services/tty — TTY / console service
 # Manages /sys/tty/<n>/ registry entries.
-# Mounted on sd01 as /mnt/sd01/services/tty/
 
-reg /sys/tty/count = 0
+reg /sys/tty/count  = 0
 reg /sys/tty/active = 0
 
 fn tty_open(n) {
@@ -40,4 +39,4 @@ fn tty_resize(n w h) {
 }
 
 reg /sys/tty/status = "ready"
-out "[tty] TTY service initialised."
+kout("[tty] TTY service initialised.")

@@ -1,148 +1,83 @@
 # ===================================================================
-# NXED v3.1 — NEXS NATIVE TEXT EDITOR
-# Sfrutta textbuf.nx per la manipolazione del testo e un approccio
-# a due stati. Menu attivabile con CTRL-X.
+# NXED v4.0 — MODULAR MICROKERNEL TEXT EDITOR
 # ===================================================================
 
-exec("services/stdlib.nx")
-exec("services/textbuf.nx")
-
-# --- Costanti e Variabili Globali ---
 G_ESC = "\e"
 ed_running = 1
-ed_mode = 0       # 0 = Edit, 1 = Menu
+ed_mode = 0
 ed_status = "Pronto. Premi CTRL-X per il menu."
 ed_filename = ""
-
-# Variabili di stato del cursore e dello scrolling
 cx = 0
 cy = 0
 scroll_y = 0
-
-# Dimensioni stimate del terminale
 term_w = 80
 term_h = 24
-
-# Buffer Globale
 ed_buf = tb_create()
 
-# ===================================================================
-# GESTIONE SCHERMO E CURSORE
-# ===================================================================
-
 fn ed_clamp_cursor() {
-    # Evita out-of-bounds sull'asse Y
     max_y = len(ed_buf) - 1
     if max_y < 0 { max_y = 0 }
     if cy > max_y { cy = max_y }
     if cy < 0 { cy = 0 }
-
-    # Evita out-of-bounds sull'asse X
     curr_line = tb_get_line(ed_buf cy)
     max_x = len(curr_line)
     if cx > max_x { cx = max_x }
     if cx < 0 { cx = 0 }
-
-    # Gestione Scrolling Verticale
-    if cy < scroll_y {
-        scroll_y = cy
-    }
-    if cy >= scroll_y + (term_h - 1) {
-        scroll_y = cy - (term_h - 2)
-    }
+    if cy < scroll_y { scroll_y = cy }
+    if cy >= scroll_y + (term_h - 1) { scroll_y = cy - (term_h - 2) }
 }
 
 fn ed_render_text() {
     term_cls()
     num_lines = len(ed_buf)
-    
     i = 0
     loop {
         if i >= (term_h - 1) { break }
         buf_idx = scroll_y + i
-        
         if buf_idx < num_lines {
             line_str = tb_get_line(ed_buf buf_idx)
-            # Taglio visivo base per evitare wrapping brutti
-            if len(line_str) > term_w {
-                line_str = substr(line_str 0 term_w)
-            }
+            if len(line_str) > term_w { line_str = substr(line_str 0 term_w) }
             term_at(i + 1 1 line_str)
-        } else {
-            term_at(i + 1 1 "~")
-        }
+        } else { term_at(i + 1 1 "~") }
         i = i + 1
     }
-
-    # Status Bar
     stat = G_ESC + "[7m NXED | File: " + ed_filename + " | L:" + str(cy+1) + " C:" + str(cx+1) + " | " + ed_status + " " + G_ESC + "[0m"
+    if len(stat) > term_w { stat = substr(stat 0 term_w) }
     term_at(term_h 1 stat)
-    
-    # Posizionamento cursore fisico
     screen_y = (cy - scroll_y) + 1
     screen_x = cx + 1
     term_cursor_move(screen_y screen_x)
     term_flush()
 }
 
-# ===================================================================
-# GESTIONE MENU E IO
-# ===================================================================
-
 fn ed_prompt(prompt_testo valore_default) {
-    term_at(term_h 1 G_ESC + "[K") # Pulisce l'ultima riga
-    term_at(term_h 1 G_ESC + "[7m " + prompt_testo + ": " + G_ESC + "[0m ")
-    term_flush()
-    
-    # input() della stdlib ora supporta un valore di default
-    res = input("" valore_default)
-    
-    # Ripristiniamo la modalità raw per l'editor
-    rawon() 
-    
+    term_at(term_h 1 G_ESC + "[K")
+    res = input(G_ESC + "[7m " + prompt_testo + ": " + G_ESC + "[0m " valore_default)
+    rawon()
     ret res
 }
 
 fn ed_render_menu() {
     term_cls()
-    
-    hdr = G_ESC + "[7m NEXS SYSTEM MENU | NXED v3.1 " + G_ESC + "[0m"
-    term_at(1 1 hdr)
-
-    term_at(4  5 "[CTRL-X] RITORNA   - Torna all'editor")
-    term_at(6  5 "[s]      SALVA VFS - Salva nel Virtual File System")
-    term_at(8  5 "[o]      APRI VFS  - Carica un file dal VFS")
-    term_at(10 5 "[e]      ESPORTA   - Esporta file verso l'host")
-    term_at(12 5 "[i]      IMPORTA   - Importa file dall'host")
-    term_at(14 5 "[q]      ESCI      - Chiudi senza salvare")
-
-    if ed_status != "" {
-        term_at(16 5 G_ESC + "[33mSTATO: " + ed_status + G_ESC + "[0m")
-    }
-    
-    term_at(20 1 "Premi un tasto per selezionare...")
+    term_at(1 1 G_ESC + "[7m NEXS SYSTEM MENU | NXED v4.0 " + G_ESC + "[0m")
+    term_at(4  5 "[CTRL-X] RITORNA    - Torna all'editor")
+    term_at(6  5 "[s]      SALVA VFS  - Salva nel Virtual File System")
+    term_at(8  5 "[o]      APRI VFS   - Carica un file dal VFS")
+    term_at(10 5 "[v]      VISUALIZZA - Visualizza immagine (.nxtimg)")
+    term_at(12 5 "[e]      ESPORTA    - Esporta file verso l'host")
+    term_at(14 5 "[i]      IMPORTA    - Importa file dall'host")
+    term_at(16 5 "[q]      ESCI       - Chiudi senza salvare")
+    if ed_status != "" { term_at(18 5 G_ESC + "[33mSTATO: " + ed_status + G_ESC + "[0m") }
+    term_at(22 1 "Premi un tasto per selezionare...")
     term_flush()
 }
 
-# ===================================================================
-# INPUT HANDLERS
-# ===================================================================
-
 fn ed_handle_edit_key(k) {
-    ed_status = "" # Resetta lo status dopo il primo tasto
-
-    # Intercetta CTRL-X (può arrivare come hex 18, "CTRL-X", o "CTRL_X")
-    if k == "\x18" || k == "CTRL-X" || k == "CTRL_X" {
-        ed_mode = 1 # Passa al Menu
-        ret 0
-    }
-    
-    # Per retrocompatibilità lascio anche ESC come failsafe
-    if k == "ESC" {
+    ed_status = ""
+    if k == "\x18" || k == "CTRL-X" || k == "CTRL_X" || k == "ESC" || k == "\e" || k == "\x1b" {
         ed_mode = 1
         ret 0
     }
-    
     if k == "UP" || k == "KEY_UP" {
         cy = cy - 1
         ed_clamp_cursor()
@@ -202,8 +137,6 @@ fn ed_handle_edit_key(k) {
         ed_clamp_cursor()
         ret 0
     }
-
-    # Inserimento caratteri normali (se non è un codice di controllo speciale)
     if len(k) == 1 && k != "\x18" {
         tb_insert_char(ed_buf cy cx k)
         cx = cx + 1
@@ -212,134 +145,102 @@ fn ed_handle_edit_key(k) {
 }
 
 fn ed_handle_menu_key(k) {
-    # Permette di tornare indietro sia con CTRL-X che con ESC
-    if k == "\x18" || k == "CTRL-X" || k == "CTRL_X" || k == "ESC" {
-        ed_mode = 0 # Torna all'editor
-        ed_status = "Tornato all'editor."
+    if k == "\x18" || k == "CTRL-X" || k == "CTRL_X" || k == "ESC" || k == "\e" || k == "\x1b" {
+        ed_mode = 0
+        ed_status = "Editor attivo."
         ret 0
     }
     if k == "q" {
         ed_running = 0
+        ed_mode = 0
         ret 0
     }
     if k == "s" {
-        default_name = ed_filename
-        if default_name == "" {
-            # Suggerisce la cartella corrente se il file è nuovo
-            cwd = reg_get("/proc/1/vfs_cwd")
-            if type(cwd) != "err" && cwd != "" {
-                default_name = cwd + "/"
-            }
+        def_name = ed_filename
+        if def_name == "" {
+            def_name = getcwd()
+            if substr(def_name len(def_name)-1 1) != "/" { def_name = def_name + "/" }
         }
-        
-        nuovo_nome = ed_prompt("Salva come" default_name)
-        if nuovo_nome != "" {
-            ed_filename = nuovo_nome
-            ed_status = "Salvataggio..."
-            testo_intero = tb_to_str(ed_buf)
-            vfs_write(ed_filename testo_intero)
+        nuovo_nome = ed_prompt("Salva come" def_name)
+        if type(nuovo_nome) == "str" && nuovo_nome != "" {
+            res_nome = vfs_resolve(nuovo_nome getcwd())
+            ed_filename = res_nome
+            vfs_write(ed_filename tb_to_str(ed_buf))
             ed_status = "Salvato: " + ed_filename
         }
         ed_mode = 0
         ret 0
     }
     if k == "o" {
-        default_path = ""
-        cwd = reg_get("/proc/1/vfs_cwd")
-        if type(cwd) != "err" && cwd != "" {
-            default_path = cwd + "/"
-        }
-        
-        fname = ed_prompt("Apri file (VFS)" default_path)
-        if fname != "" {
-            lettura = vfs_read(fname)
-            # Verifica che non sia un messaggio d'errore (stringa che inizia con ERR:)
+        fname = ed_prompt("Apri file (VFS)" "")
+        if type(fname) == "str" && fname != "" {
+            res_fname = vfs_resolve(fname getcwd())
+            lettura = vfs_read(res_fname)
             if type(lettura) != "err" && substr(lettura 0 4) != "ERR:" {
                 tb_load(ed_buf lettura)
-                ed_filename = fname
+                ed_filename = res_fname
                 cy = 0
                 cx = 0
                 scroll_y = 0
-                ed_status = "Caricato: " + fname
+                ed_status = "Caricato: " + res_fname
             } else {
-                ed_status = "Errore: file non trovato (" + fname + ")"
+                ed_status = "Errore: file non trovato (" + res_fname + ")"
             }
+        }
+        ed_mode = 0
+        ret 0
+    }
+    if k == "v" {
+        img_path = ed_prompt("Visualizza immagine (.nxtimg)" "")
+        if type(img_path) == "str" && img_path != "" {
+          pm_spawn(get_proc_uid() "/Applications/termimg.nx" img_path)
+          ed_status = "Visualizzatore avviato."
         }
         ed_mode = 0
         ret 0
     }
     if k == "e" {
-        fname = ed_prompt("Host Path Export" "")
-        if fname != "" {
-            fd = create(fname 1 0644)
-            if fd >= 0 {
-                write(fd tb_to_str(ed_buf))
-                close(fd)
-                ed_status = "Esportato su Host."
-            } else {
-                ed_status = "Errore creazione file Host."
-            }
+        hpath = ed_prompt("Host Path Export" "")
+        if type(hpath) == "str" && hpath != "" {
+            vfs_write("/tmp/nxed_export" tb_to_str(ed_buf))
+            vfs_export("/tmp/nxed_export" hpath)
+            ed_status = "Esportato su Host: " + hpath
         }
         ed_mode = 0
         ret 0
     }
     if k == "i" {
-        fname = ed_prompt("Host Path Import" "")
-        if fname != "" {
-            fd = open(fname 0)
-            if fd >= 0 {
-                content = read(fd 65536) # Max 64k
-                close(fd)
-                tb_load(ed_buf content)
-                cy = 0
-                cx = 0
-                scroll_y = 0
-                ed_status = "Importato con successo."
-            } else {
-                ed_status = "Errore lettura file Host."
-            }
+        hpath = ed_prompt("Host Path Import" "")
+        if type(hpath) == "str" && hpath != "" {
+            vfs_import(hpath "/tmp/nxed_import")
+            tb_load(ed_buf vfs_read("/tmp/nxed_import"))
+            ed_status = "Importato con successo."
         }
         ed_mode = 0
         ret 0
     }
 }
 
-# ===================================================================
-# MAIN LOOP
-# ===================================================================
-
 fn nxed_start(initial_file) {
+    ts = term_size()
+    if len(ts) >= 2 {
+        term_w = int(ts[0])
+        term_h = int(ts[1])
+    }
     rawon()
     term_cursor_show(1)
-    
-    ed_filename = initial_file
-    ed_mode = 0
-    ed_running = 1
-    cy = 0
-    cx = 0
-    scroll_y = 0
-    
-    # Inizializza buffer vuoto
+    if initial_file != "" { ed_filename = vfs_resolve(initial_file getcwd()) }
+    else { ed_filename = "" }
     ed_buf = tb_create()
-    
-    # Se è stato passato un file, proviamo a leggerlo dal VFS
     if ed_filename != "" {
         lettura = vfs_read(ed_filename)
-        # Verifica robusta che il file esista e non sia un messaggio d'errore
         if type(lettura) != "err" && substr(lettura 0 4) != "ERR:" {
             tb_load(ed_buf lettura)
-            ed_status = "File caricato: " + ed_filename
-        } else {
-            # Se il file non esiste, lo consideriamo un nuovo file con quel nome
-            ed_status = "Nuovo file: " + ed_filename
-        }
-    } else {
-        ed_status = "Editor Pronto. Premi CTRL-X per il menu."
+            ed_status = "File caricato."
+        } else { ed_status = "Nuovo file." }
     }
-
     loop {
         if ed_running == 0 { break }
-        
         if ed_mode == 0 {
             ed_render_text()
             k = readkey()
@@ -352,9 +253,19 @@ fn nxed_start(initial_file) {
             term_cursor_show(1)
         }
     }
-    
     term_cls()
     term_cursor_show(1)
     rawoff()
     term_flush()
 }
+
+fn _entry() {
+  arg = ""
+  if type(PROC_BASE) == "str" {
+    reg_set(PROC_BASE + "/fullscreen" 1)
+    arg = reg_get(PROC_BASE + "/args")
+    if type(arg) != "str" { arg = "" }
+  }
+  nxed_start(arg)
+}
+_entry()

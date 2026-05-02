@@ -1,69 +1,64 @@
-# example/minios/shell.nx — NEXS Shell v2.2
-# VFS cwd tracked in /proc/1/vfs_cwd (registry key).
-# NEXS 'cd'/'pwd' keywords operate on eval scope — they are NOT used
-# here for user-facing navigation to avoid literal-path confusion.
+# example/minios/shell.nx — NEXS Shell v0.3.0
+# VFS cwd tracked via stdlib getcwd() -> /sys/{UID}/{PID}/cwd
 # ===================================================================
 
-exec("services/stdlib.nx")
-exec("services/fs/init.nx")
-exec("services/pm/init.nx")
-exec("services/hw_dt.nx")
-exec("services/fs/p9_mnt.nx")
-exec("example/minios/nxed_editor.nx")
-
 fn shell_help() {
-  out "  Comandi standard:"
-  out "  ls [dir]      - Elenca file nel VFS"
-  out "  ls /reg/path  - Elenca figli nel Registry"
-  out "  cd [dir]      - Cambia directory VFS"
-  out "  pwd           - Mostra directory corrente"
-  out "  clear         - Pulisce lo schermo"
-  out "  cat file      - Visualizza contenuto file VFS"
-  out "  rm file       - Rimuove file dal VFS"
-  out "  cp src dst    - Copia file nel VFS"
-  out "  mv src dst    - Sposta file nel VFS"
-  out "  touch file    - Crea un file vuoto nel VFS"
-  out "  mkdir dir     - Crea una cartella nel VFS"
-  out "  ps            - Elenca processi attivi"
-  out "  devtree       - Mostra hardware Device Tree"
-  out "  fm [dir]      - Avvia Plan 9 File Manager"
-  out "  modules       - Elenca moduli di sistema"
-  out "  source file   - Esegue script .nx dal VFS"
-  out "  errlog        - Mostra ultimo errore kernel"
-  out "  nxed [file]   - Editor di testo"
-  out "  exit          - Arresta il sistema"
+  out "  Comandi NEXS Shell:"
   out ""
-  out "  Espressioni NEXS native: digita qualsiasi espressione valida."
-}
-
-fn shell_cwd() {
-  v = reg_get("/proc/1/vfs_cwd")
-  if type(v) == "err" || v == "" { ret "" }
-  ret str(v)
+  out "  Navigazione:"
+  out "    ls [dir]      - Elenca file e directory"
+  out "    cd [dir]      - Cambia directory (cd .. per salire)"
+  out "    pwd           - Mostra directory corrente"
+  out "    clear         - Pulisce lo schermo"
+  out ""
+  out "  File:"
+  out "    cat file      - Visualizza contenuto file"
+  out "    rm file       - Rimuove file"
+  out "    touch file    - Crea file vuoto"
+  out "    mkdir dir     - Crea directory"
+  out "    cp src dst    - Copia file"
+  out "    mv src dst    - Sposta file"
+  out ""
+  out "  Programmi:"
+  out "    nxed [file]   - Editor di testo"
+  out "    termimg file  - Visualizzatore immagini"
+  out "    source file   - Esegue script NX dal VFS"
+  out ""
+  out "  Sistema:"
+  out "    ps            - Elenca processi"
+  out "    whoami        - Mostra utente corrente"
+  out "    sudo          - Promuovi a root"
+  out "    su [uid]      - Cambia utente"
+  out "    devtree       - Mostra device tree"
+  out "    fm [dir]      - File manager"
+  out "    modules       - Moduli di sistema"
+  out "    errlog        - Ultimo errore"
+  out "    logos         - Loghi disponibili"
+  out "    exit          - Arresta il sistema"
+  out ""
+  out "  Espressioni NX native supportate."
 }
 
 fn shell_cwd_display() {
-  c = shell_cwd()
-  if c == "" { ret "/" }
-  ret "/" + c
+  c = getcwd()
+  if type(c) == "err" || c == "" || c == "/" { ret "/" }
+  ret c
 }
 
 fn shell_loop() {
+  out ""
   out "---------------------------------------------------"
-  out " NEXS Shell v2.2. Type 'help' for commands."
+  out " NEXS Shell v0.3.0 (Modular Microkernel)"
   out "---------------------------------------------------"
-
-  reg_set("/proc/1/vfs_cwd" "")
 
   loop {
     p = shell_cwd_display()
     prompt = "nexs-os:" + p + "> "
     cmd_full = input(prompt)
-    if cmd_full == "" { continue }
+    if type(cmd_full) != "str" || cmd_full == "" { continue }
 
     parts = split(cmd_full " ")
     cmd = parts[0]
-
     arg = ""
     if len(parts) > 1 { arg = parts[1] }
     arg2 = ""
@@ -76,119 +71,263 @@ fn shell_loop() {
       handled = 1
     }
 
-    if (cmd == "ls") {
-      ls(arg)
-      handled = 1
+    if cmd == "ls" {
+      if handled == 0 {
+        target = arg
+        if target == "" { target = getcwd() }
+        if target == "/" || target == "" {
+          vfs_ls("/")
+        } else {
+          vfs_ls(vfs_resolve(arg getcwd()))
+        }
+        handled = 1
+      }
+    }
+
+    if cmd == "cd" {
+      if handled == 0 {
+        if arg == "" || arg == "~" {
+          home = auth_get_home(auth_get_uid())
+          sys_chdir(home)
+        } else {
+          res = vfs_resolve(arg getcwd())
+          if vfs_exists(res) {
+            sys_chdir(res)
+          } else {
+            out "cd: directory non trovata: " + arg
+          }
+        }
+        handled = 1
+      }
+    }
+
+    if cmd == "pwd" {
+      if handled == 0 {
+        out shell_cwd_display()
+        handled = 1
+      }
     }
 
     if cmd == "clear" {
-      term_cls()
-      handled = 1
-    }
-
-    if (cmd == "cd") {
-      cd(arg)
-      handled = 1
-    }
-
-    if (cmd == "pwd") {
-      pwd
-      handled = 1
+      if handled == 0 {
+        term_cls()
+        handled = 1
+      }
     }
 
     if cmd == "cat" {
-      if arg == "" { out "cat: manca il file" }
-      else { out vfs_read(vfs_resolve(arg shell_cwd())) }
-      handled = 1
+      if handled == 0 {
+        if arg == "" { out "Uso: cat <file>" }
+        else { cat(vfs_resolve(arg getcwd())) }
+        handled = 1
+      }
     }
 
     if cmd == "rm" {
-      if arg == "" { out "rm: manca il file" }
-      else { vfs_rm(vfs_resolve(arg shell_cwd())) }
-      handled = 1
+      if handled == 0 {
+        if arg == "" { out "rm: manca il file" }
+        else {
+          res_rm = vfs_rm(vfs_resolve(arg getcwd()))
+          if type(res_rm) == "str" && substr(res_rm 0 4) == "ERR:" { out res_rm }
+        }
+        handled = 1
+      }
     }
 
     if cmd == "cp" {
-      if arg == "" || arg2 == "" { out "cp: sorgente o destinazione mancante" }
-      else { vfs_cp(vfs_resolve(arg shell_cwd()) vfs_resolve(arg2 shell_cwd())) }
-      handled = 1
+      if handled == 0 {
+        if arg == "" || arg2 == "" { out "cp: sorgente o destinazione mancante" }
+        else {
+          res_cp = vfs_cp(vfs_resolve(arg getcwd()) vfs_resolve(arg2 getcwd()))
+          if type(res_cp) == "str" && substr(res_cp 0 4) == "ERR:" { out res_cp }
+        }
+        handled = 1
+      }
     }
 
     if cmd == "mv" {
-      if arg == "" || arg2 == "" { out "mv: sorgente o destinazione mancante" }
-      else { vfs_mv(vfs_resolve(arg shell_cwd()) vfs_resolve(arg2 shell_cwd())) }
-      handled = 1
+      if handled == 0 {
+        if arg == "" || arg2 == "" { out "mv: sorgente o destinazione mancante" }
+        else {
+          res_mv = vfs_mv(vfs_resolve(arg getcwd()) vfs_resolve(arg2 getcwd()))
+          if type(res_mv) == "str" && substr(res_mv 0 4) == "ERR:" { out res_mv }
+        }
+        handled = 1
+      }
     }
 
     if cmd == "touch" {
-      if arg == "" { out "touch: manca il file" }
-      else { vfs_write(vfs_resolve(arg shell_cwd()) "") }
-      handled = 1
+      if handled == 0 {
+        if arg == "" { out "touch: manca il file" }
+        else {
+          res_tc = vfs_write(vfs_resolve(arg getcwd()) "")
+          if type(res_tc) == "str" && substr(res_tc 0 4) == "ERR:" { out res_tc }
+        }
+        handled = 1
+      }
     }
-    
+
     if cmd == "mkdir" {
-      if arg == "" { out "mkdir: manca il nome della cartella" }
-      else { vfs_mkdir(vfs_resolve(arg shell_cwd())) }
-      handled = 1
+      if handled == 0 {
+        if arg == "" { out "mkdir: manca il nome" }
+        else {
+          res_mk = vfs_mkdir(vfs_resolve(arg getcwd()))
+          if type(res_mk) == "str" && substr(res_mk 0 4) == "ERR:" { out res_mk }
+        }
+        handled = 1
+      }
     }
 
     if cmd == "ps" {
-      pm_ps()
-      handled = 1
+      if handled == 0 {
+        pm_ps()
+        handled = 1
+      }
     }
 
     if cmd == "devtree" {
-      hw_dt_dump()
-      handled = 1
+      if handled == 0 {
+        hw_dt_dump()
+        handled = 1
+      }
     }
 
     if cmd == "fm" {
-      p9_file_manager(vfs_resolve(arg shell_cwd()))
-      handled = 1
+      if handled == 0 {
+        p9_file_manager(vfs_resolve(arg getcwd()))
+        handled = 1
+      }
     }
 
     if cmd == "modules" {
-      vfs_ls("sys/modules")
-      handled = 1
+      if handled == 0 {
+        vfs_ls("System/Library")
+        handled = 1
+      }
     }
 
     if cmd == "errlog" {
-      last = reg_get("/sys/errors/last")
-      if type(last) == "err" { last = "(nessun errore)" }
-      out "Ultimo errore: " + str(last)
-      handled = 1
+      if handled == 0 {
+        pid = getpid()
+        last = reg_get("/sys/pm/procs/" + str(pid) + "/last_error")
+        if type(last) == "err" { last = "(nessun errore recente)" }
+        out "Ultimo errore (Sessione " + str(pid) + "): " + str(last)
+        handled = 1
+      }
+    }
+
+    if cmd == "exit" || cmd == "logout" {
+      if handled == 0 {
+        out "Chiusura sessione..."
+        pm_exit(getpid())
+        exits("")
+        handled = 1
+      }
+    }
+
+    if cmd == "shutdown" || cmd == "off" {
+      if handled == 0 {
+        if auth_get_ring() > 1 {
+          out "EPERM: Solo root può spegnere il sistema."
+        } else {
+          out "Arresto del sistema in corso..."
+          sys_shutdown()
+        }
+        handled = 1
+      }
+    }
+
+    if cmd == "logos" {
+      if handled == 0 {
+        out "Asset grafici disponibili:"
+        vfs_ls("Users/guest/logos")
+        handled = 1
+      }
     }
 
     if cmd == "source" {
-      if arg == "" { out "source: manca il file" }
-      else {
-        src = vfs_read(vfs_resolve(arg shell_cwd()))
-        if type(src) != "err" { eval(src) }
-        else { out src }
+      if handled == 0 {
+        if arg == "" { out "source: manca il file" }
+        else {
+          res = vfs_resolve(arg getcwd())
+          src = vfs_read(res)
+          if type(src) != "err" && substr(src 0 4) != "ERR:" {
+            eval(src)
+          } else {
+            out "source: errore caricamento " + res
+          }
+        }
+        handled = 1
       }
-      handled = 1
     }
 
-    if cmd == "nxed" {
-      if arg == "" {
-        nxed_start("")
-      } else {
-        nxed_start(vfs_resolve(arg shell_cwd()))
+    if cmd == "sudo" {
+      if handled == 0 {
+        cur_uid = auth_get_uid()
+        if cur_uid == 0 || cur_uid == 1 {
+          out "Sei già root."
+        } else {
+          reg /sys/auth/uid  = 1
+          reg /sys/auth/ring = 1
+          home = auth_get_home(1)
+          sys_chdir(home)
+          out "Sessione promossa a ROOT (UID 1)."
+          out "Home: " + home
+        }
+        handled = 1
       }
-      handled = 1
     }
 
-    if cmd == "exit" {
-      exits("")
-      handled = 1
+    if cmd == "su" {
+      if handled == 0 {
+        if arg == "" { out "Uso: su <uid>" }
+        else {
+          new_uid = int(arg)
+          reg /sys/auth/uid = new_uid
+          home = auth_get_home(new_uid)
+          sys_chdir(home)
+          out "Sessione UID " + str(new_uid) + ". Home: " + home
+        }
+        handled = 1
+      }
+    }
+
+    if cmd == "whoami" {
+      if handled == 0 {
+        uid = auth_get_uid()
+        name = reg_get("/sys/auth/users/" + str(uid) + "/name")
+        if type(name) == "err" { name = "uid:" + str(uid) }
+        out name + " (UID " + str(uid) + ", ring " + str(auth_get_ring()) + ")"
+        handled = 1
+      }
+    }
+
+    if cmd == "shell" {
+      if handled == 0 {
+        pm_spawn(auth_get_uid() "/example/minios/shell.nx" "")
+        handled = 1
+      }
     }
 
     if handled == 0 {
-      result = eval(cmd_full)
+      prog_path = "Applications/" + cmd + ".nx"
+      if vfs_exists(prog_path) {
+        pm_spawn(auth_get_uid() prog_path "")
+        handled = 1
+      }
+    }
+
+    if handled == 0 {
+      uid = auth_get_uid()
+      pid = getpid()
+      base = "/sys/" + str(uid) + "/" + str(pid) + "/scratch"
+      ctx = "PROC_UID = " + str(uid) + "\nPROC_BASE = \"" + base + "\"\n"
+
+      result = eval(ctx + cmd_full)
       if type(result) == "err" {
         errmsg = str(result)
-        out "[ERR] eval: " + errmsg
-        reg_set("/sys/errors/last" errmsg)
+        out "[ERR] " + errmsg
+        reg_set("/sys/pm/procs/" + str(pid) + "/last_error" errmsg)
       } else {
         if type(result) != "nil" { out result }
       }

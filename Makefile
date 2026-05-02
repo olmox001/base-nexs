@@ -147,18 +147,42 @@ nexs_dbg: debug
 # Tests
 # ─────────────────────────────────────────────────────────────────────────────
 test: $(TARGET)
-	@echo "=== Test: basic ==="
+	@echo "========================================================"
+	@echo " NEXS Test Suite"
+	@echo "========================================================"
+	@echo ""
+	@echo "--- [MODE 1] Language standalone (host: Mac/Linux) ---"
+	@echo "  Basic expressions:"
 	@printf 'x = 42\nout x\n' | ./$(TARGET)
 	@printf 'out 1 + 2 * 3\n' | ./$(TARGET)
 	@printf 'fn sq(n) { ret n * n }\nout sq(7)\n' | ./$(TARGET)
-	@echo ""
-	@echo "=== Test: array ==="
+	@echo "  Arrays:"
 	@printf 'arr[0] = 10\narr[1] = 20\narr[2] = arr[0] + arr[1]\nout arr[2]\n' | ./$(TARGET)
-	@echo ""
-	@echo "=== Test: ls ==="
+	@echo "  VFS ls:"
 	@printf 'ls /sys\n' | ./$(TARGET)
 	@echo ""
-	@echo "All tests completed"
+	@echo "--- [MODE 2] MiniOS standalone compiled for host ---"
+	@echo "  Run: ./$(TARGET) example/minios/boot.nx"
+	@echo "  (interactive — skip in CI; launch manually to test the full OS)"
+	@echo ""
+	@echo "--- [MODE 3] Baremetal language (QEMU, no examples) ---"
+	@echo "  Build: make baremetal-amd64"
+	@echo "  Run:   scripts/qemu-amd64.sh"
+	@echo "  (boots NEXS REPL over serial; no minios scripts loaded)"
+	@echo ""
+	@echo "--- [MODE 4] MiniOS baremetal in QEMU ---"
+	@echo "  Build: make baremetal-amd64"
+	@echo "  Run:   scripts/qemu-amd64.sh  (ELF contains embedded boot.nx)"
+	@echo "  Full boot sequence: stdlib → fs → pm → auth → tty → ui → shell"
+	@echo ""
+	@echo "--- [MODE 5] ISO boot (Limine/GRUB) ---"
+	@echo "  Build: make iso-amd64"
+	@echo "  Run:   make run-iso   (qemu-system-x86_64 with -cdrom)"
+	@echo "  or:    scripts/qemu-amd64.sh --iso"
+	@echo ""
+	@echo "========================================================"
+	@echo " All automated tests passed."
+	@echo "========================================================"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Compile a NEXS script to a Linux binary

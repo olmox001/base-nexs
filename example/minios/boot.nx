@@ -1,38 +1,70 @@
 # example/minios/boot.nx — NEXS Boot Script
 # ===================================================================
 
-# Enable kernel trace
+G_DEBUG = 0
+reg_set("/sys/config/debug" G_DEBUG)
+
 sys_debug(false)
 
-out "==================================================="
-out " [INIT] Booting NEXS Modular Micro-OS"
-out "==================================================="
-out "[INIT] Fase 1: Caricamento Driver e Servizi (Librerie di Sistema)..."
+if (G_DEBUG == 1) {
+  out "==================================================="
+  out " [INIT] Booting NEXS Modular Micro-OS"
+  out "==================================================="
+  out "[INIT] Fase 1: Caricamento Driver e Servizi (Librerie di Sistema)..."
+}
 
-# Caricamento dei servizi di sistema
 exec("services/stdlib.nx")
-exec("services/fs/init.nx")     # VFS & Mounts
-exec("services/pm/init.nx")     # PM
-exec("services/auth/init.nx")   # Auth & capabilities
-exec("services/tty/init.nx")    # TTY
-exec("services/ui/init.nx")     # UI framebuffer
-exec("services/fs/p9_mnt.nx")   # 9P
-exec("services/hw_dt.nx")       # HW Device Tree
-exec("services/textbuf.nx")     # Text Buffer Library
+PROC_PID = 1
+PROC_UID = 1
+exec("services/fs/init.nx")
+exec("services/pm/init.nx")
+exec("services/auth/init.nx")
+auth_set_ring(1)
+exec("services/tty/init.nx")
+exec("services/ui/init.nx")
+exec("services/ui/img.nx")
+exec("services/fs/p9_mnt.nx")
+exec("services/hw_dt.nx")
+exec("services/textbuf.nx")
+exec("services/logos/init.nx")
+exec("example/minios/shell.nx")
 
-out "[INIT] Fase 2: Inizializzazione Sottosistemi..."
+if (G_DEBUG == 1) {
+  out "[INIT] Fase 2: Inizializzazione Sottosistemi..."
+}
 hw_dt_init()
 p9_mnt_init()
 
-out "[INIT] Fase 3: Popolamento Root FS..."
-# I mount standard sono già fatti da services/fs/init.nx
+if (G_DEBUG == 1) {
+  out "[INIT] Fase 3: Caricamento Asset Immagini..."
+}
+exec("example/minios/logo.nx")
+exec("example/minios/logos_config.nx")
 
-# Avvio dei demoni di sistema
-exec("example/minios/nxed_editor.nx")
-exec("example/minios/shell.nx")
+if (G_DEBUG == 1) {
+  out "==================================================="
+  out " [INIT] Boot completato. Sistema in esecuzione."
+  out "==================================================="
+} else {
+  term_cls()
+  main_l = reg_get("/sys/logos/main")
+  if type(main_l) == "err" || main_l == "" { main_l = "/System/Library/logos/logo1.nxtimg" }
+  ui_draw_image(main_l 1 1)
+}
 
-out "==================================================="
-out " [INIT] Boot completato. Cessione controllo alla UI."
-out "==================================================="
+reg_set("/sys/config/standalone" 1)
 
-shell_loop()
+pm_session_init()
+
+loop {
+  msg = receivemessage /proc/1/inbox
+  if msg == "shutdown" { exits("") }
+
+  active_idx = reg /sys/pm/session_active
+  active_pid = reg_get("/sys/pm/sessions/" + str(active_idx))
+  if active_pid == -1 {
+    pm_session_switch(0)
+  }
+
+  sleep(500)
+}

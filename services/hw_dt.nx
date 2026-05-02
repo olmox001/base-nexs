@@ -1,37 +1,47 @@
 # services/hw_dt.nx — NEXS Device Tree
 # ===================================================================
+# Populates /sys/hw/ with hardware node descriptions.
+# Supports dynamic node registration and DTB loading.
 
 fn hw_dt_init() {
-  out "[HW] Scansione dell'hardware e popolamento del Device Tree..."
+  kout("[HW] Inizializzazione Device Tree...")
 
-  # CPU Topology
-  reg /sys/hw/cpu/vendor = "AuthenticAMD"
-  reg /sys/hw/cpu/model = "NeXs AMD64 Core"
-  reg /sys/hw/cpu/cores = 4
-  reg /sys/hw/cpu/frequency = 2400
+  dtb = vfs_read("/etc/dtb.nx")
+  if type(dtb) != "err" && len(dtb) > 0 && substr(dtb 0 4) != "ERR:" {
+    eval(dtb)
+    kout("[HW] Configurazione hardware caricata da /etc/dtb.nx")
+  } else {
+    hw_dt_node_set("cpu/vendor"    "GenericCPU")
+    hw_dt_node_set("cpu/model"     "NEXS Virtual Core")
+    hw_dt_node_set("cpu/cores"     1)
+    hw_dt_node_set("cpu/frequency" 1000)
+    hw_dt_node_set("mem/pool_size" 8192)
+    hw_dt_node_set("dev/tty0"      "Console TTY")
+    hw_dt_node_set("dev/stdin"     "fd:0")
+    hw_dt_node_set("dev/stdout"    "fd:1")
+    hw_dt_node_set("dev/stderr"    "fd:2")
+    kout("[HW] Detection completata (defaults).")
+  }
+}
 
-  # Memory Map
-  reg /sys/hw/mem/pool_size = 4096
-  reg /sys/hw/mem/base = "0x00100000"
-  reg /sys/hw/mem/limit = "0x004FFFFF"
+fn hw_dt_node_set(path val) {
+  reg_set("/sys/hw/" + path val)
+  ret 0
+}
 
-  # Buses & Controllers
-  reg_set("/sys/hw/bus/pci/00:00.0/device", "Host Bridge")
-  reg_set("/sys/hw/bus/pci/00:01.0/device", "VGA Controller (VESA)")
-  reg_set("/sys/hw/bus/pci/00:02.0/device", "Ethernet (RTL8139)")
-  reg_set("/sys/hw/bus/pci/00:03.0/device", "Storage (SATA AHCI)")
-
-  # Peripherals
-  reg /sys/hw/dev/tty0/status = "active"
-  reg /sys/hw/dev/com1/io_port = "0x3F8"
-  reg /sys/hw/dev/com2/io_port = "0x2F8"
-
-  out "[HW] Trovati 10 nodi nel Device Tree."
+fn hw_dt_node_get(path) {
+  ret reg_get("/sys/hw/" + path)
 }
 
 fn hw_dt_dump() {
   out "=== NEXS DEVICE TREE ==="
-  out "CPU: " + reg /sys/hw/cpu/vendor + " - " + str(reg /sys/hw/cpu/cores) + " core"
-  out "RAM: " + str(reg /sys/hw/mem/pool_size) + " KB"
-  out "UART: COM1 ad " + reg /sys/hw/dev/com1/io_port
+  cpu_vendor = hw_dt_node_get("cpu/vendor")
+  if type(cpu_vendor) == "err" { cpu_vendor = "unknown" }
+  cpu_cores = hw_dt_node_get("cpu/cores")
+  if type(cpu_cores) == "err" { cpu_cores = "?" }
+  mem_sz = hw_dt_node_get("mem/pool_size")
+  if type(mem_sz) == "err" { mem_sz = "?" }
+  out "CPU: " + str(cpu_vendor) + " (" + str(cpu_cores) + " core)"
+  out "RAM: " + str(mem_sz) + " KB"
+  out "TTY: " + str(hw_dt_node_get("dev/tty0"))
 }
