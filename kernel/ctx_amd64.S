@@ -43,3 +43,16 @@ ctx_switch:
     /* Jump to saved RIP (simulates returning from ctx_switch in next context) */
     movq  56(%rsi), %rax
     jmpq  *%rax
+
+.global ctx_load
+ctx_load:
+    /* Restore-only: load context from rdi without saving current state */
+    movq  0(%rdi),  %rbx
+    movq  8(%rdi),  %rbp
+    movq  16(%rdi), %r12
+    movq  24(%rdi), %r13
+    movq  32(%rdi), %r14
+    movq  40(%rdi), %r15
+    movq  48(%rdi), %rsp
+    movq  56(%rdi), %rax
+    jmpq  *%rax

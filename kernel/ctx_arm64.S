@@ -46,3 +46,16 @@ ctx_switch:
 
     /* Return into next process (x30 = saved LR = return address) */
     ret
+
+.global ctx_load
+ctx_load:
+    /* Restore-only: load context from x0 without saving current state */
+    ldp  x19, x20, [x0, #0]
+    ldp  x21, x22, [x0, #16]
+    ldp  x23, x24, [x0, #32]
+    ldp  x25, x26, [x0, #48]
+    ldp  x27, x28, [x0, #64]
+    ldp  x29, x30, [x0, #80]
+    ldr  x2,       [x0, #96]
+    mov  sp, x2
+    ret

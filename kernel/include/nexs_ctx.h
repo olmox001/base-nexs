@@ -27,4 +27,7 @@ typedef struct {
  */
 void ctx_switch(void *from_ctx, void *to_ctx);
 
+/* ctx_load(to) — restore-only half; used for the very first switch when there is no prev context */
+void ctx_load(void *to_ctx);
+
 #endif
