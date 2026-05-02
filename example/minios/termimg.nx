@@ -1,267 +1,39 @@
-# ===================================================================
-# termimg.nx — Visualizzatore .nxtimg (ANSI), stile interfaccia NXED
-# Usa textbuf (tb_*) per le righe, term_size() per w/h, scroll come nxed.
-# Layout VFS: nodi path@@0..@@(n-1) + path@@n, oppure monolite (split \n).
-# Allineamento a compile_to_nxtimg.py: righe immagine = (term_h - 1), una riga
-# status in basso; righe generate per char_y in range(term_height - 1).
+# example/minios/termimg.nx — NEXS Image Viewer
 # ===================================================================
 
-G_ESC = "\e"
-
-# --- Stato globale (come variabili in nxed_editor.nx) ---
-ti_running = 1
-ti_status = ""
 ti_filepath = ""
-ti_use_shards = 0
-ti_shard_n = 0
-ti_nlines = 0
-scroll_y = 0
-term_w = 80
-term_h = 24
-ti_buf = tb_create()
 
-fn vfs_err_msg(s) {
-  t = type(s)
-  if t == "err" { ret 1 }
-  if t != "string" { ret 0 }
-  if len(s) >= 4 && substr(s 0 4) == "ERR:" { ret 1 }
-  ret 0
+fn termimg_usage() {
+  out "Uso: termimg <file.nxtimg>"
+  out "Esempio: termimg /user/logos/logo1.nxtimg"
 }
 
-# Rimuove la prima riga "# nxtimg-term: WxH" scritta dall export NXED (host).
-fn ti_strip_export_header(s) {
-  lines = split(s "\n")
-  n = len(lines)
-  if n < 1 { ret s }
-  l0 = lines[0]
-  if len(l0) < 14 { ret s }
-  if substr(l0 0 14) != "# nxtimg-term:" { ret s }
-  if n < 2 { ret "" }
-  j = 1
-  acc = lines[1]
-  j = 2
-  loop {
-    if j >= n { break }
-    acc = acc + "\n" + lines[j]
-    j = j + 1
+fn termimg_main() {
+  # Recupero argomenti (passati da pm_spawn via PROC_BASE/args)
+  arg = reg_get(get_proc_base() + "/args")
+  if type(arg) == "err" || arg == "" {
+    termimg_usage()
+    ret -1
   }
-  ret acc
-}
 
-fn ti_term_dims() {
-  ts = term_size()
-  if len(ts) >= 2 {
-    w = int(ts[0])
-    h = int(ts[1])
-    if w >= 20 { term_w = w }
-    if h >= 5 { term_h = h }
-  }
-}
-
-# Svuota il buffer (stesso schema di tb_load prima del refill)
-fn ti_buf_clear() {
-  loop {
-    if len(ti_buf) <= 0 { break }
-    arr_del(ti_buf 0)
-  }
-  arr_ins(ti_buf 0 "")
-}
-
-fn ti_load_from_vfs() {
-  ti_buf_clear()
-  if ti_use_shards == 1 {
-    i = 0
-    loop {
-      if i >= ti_shard_n { break }
-      row = vfs_read(ti_filepath + "@@" + str(i))
-      if vfs_err_msg(row) { row = "" }
-      if i == 0 {
-        tb_set_line(ti_buf 0 row)
-      } else {
-        arr_ins(ti_buf i row)
-      }
-      i = i + 1
-    }
-    ti_nlines = ti_shard_n
-    if ti_nlines <= 0 { ret -1 }
-    ret 0
-  }
+  ti_filepath = arg
   
-  if ti_use_shards == 2 {
-    # Fallback to real kernel VFS
-    fd = open(ti_filepath 0)
-    if fd < 0 { ret -1 }
-    content = ""
-    loop {
-      chunk = read(fd 4096)
-      if chunk == "" { break }
-      content = content + chunk
-    }
-    close(fd)
-  } else {
-    content = vfs_read(ti_filepath)
-    if vfs_err_msg(content) { ret -1 }
-  }
-
-  content = ti_strip_export_header(content)
-  tb_load(ti_buf content)
-  ti_nlines = len(ti_buf)
-  if ti_nlines <= 0 { ret -1 }
-  ret 0
-}
-
-fn ti_clamp_scroll() {
-  body = term_h - 1
-  if body < 1 { body = 1 }
-  max_scroll = ti_nlines - body
-  if max_scroll < 0 { max_scroll = 0 }
-  if scroll_y > max_scroll { scroll_y = max_scroll }
-  if scroll_y < 0 { scroll_y = 0 }
-}
-
-# Schermo + status (analogo a ed_render_text: cls, righe area, barra in basso)
-# Per riga: come Python, larghezza visiva term_w (celle); [K pulisce il resto della riga.
-fn ti_render() {
-  ti_term_dims()
-  term_cls()
-  num_lines = len(ti_buf)
-  vis = term_h - 1
-  i = 0
-  loop {
-    if i >= vis { break }
-    buf_idx = scroll_y + i
-    if buf_idx < num_lines {
-      line_str = tb_get_line(ti_buf buf_idx)
-      if len(line_str) > term_w {
-        line_str = substr(line_str 0 term_w)
-      } else {
-        loop {
-          if len(line_str) >= term_w { break }
-          line_str = line_str + " "
-        }
-      }
-      term_at(i + 1 1 line_str + G_ESC + "[K")
+  # Risoluzione percorso (VFS)
+  if !vfs_exists(ti_filepath) {
+    if vfs_exists(ti_filepath + ".nxtimg") {
+       ti_filepath = ti_filepath + ".nxtimg"
     } else {
-      term_at(i + 1 1 G_ESC + "[K")
-    }
-    i = i + 1
-  }
-
-  lo = scroll_y + 1
-  hi = scroll_y + vis
-  if hi > ti_nlines { hi = ti_nlines }
-  stat = G_ESC + "[7m TermImg | " + ti_filepath + " | righe " + str(lo) + "-" + str(hi) + "/" + str(ti_nlines) + " | " + term_w + "x" + term_h + " | [q] Esci [r] Ricarica [su/giu] scroll | " + ti_status + " " + G_ESC + "[0m"
-  if len(stat) > term_w {
-    stat = substr(stat 0 term_w)
-  }
-  term_at(term_h 1 stat)
-  term_flush()
-}
-
-fn ti_probe(filepath) {
-  ti_filepath = filepath
-  ti_use_shards = 0
-  ti_shard_n = 0
-  
-  # Controlla se è uno shard bundle
-  meta = vfs_read(filepath + "@@n")
-  if !vfs_err_msg(meta) {
-    ti_shard_n = int(meta)
-    if ti_shard_n > 0 { 
-      ti_use_shards = 1
-      ret 0 
-    }
-  }
-  
-  # Controlla se è un file monolite nel VFS
-  probe = vfs_read(filepath)
-  if !vfs_err_msg(probe) { ret 0 }
-
-  # Fallback: controlla se esiste su disco reale (kernel host)
-  fd = open(filepath 0)
-  if fd >= 0 {
-    close(fd)
-    ti_use_shards = 2
-    ret 0
-  }
-
-  ret -1
-}
-
-fn termimg_start(filepath) {
-  if filepath == "" {
-    out "Uso: termimg <file.nxtimg>"
-    ret -1
-  }
-
-  p = ti_probe(filepath)
-  if p < 0 {
-    out "Errore: il file '" + filepath + "' non esiste."
-    ret -1
-  }
-
-  # Stampa semplicemente l'immagine inline a chunk per evitare limiti di stringa
-  if ti_use_shards == 1 {
-    i = 0
-    loop {
-      if i >= ti_shard_n { break }
-      chunk = vfs_read(filepath + "@@" + str(i))
-      if !vfs_err_msg(chunk) {
-        write(1 chunk)
-      }
-      i = i + 1
-    }
-    write(1 "\033[0m\n\n")
-    ret 0
-  }
-
-  if ti_use_shards == 2 {
-    fd = open(filepath 0)
-    if fd >= 0 {
-      loop {
-        chunk = read(fd 1024)
-        if chunk == "" { break }
-        write(1 chunk)
-      }
-      close(fd)
-      write(1 "\033[0m\n\n")
-      ret 0
+       out "Errore: il file '" + ti_filepath + "' non esiste nel VFS."
+       ret -1
     }
   }
 
-  content = vfs_read(filepath)
-  if !vfs_err_msg(content) {
-    write(1 content)
-    write(1 "\033[0m\n\n")
-    ret 0
-  }
-  
-  out "Errore durante la lettura del file."
-  ret -1
+  # Rendering inline via servizio UI centralizzato
+  # -1, -1 indica stampa inline alla posizione corrente del cursore
+  ui_draw_image(ti_filepath -1 -1)
+  out ""
+  ret 0
 }
 
-fn nxed_termimg(filename) {
-  if filename == "" {
-    out "termimg: specificare un file immagine."
-    ret -1
-  }
-  
-  # Risoluzione percorso
-  cwd = reg_get("/proc/1/vfs_cwd")
-  fp = vfs_resolve(filename cwd)
-  
-  # Prova percorso diretto
-  if ti_probe(fp) == 0 {
-    termimg_start(fp)
-    ret 0
-  }
-  
-  # Prova con estensione .nxtimg
-  if ti_probe(fp + ".nxtimg") == 0 {
-    termimg_start(fp + ".nxtimg")
-    ret 0
-  }
-  
-  # Se proprio non lo trova, lascia che termimg_start dia l'errore definitivo
-  termimg_start(fp)
-}
+# Avvio programma
+termimg_main()

@@ -1,38 +1,50 @@
-# services/fs/p9_mnt.nx — Plan 9 Namespace Mounts
+# services/fs/p9_mnt.nx — Plan 9 Namespace & VFS Population
 # ===================================================================
+# Imports host files into the VFS and creates the directory structure.
+# Called once during boot after all services are loaded.
 
 fn p9_mnt_init() {
-  kout("[P9] Montaggio delle gerarchie di sistema...")
+  kout("[P9] Popolamento filesystem (/System, /Applications, /Users)...")
 
-  # Setup logical nodes in VFS
-  vfs_write("krnl/registry/type"   "Plan 9 Virtual Kernel Registry")
-  vfs_write("krnl/registry/status" "active")
-  
-  vfs_write("system/services"     "VFS_Daemon, Shell_TTY, Wasm_VM")
-  vfs_write("system/config"       "INIT_MODE=STANDALONE\nFS=Plan9")
-  
-  vfs_write("driver/tty0"         "COM1 Serial Terminal")
-  vfs_write("driver/ram"          "Dynamic Micro-kernel Memory Pool")
-  
-  # SD storage (machine maps)
-  vfs_write("sd00/boot.nx"        "exec(\"example/minios/boot.nx\")")
-  vfs_write("sd00/os.sys"         "NEXS CORE KERNEL BLOCK")
-  vfs_write("sd00/machine.id"     "NEXS-NODE-00")
-  
-  vfs_write("sd01/user.id"        "User-1-Root")
-  vfs_write("sd01/home/root.txt"  "Root workspace")
+  # --- /System/Library: CORE LIBRARIES ---
+  vfs_import("services/stdlib.nx"      "System/Library/stdlib.nx")
+  vfs_import("services/fs/init.nx"     "System/Library/fs.nx")
+  vfs_import("services/pm/init.nx"     "System/Library/pm.nx")
+  vfs_import("services/auth/init.nx"   "System/Library/auth.nx")
+  vfs_import("services/tty/init.nx"    "System/Library/tty.nx")
+  vfs_import("services/ui/init.nx"     "System/Library/ui.nx")
+  vfs_import("services/ui/img.nx"      "System/Library/ui_img.nx")
+  vfs_import("services/textbuf.nx"     "System/Library/textbuf.nx")
+  vfs_import("services/hw_dt.nx"       "System/Library/hw_dt.nx")
+  vfs_import("services/logos/init.nx"  "System/Library/logos.nx")
+  vfs_import("services/fs/regfs.nx"    "System/Library/regfs.nx")
 
-  vfs_write("sd02/user.id"        "User-2-user1")
-  vfs_write("sd02/home/user1.txt"  "Ciao user1! Benvenuto.")
+  # --- /Applications: USER-FACING PROGRAMS ---
+  vfs_import("example/minios/nxed_editor.nx" "Applications/nxed.nx")
+  vfs_import("example/minios/termimg.nx"     "Applications/termimg.nx")
+  vfs_import("example/minios/shell.nx"       "Applications/shell.nx")
 
-  # Cartella loghi sempre visibile in `ls sd02` (init_logos aggiunge i .nxtimg dopo)
-  vfs_mkdir("sd02/logos/")
-  vfs_write("sd02/logos/README.txt" "Immagini .nxtimg (sharded @@i / monolite). Vedi init_logos.nx e termimg.\n")
+  # --- /Users: HOME DIRECTORIES ---
+  # Root home
+  vfs_mkdir("Users/root/")
+  vfs_mkdir("Users/root/Documents/")
 
-  vfs_write("sd99/user.id"        "User-Guest")
-  vfs_write("sd99/tmp/test"       "Temporary guest cache")
+  # Standard user home
+  vfs_mkdir("Users/user/")
+  vfs_mkdir("Users/user/Documents/")
+  vfs_mkdir("Users/user/Pictures/")
+  vfs_write("Users/user/welcome.txt" "Benvenuto nel tuo spazio personale NEXS.\nLe app sono in /Applications, il sistema in /System.\nUsa 'help' per la lista dei comandi.")
 
-  kout("[P9] Hierarchy mounted successfully via 9P bindings.")
+  # Guest home
+  vfs_mkdir("Users/guest/")
+  vfs_mkdir("Users/guest/logos/")
+
+  # --- /etc: SYSTEM CONFIG ---
+  vfs_mkdir("etc/")
+  vfs_write("etc/hostname" "nexs-os")
+  vfs_write("etc/motd" "NEXS Modular Microkernel OS\nType 'help' for available commands.")
+
+  kout("[P9] VFS populated successfully.")
 }
 
 fn p9_file_manager(dir) {

@@ -12,44 +12,66 @@ if (G_DEBUG == 1) {
   out "[INIT] Fase 1: Caricamento Driver e Servizi (Librerie di Sistema)..."
 } else {}
 
-# Caricamento dei servizi di sistema
+# Caricamento dei servizi di sistema (CORE LIBRARIES)
 exec("services/stdlib.nx")
+PROC_PID = 1
+PROC_UID = 1
 exec("services/fs/init.nx")     # VFS & Mounts
-exec("services/pm/init.nx")     # PM
-exec("services/auth/init.nx")   # Auth & capabilities
+exec("services/pm/init.nx")     # PM (Runtime Supervisor)
+exec("services/auth/init.nx")   # Auth & UIDs
+auth_set_ring(1)                # Escalate to root for boot process
 exec("services/tty/init.nx")    # TTY
 exec("services/ui/init.nx")     # UI framebuffer
-exec("services/fs/p9_mnt.nx")   # 9P
+exec("services/ui/img.nx")      # Image rendering service
+exec("services/fs/p9_mnt.nx")   # 9P Namespace & Population
 exec("services/hw_dt.nx")       # HW Device Tree
 exec("services/textbuf.nx")     # Text Buffer Library
 exec("services/logos/init.nx")  # Logo Registry Service
+exec("example/minios/shell.nx") # Load shell functions (inherited by sessions)
 
 if (G_DEBUG == 1) {
   out "[INIT] Fase 2: Inizializzazione Sottosistemi..."
 } else {}
 hw_dt_init()
-p9_mnt_init()
+p9_mnt_init() # Popola il VFS (lib/, sysapp/, user/)
 
 if (G_DEBUG == 1) {
-  out "[INIT] Fase 3: Popolamento Root FS e Caricamento Loghi..."
+  out "[INIT] Fase 3: Caricamento Asset Immagini..."
 } else {}
-# I mount standard sono già fatti da services/fs/init.nx
-exec("example/minios/logo.nx")  # Carica loghi nel VFS (sd02/logos) - wrapper riutilizzabile
-exec("example/minios/logos_config.nx")  # Configurazione loghi e shortcut
-
-# Avvio dei demoni di sistema
-exec("example/minios/nxed_editor.nx")
-exec("example/minios/termimg.nx")        # TermImg — Image Viewer
-exec("example/minios/shell.nx")
+exec("example/minios/logo.nx")  # Carica loghi in /user/logos/
+exec("example/minios/logos_config.nx")
 
 if (G_DEBUG == 1) {
   out "==================================================="
-  out " [INIT] Boot completato. Cessione controllo alla UI."
+  out " [INIT] Boot completato. Sistema in esecuzione."
   out "==================================================="
 } else {
-  # In modalità silent (debug=0), mostriamo solo il logo prima della shell
+  # In modalità silent (debug=0), mostriamo il logo principale
   term_cls()
-  termimg_start("sd02/logos/logo1.nxtimg")
+  # Usiamo il nuovo servizio UI centralizzato
+  main_l = reg_get("/sys/logos/main")
+  if type(main_l) == "err" || main_l == "" { main_l = "/System/Library/logos/logo1.nxtimg" }
+  ui_draw_image(main_l 1 1)
 }
 
-shell_loop()
+reg_set("/sys/config/standalone" 1)
+
+# Avvio del Session Manager (Multitasking Cooperativo)
+# Questo inizializzera' la prima sessione chiedendo l'utente.
+pm_session_init()
+
+# PID 1 Wait Loop (Init process / Reaper)
+loop {
+  msg = receivemessage /proc/1/inbox
+  if msg == "shutdown" { exits("") }
+  
+  # Gestione slot vuoto: se la finestra attiva non ha un processo, mostra il multiplexer
+  active_idx = reg /sys/pm/session_active
+  active_pid = reg_get("/sys/pm/sessions/" + str(active_idx))
+  if active_pid == -1 {
+    # Mostra il menu di selezione (blocca finche' non si apre una nuova sessione o si cambia slot)
+    pm_session_switch(0)
+  }
+
+  sleep(500)
+}

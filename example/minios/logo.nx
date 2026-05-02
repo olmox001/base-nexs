@@ -1,93 +1,27 @@
-# example/minios/logo.nx — Wrapper per caricamento loghi .nxtimg
-# =============================================================================
-# Questo file è sia un programma eseguibile (logo.nx) che un modulo
-# incluso da boot.nx. Carica i file .nxtimg nel VFS per la visualizzazione
-# tramite termimg.
+# example/minios/logo.nx — Image Assets Seeding Utility
 # =============================================================================
 
-# Versione compatta del caricatore di loghi
-fn host_stream_to_vfs(host_path vfs_path) {
-  fd = open(host_path 0)
-  if fd < 0 { ret 0 }
-
-  # Registra il file principale nell'indice VFS (così 'ls' lo vede)
-  vfs_write(vfs_path "") 
-
-  chunk_sz = 512
-  i = 0
-  total_bytes = 0
-
-  loop {
-    chunk = read(fd chunk_sz)
-    if chunk == "" { break }
-    # Scrivi il chunk direttamente nel registry
-    reg_set("/sys/vfs/files/" + vfs_path + "@@" + str(i) chunk)
-    total_bytes = total_bytes + len(chunk)
-    i = i + 1
-  }
-  close(fd)
-
-  # Scrivi il numero di chunk come metadata
-  reg_set("/sys/vfs/files/" + vfs_path + "@@n" str(i))
-  
-  ret total_bytes
-}
-
-fn try_seed_logo(name vfs_base) {
-  # Prova percorsi relativi - robusto a vari working directory
-  # Cerca in ordine di probabilità
-  
-  # Tentativo 1: Da base-nexs/ (es. quando eseguito da base-nexs/)
-  n = host_stream_to_vfs("example/minios/logos/" + name vfs_base)
-  if n > 0 { ret n }
-  
-  # Tentativo 2: Da git/ (es. quando eseguito da base-nexs che è in git/)
-  n = host_stream_to_vfs("base-nexs/example/minios/logos/" + name vfs_base)
-  if n > 0 { ret n }
-  
-  # Tentativo 3: Da minios/ (es. quando eseguito da minios/)
-  n = host_stream_to_vfs("logos/" + name vfs_base)
-  if n > 0 { ret n }
-  
-  # Tentativo 4: Current dir (es. logo.nx è nella stessa cartella dei loghi)
-  n = host_stream_to_vfs("./logos/" + name vfs_base)
-  if n > 0 { ret n }
-  
-  ret 0
-}
-
-# Caricamento dei loghi nel VFS
 fn load_logos() {
-  debug = reg_get("/sys/config/debug")
-  kout("[INIT] Caricamento loghi nel VFS (formato .nxtimg)...")
+  kout("[INIT] Seeding image assets into /System/Library/logos/...")
 
   loaded = 0
-
-  # Logo principale (logo1 come default)
-  n1 = try_seed_logo("logo1.nxtimg" "sd02/logos/logo1.nxtimg")
-  if (n1 > 0) {
-    kout("  [OK] logo1.nxtimg → " + str(n1) + " bytes")
-    loaded = loaded + 1
-    reg_set("/sys/logos/main" "sd02/logos/logo1.nxtimg")
-  } else {
-    kout("  [WARN] logo1.nxtimg non trovato in percorsi relativi")
-  }
-
-  # Logo alternativo 2
-  n2 = try_seed_logo("logo2.nxtimg" "sd02/logos/logo2.nxtimg")
-  if (n2 > 0) {
-    kout("  [OK] logo2.nxtimg → " + str(n2) + " bytes")
-    loaded = loaded + 1
-  } else {
-    kout("  [WARN] logo2.nxtimg non trovato in percorsi relativi")
-  }
-
-  # Registra il conteggio totale
-  reg_set("/sys/logos/count" str(loaded))
-  kout("[INIT] Loghi caricati: " + str(loaded) + " asset nel registry (/sys/logos/)")
   
+  # Usiamo vfs_import che gestisce automaticamente lo sharding nel VFS
+  n1 = vfs_import("example/minios/logos/logo1.nxtimg" "System/Library/logos/logo1.nxtimg")
+  if n1 > 0 {
+    kout("  [OK] logo1.nxtimg (" + str(n1) + " bytes)")
+    reg_set("/sys/logos/main" "/System/Library/logos/logo1.nxtimg")
+    loaded = loaded + 1
+  }
+
+  n2 = vfs_import("example/minios/logos/logo2.nxtimg" "System/Library/logos/logo2.nxtimg")
+  if n2 > 0 {
+    kout("  [OK] logo2.nxtimg (" + str(n2) + " bytes)")
+    loaded = loaded + 1
+  }
+
+  reg_set("/sys/logos/count" str(loaded))
   ret loaded
 }
 
-# Esecuzione automatica durante load (boot sequence)
 load_logos()

@@ -1,48 +1,71 @@
-# services/ui — Framebuffer / UI service
-# Single-app model: one fullscreen app at a time (Android/iOS-style).
-# Uses double-buffering via /sys/ui/buf[0|1].
+# services/ui/init.nx — Multi-Tasking Virtual TTY & UI
+# ===================================================================
+# Ogni processo ha il suo buffer video in PROC_BASE + "/vterm".
+# ui_flip() sincronizza il buffer virtuale con il terminale fisico.
 
 reg /sys/ui/width   = 80
 reg /sys/ui/height  = 24
-reg /sys/ui/active_app = ""
-reg /sys/ui/front_buf  = 0
 
-fn ui_init(w h) {
-  reg /sys/ui/width  = w
-  reg /sys/ui/height = h
-  term_cls()
-  term_cursor_show(0)
-  kout("[ui] Framebuffer " + str(w) + "x" + str(h) + " initialised.")
+fn ui_init() {
+  # Inizializza il buffer virtuale locale se non esiste
+  if type(PROC_BASE) == "err" { ret -1 }
+  
+  # Crea una matrice vuota (array di stringhe per ogni riga)
+  vterm = arr_create_anon()
+  h = reg /sys/ui/height
+  i = 0
+  loop {
+    if i >= h { break }
+    arr_ins(vterm i "")
+    i = i + 1
+  }
+  reg_set(PROC_BASE + "/vterm" vterm)
   ret 0
 }
 
-fn ui_launch(app_path) {
-  prev = reg /sys/ui/active_app
-  if prev != "" {
-    kout("[ui] Suspending: " + prev)
-  }
-  reg /sys/ui/active_app = app_path
-  term_cls()
-  exec(app_path)
-  reg /sys/ui/active_app = ""
+fn ui_at(y x txt) {
+  vterm = reg_get(PROC_BASE + "/vterm")
+  if type(vterm) == "err" { ret -1 }
+  
+  # Aggiorna la riga nel buffer virtuale (semplificato)
+  yi = y - 1
+  vterm[yi] = txt 
   ret 0
+}
+
+
+fn ui_cls() {
+  vterm = reg_get(PROC_BASE + "/vterm")
+  if type(vterm) == "err" { ret -1 }
+  i = 0
+  loop {
+    if i >= len(vterm) { break }
+    vterm[i] = ""
+    i = i + 1
+  }
 }
 
 fn ui_flip() {
-  front = reg /sys/ui/front_buf
-  if front == 0 {
-    reg /sys/ui/front_buf = 1
-  } else {
-    reg /sys/ui/front_buf = 0
+  # Se siamo in primo piano, disegna tutto il buffer virtuale
+  if !pm_is_fg(PROC_PID) { ret 0 }
+  
+  vterm = reg_get(PROC_BASE + "/vterm")
+  if type(vterm) == "err" { ret -1 }
+  
+  term_cls()
+  i = 0
+  loop {
+    if i >= len(vterm) { break }
+    txt = vterm[i]
+    if txt != "" {
+      term_at(i + 1 1 txt)
+    }
+    i = i + 1
   }
   term_flush()
   ret 0
 }
 
-fn ui_clear() {
-  term_cls()
-  ret 0
-}
-
 reg /sys/ui/status = "ready"
-kout("[ui] UI service initialised.")
+kout("[ui] Virtual TTY manager ready.")
+

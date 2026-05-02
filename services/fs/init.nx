@@ -1,7 +1,11 @@
-# services/fs — Filesystem / VFS service
-# Manages mount table at /sys/fs/mounts/ and exports helpers.
-# sd00 = drivers, sd01 = system, sd02 = root apps, sd03-97 = users,
-# sd98 = guest, sd99 = cache.
+# services/fs/init.nx — NEXS Virtual File System
+# ===================================================================
+# Mount table at /sys/fs/mounts/. VFS index at /sys/vfs/idx/.
+# Files stored at /sys/vfs/files/<normalized_path>.
+# Large files sharded as /sys/vfs/files/<path>@@0, @@1, ... @@n.
+# Mount points route operations to registry branches.
+
+# ── Mount Table ──────────────────────────────────────────────────────
 
 reg /sys/fs/mount_count = 0
 
@@ -20,12 +24,12 @@ fn fs_mount(src dst fstype) {
 
 fn fs_umount(dst) {
   unmount("" dst)
-  out "[fs] Unmounted " + dst
+  kout("[fs] Unmounted " + dst)
   ret 0
 }
 
 fn fs_sync() {
-  out "[fs] Syncing..."
+  kout("[fs] Syncing...")
   ret 0
 }
 
@@ -33,93 +37,233 @@ fn fs_stat(path) {
   ret fstat(path)
 }
 
-# Initialise standard POSIX-style mount namespace
-fs_mount("/sys/registry" "/reg"      "regfs")
-fs_mount("/sd00"         "/dev"      "drivers")
-fs_mount("/sd01"         "/usr"      "system")
-fs_mount("/sd02"         "/apps"     "regfs")
-fs_mount("/sd98"         "/guest"    "regfs")
-fs_mount("/sd99"         "/cache"    "regfs")
+# ── VFS Index ────────────────────────────────────────────────────────
 
-# VFS logic (integrated)
 reg /sys/vfs/count = 0
 
-fn vfs_write(nome_file contenuto) {
-  count = reg /sys/vfs/count
-  i = 0
-  loop {
-    if i >= count { break }
-    nome_chiave = "/sys/vfs/idx/" + str(i)
-    nome_esistente = reg_get(nome_chiave)
-    if nome_esistente == nome_file {
-      reg_set("/sys/vfs/files/" + nome_file, contenuto)
-      ret nil
-    }
-    i = i + 1
+# ── System Mounts ────────────────────────────────────────────────────
+# These create the top-level namespace visible in ls /
+
+fs_mount("/sys/registry" "/reg"      "regfs")
+fs_mount("/sys/hw"       "/dev"      "devfs")
+fs_mount("/sys/pm/procs" "/proc"     "procfs")
+
+# ── Authorization ────────────────────────────────────────────────────
+
+fn vfs_check_perm(path op) {
+  ring = auth_get_ring()
+  if type(ring) == "err" || ring <= 1 { ret 1 } # Ring 0 (machine) and 1 (root) can do anything
+
+  p = vfs_normalize_path(path)
+  uid = auth_get_uid()
+  home = auth_get_home(uid)
+  norm_home = vfs_normalize_path(home)
+
+  # Read-only public paths
+  if op == "read" {
+    if substr(p 0 6) == "System" || substr(p 0 12) == "Applications" || substr(p 0 3) == "reg" || substr(p 0 3) == "dev" || substr(p 0 3) == "etc" || substr(p 0 4) == "proc" { ret 1 }
   }
-  reg_set("/sys/vfs/files/" + nome_file, contenuto)
-  reg_set("/sys/vfs/idx/" + str(count), nome_file)
-  reg /sys/vfs/count = count + 1
+
+  # Read-write in user's home
+  if len(p) >= len(norm_home) {
+    if substr(p 0 len(norm_home)) == norm_home { ret 1 }
+  }
+  
+  # Read-write in /tmp
+  if substr(p 0 3) == "tmp" { ret 1 }
+
+  kout("[fs] [ERR] EPERM: UID " + str(uid) + " negato " + op + " su /" + p)
+  ret 0
 }
 
-fn vfs_read(nome_file) {
-  val = reg_get("/sys/vfs/files/" + nome_file)
-  if type(val) == "err" { ret "ERR: File '" + nome_file + "' non trovato" }
-  ret val
+# ── Path Utilities ───────────────────────────────────────────────────
+
+fn vfs_normalize_path(path) {
+  # Strip leading and trailing slashes for internal indexing
+  if path == "/" || path == "" { ret "" }
+  if substr(path 0 1) == "/" { path = substr(path 1 len(path)-1) }
+  if len(path) > 0 {
+    if substr(path len(path)-1 1) == "/" { path = substr(path 0 len(path)-1) }
+  }
+  ret path
 }
 
 fn vfs_resolve(path cwd) {
-  if path == "" { ret cwd }
-  if substr(path 0 1) == "/" { ret substr(path 1 len(path)-1) }
-  if cwd == "" || cwd == "/" { ret path }
-  if substr(cwd 0 1) == "/" { cwd = substr(cwd 1 len(cwd)-1) }
-  ret cwd + "/" + path
+  if type(path) == "err" { path = "" }
+  if type(cwd) == "err" { cwd = "/" }
+  
+  if path == "" {
+    if cwd == "" { ret "/" }
+    if substr(cwd 0 1) != "/" { ret "/" + cwd }
+    ret cwd
+  }
+
+  work = ""
+  if substr(path 0 1) == "/" { work = path }
+  else {
+    if cwd == "" || cwd == "/" { work = "/" + path }
+    else {
+      if substr(cwd len(cwd)-1 1) != "/" { cwd = cwd + "/" }
+      if substr(cwd 0 1) != "/" { cwd = "/" + cwd }
+      work = cwd + path
+    }
+  }
+
+  parts = split(work "/")
+  final_parts = arr_create_anon()
+  f_i = 0
+  
+  p_i = 0
+  loop {
+    if p_i >= len(parts) { break }
+    p = parts[p_i]
+    if p != "" && p != "." {
+      if p == ".." {
+        if f_i > 0 {
+          arr_del(final_parts f_i - 1)
+          f_i = f_i - 1
+        }
+      } else {
+        arr_ins(final_parts f_i p)
+        f_i = f_i + 1
+      }
+    }
+    p_i = p_i + 1
+  }
+
+  res = "/" + arr_join(final_parts "/")
+  ret res
 }
 
-fn vfs_rm(nome_file) {
-  reg_del("/sys/vfs/files/" + nome_file)
-  count = reg /sys/vfs/count
+# ── Mount Lookup (longest prefix match) ──────────────────────────────
+
+fn _fs_find_mount(path) {
+  # Returns mount index or -1
+  mc = reg /sys/fs/mount_count
   i = 0
+  best = -1
+  best_len = 0
   loop {
-    if i >= count { break }
-    slot_key = "/sys/vfs/idx/" + str(i)
-    if reg_get(slot_key) == nome_file {
-      reg_set(slot_key "")
-      break
+    if i >= mc { break }
+    dst = reg_get("/sys/fs/mounts/" + str(i) + "/dst")
+    dl = len(dst)
+    if dl > 0 && dl <= len(path) {
+      if substr(path 0 dl) == dst {
+        # Must match exactly or be followed by /
+        if dl == len(path) || substr(path dl 1) == "/" {
+          if dl > best_len {
+            best_len = dl
+            best = i
+          }
+        }
+      }
     }
     i = i + 1
   }
+  ret best
 }
 
-fn vfs_mkdir(nome_dir) {
-  # Se il percorso non termina con /, lo aggiungiamo
-  if substr(nome_dir len(nome_dir) - 1 1) != "/" {
-    nome_dir = nome_dir + "/"
+# ── File Write (with sharding) ───────────────────────────────────────
+
+fn vfs_write(path content) {
+  if !vfs_check_perm(path "write") { ret "ERR: EPERM" }
+  nome = vfs_normalize_path(path)
+  limit = 4000
+  if len(content) > limit {
+    count = 0
+    pos = 0
+    loop {
+      if pos >= len(content) { break }
+      chunk = substr(content pos limit)
+      reg_set("/sys/vfs/files/" + nome + "@@" + str(count) chunk)
+      pos = pos + len(chunk)
+      count = count + 1
+    }
+    reg_set("/sys/vfs/files/" + nome + "@@n" str(count))
+    content = ""
   }
-  
-  # Verifichiamo se esiste già (opzionale, ma consigliato)
-  # Per ora aggiungiamo semplicemente all'indice
-  count = reg /sys/vfs/count
-  reg_set("/sys/vfs/idx/" + str(count), nome_dir)
-  reg /sys/vfs/count = count + 1
-}
-
-fn vfs_cp(src dst) {
-  data = vfs_read(src)
-  if type(data) != "err" {
-    vfs_write(dst data)
+  # Register in index if new
+  idx_count = reg /sys/vfs/count
+  i = 0
+  loop {
+    if i >= idx_count { break }
+    if reg_get("/sys/vfs/idx/" + str(i)) == nome {
+      reg_set("/sys/vfs/files/" + nome content)
+      ret 0
+    }
+    i = i + 1
   }
+  reg_set("/sys/vfs/files/" + nome content)
+  reg_set("/sys/vfs/idx/" + str(idx_count) nome)
+  reg /sys/vfs/count = idx_count + 1
+  ret 0
 }
 
-fn vfs_mv(src dst) {
-  vfs_cp(src dst)
-  vfs_rm(src)
+# ── File Read (with shard reassembly) ────────────────────────────────
+
+fn vfs_read(path) {
+  if !vfs_check_perm(path "read") { ret "ERR: EPERM" }
+  # Check mount points first
+  mi = _fs_find_mount(path)
+  if mi != -1 {
+    dst = reg_get("/sys/fs/mounts/" + str(mi) + "/dst")
+    src = reg_get("/sys/fs/mounts/" + str(mi) + "/fstype")
+    m_src = reg_get("/sys/fs/mounts/" + str(mi) + "/src")
+    rel = ""
+    if len(path) > len(dst) { rel = substr(path len(dst) len(path) - len(dst)) }
+    if src == "regfs" { ret reg_get(m_src + rel) }
+  }
+  # VFS index lookup
+  nome = vfs_normalize_path(path)
+  # Sharded?
+  ns = reg_get("/sys/vfs/files/" + nome + "@@n")
+  if type(ns) != "err" {
+    total = ""
+    cnt = int(ns)
+    j = 0
+    loop {
+      if j >= cnt { break }
+      shard = reg_get("/sys/vfs/files/" + nome + "@@" + str(j))
+      if type(shard) != "err" { total = total + shard }
+      j = j + 1
+    }
+    ret total
+  }
+  # Monolithic
+  val = reg_get("/sys/vfs/files/" + nome)
+  if type(val) == "err" { ret "ERR: file non trovato: " + path }
+  ret val
 }
 
-fn vfs_dir_exists(dir) {
-  if dir == "" || dir == "/" { ret 1 }
-  if substr(dir 0 1) == "/" { dir = substr(dir 1 len(dir)-1) }
-  prefix = dir + "/"
+# ── Existence Check (files + directories + mount points) ─────────────
+
+fn vfs_exists(path) {
+  if path == "" || path == "/" { ret 1 }
+  # Check mount points
+  mi = _fs_find_mount(path)
+  if mi != -1 { ret 1 }
+  # Check if it IS a mount destination
+  mc = reg /sys/fs/mount_count
+  i = 0
+  loop {
+    if i >= mc { break }
+    dst = reg_get("/sys/fs/mounts/" + str(i) + "/dst")
+    if dst == path { ret 1 }
+    # Also check without leading slash
+    norm_dst = vfs_normalize_path(dst)
+    norm_path = vfs_normalize_path(path)
+    if norm_dst == norm_path { ret 1 }
+    i = i + 1
+  }
+  # Check VFS files
+  p = vfs_normalize_path(path)
+  val = reg_get("/sys/vfs/files/" + p)
+  if type(val) != "err" { ret 1 }
+  val = reg_get("/sys/vfs/files/" + p + "@@n")
+  if type(val) != "err" { ret 1 }
+  # Check directories (prefix match in index)
+  prefix = p
+  if prefix != "" { prefix = prefix + "/" }
   plen = len(prefix)
   count = reg /sys/vfs/count
   i = 0
@@ -127,53 +271,88 @@ fn vfs_dir_exists(dir) {
     if i >= count { break }
     n = reg_get("/sys/vfs/idx/" + str(i))
     if n != "" {
-      if substr(n 0 plen) == prefix { ret 1 }
-      if n == dir { ret 1 }
+      if len(n) >= plen {
+        if substr(n 0 plen) == prefix { ret 1 }
+      }
+      if n == p || n == (p + "/") { ret 1 }
     }
     i = i + 1
   }
   ret 0
 }
 
+# ── Directory Listing ────────────────────────────────────────────────
+
 fn vfs_ls(dir) {
-  # Normalizzazione dir
+  if !vfs_check_perm(dir "read") { 
+    out "ls: permesso negato per " + dir
+    ret "ERR: EPERM" 
+  }
+  # Normalize for display
+  if type(dir) == "err" { dir = "/" }
   if dir == "" || dir == "/" {
     dir = ""
     out "  === VFS [/] ==="
   } else {
-    # Rimuovi leading / se presente
-    if substr(dir 0 1) == "/" { dir = substr(dir 1 len(dir)-1) }
     out "  === VFS [" + dir + "] ==="
   }
-  
-  prefix = dir
+
+  prefix = vfs_normalize_path(dir)
   if prefix != "" { prefix = prefix + "/" }
   plen = len(prefix)
-  
+
   found_any = 0
-  if dir == "" { found_any = 1 } # Root exists always
+  if dir == "" { found_any = 1 }
 
   seen_dirs = "|"
+
+  # Show mount points at root level
+  if dir == "" {
+    mc = reg /sys/fs/mount_count
+    mi = 0
+    loop {
+      if mi >= mc { break }
+      m_dst = reg_get("/sys/fs/mounts/" + str(mi) + "/dst")
+      display = vfs_normalize_path(m_dst)
+      if display != "" {
+        # Only show top-level part
+        slash = -1
+        si = 0
+        loop {
+          if si >= len(display) { break }
+          if substr(display si 1) == "/" { slash = si
+            break
+          }
+          si = si + 1
+        }
+        if slash != -1 { display = substr(display 0 slash) }
+        if !contains(seen_dirs "|" + display + "|") {
+          out "  [DIR]  " + display + "/"
+          seen_dirs = seen_dirs + display + "|"
+        }
+      }
+      mi = mi + 1
+    }
+  }
+
+  # Show VFS index entries
   count = reg /sys/vfs/count
   i = 0
   loop {
     if i >= count { break }
     n = reg_get("/sys/vfs/idx/" + str(i))
-    if n != "" {
-      # Controllo se il file è nel path richiesto
+    if n != "" && !contains(n "@@") {
       match = 0
-      if dir == "" {
-        match = 1
-      } else {
-        if substr(n 0 plen) == prefix {
-          match = 1
+      if dir == "" { match = 1 }
+      else {
+        if len(n) >= plen {
+          if substr(n 0 plen) == prefix { match = 1 }
         }
       }
-      
       if match == 1 {
         found_any = 1
         rest = substr(n plen len(n) - plen)
-        # Se rest contiene "/", allora è in una sottodirectory
+        # Find first slash in rest
         slash_pos = -1
         j = 0
         loop {
@@ -184,16 +363,13 @@ fn vfs_ls(dir) {
           }
           j = j + 1
         }
-        
         if slash_pos != -1 {
-          # È una directory
           dname = substr(rest 0 slash_pos)
           if !contains(seen_dirs "|" + dname + "|") {
             out "  [DIR]  " + dname + "/"
             seen_dirs = seen_dirs + dname + "|"
           }
         } else {
-          # È un file
           if rest != "" {
             out "  [FILE] " + rest
           }
@@ -204,10 +380,138 @@ fn vfs_ls(dir) {
   }
 
   if found_any == 0 {
-    # Restituiamo un errore del registry per far scattare type() == "err"
     ret reg_get("/sys/vfs/errors/not_found")
   }
+  ret 0
 }
+
+# ── Directory Operations ────────────────────────────────────────────
+
+fn vfs_mkdir(nome_dir) {
+  if !vfs_check_perm(nome_dir "write") { ret "ERR: EPERM" }
+  if substr(nome_dir len(nome_dir) - 1 1) != "/" {
+    nome_dir = nome_dir + "/"
+  }
+  # Check if already exists
+  count = reg /sys/vfs/count
+  i = 0
+  loop {
+    if i >= count { break }
+    if reg_get("/sys/vfs/idx/" + str(i)) == nome_dir { ret 0 }
+    i = i + 1
+  }
+  reg_set("/sys/vfs/idx/" + str(count) nome_dir)
+  reg /sys/vfs/count = count + 1
+  ret 0
+}
+
+fn vfs_rm(nome_file) {
+  if !vfs_check_perm(nome_file "write") { ret "ERR: EPERM" }
+  nome_file = vfs_normalize_path(nome_file)
+  reg_del("/sys/vfs/files/" + nome_file)
+  # Clean shards
+  ns = reg_get("/sys/vfs/files/" + nome_file + "@@n")
+  if type(ns) != "err" {
+    cnt = int(ns)
+    j = 0
+    loop {
+      if j >= cnt { break }
+      reg_del("/sys/vfs/files/" + nome_file + "@@" + str(j))
+      j = j + 1
+    }
+    reg_del("/sys/vfs/files/" + nome_file + "@@n")
+  }
+  # Remove from index
+  count = reg /sys/vfs/count
+  i = 0
+  loop {
+    if i >= count { break }
+    if reg_get("/sys/vfs/idx/" + str(i)) == nome_file {
+      reg_set("/sys/vfs/idx/" + str(i) "")
+      break
+    }
+    i = i + 1
+  }
+  ret 0
+}
+
+fn vfs_cp(src dst) {
+  data = vfs_read(src)
+  if type(data) != "err" && substr(data 0 4) != "ERR:" {
+    vfs_write(dst data)
+  }
+  ret 0
+}
+
+fn vfs_mv(src dst) {
+  vfs_cp(src dst)
+  vfs_rm(src)
+  ret 0
+}
+
+# ── Host Bridge I/O ─────────────────────────────────────────────────
+
+fn vfs_import(host_path vfs_path) {
+  fd = open(host_path 0)
+  if fd < 0 { ret 0 }
+
+  # Clean up existing
+  vfs_rm(vfs_path)
+
+  chunk_sz = 4000
+  i = 0
+  total_bytes = 0
+
+  loop {
+    chunk = read(fd chunk_sz)
+    if chunk == "" { break }
+    reg_set("/sys/vfs/files/" + vfs_path + "@@" + str(i) chunk)
+    total_bytes = total_bytes + len(chunk)
+    i = i + 1
+  }
+  close(fd)
+
+  if i > 1 {
+    reg_set("/sys/vfs/files/" + vfs_path + "@@n" str(i))
+    vfs_write(vfs_path "")
+  } else {
+    shard = reg_get("/sys/vfs/files/" + vfs_path + "@@0")
+    if type(shard) != "err" {
+      vfs_write(vfs_path shard)
+      reg_del("/sys/vfs/files/" + vfs_path + "@@0")
+    }
+  }
+
+  ret total_bytes
+}
+
+fn vfs_export(vfs_path host_path) {
+  fd = create(host_path 1 0644)
+  if fd < 0 { ret 0 }
+
+  nome = vfs_normalize_path(vfs_path)
+  ns = reg_get("/sys/vfs/files/" + nome + "@@n")
+  if type(ns) != "err" {
+    cnt = int(ns)
+    j = 0
+    loop {
+      if j >= cnt { break }
+      shard = reg_get("/sys/vfs/files/" + nome + "@@" + str(j))
+      if type(shard) != "err" { write(fd shard) }
+      j = j + 1
+    }
+  } else {
+    data = vfs_read(vfs_path)
+    if type(data) != "err" {
+      write(fd data)
+    }
+  }
+
+  close(fd)
+  ret 1
+}
+
+# ── Init ─────────────────────────────────────────────────────────────
 
 reg /sys/fs/status = "ready"
 kout("[fs] Filesystem service initialised.")
