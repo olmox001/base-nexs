@@ -940,8 +940,8 @@ ASTNode *parse_program(Parser *p) {
       if (!p->had_error && p->cur.kind != TK_NEWLINE && p->cur.kind != TK_EOF &&
           p->cur.kind != TK_RBRACE) {
         snprintf(p->error_msg, sizeof(p->error_msg),
-                 "%s:%d:%d: error: expected end of line after statement, found '%s' (kind %d)",
-                 p->filename, p->cur.line, p->cur.col, p->cur.text, p->cur.kind);
+                 "%s:%d:%d: error: expected end of line after statement, found '%s'",
+                 p->filename, p->cur.line, p->cur.col, p->cur.text);
         p->had_error = 1;
         break;
       }

@@ -41,7 +41,6 @@
 #include "../hal/include/nexs_timer.h"
 #define nexs_sleep_ms(ms) hal_timer_sleep_ms(ms)
 #endif
-#include <string.h>
 
 /* =========================================================
    HELPER — register into both fn_table and registry /sys/
@@ -794,7 +793,7 @@ Value builtin_vfs_rm(Value *args, int n) {
   snprintf(target, sizeof(target), "/sys/vfs/files/%s", path);
   reg_delete(target);
 
-  /* 2. Null out index entry (simple approach: don't shift, just clear) */
+  /* 2. Remove index entry: swap with last slot, then decrement count */
   Value v_count = reg_get("/sys/vfs/count");
   int count = (int)val_to_int(&v_count);
   val_free(&v_count);
@@ -804,8 +803,19 @@ Value builtin_vfs_rm(Value *args, int n) {
     snprintf(idx_path, sizeof(idx_path), "/sys/vfs/idx/%d", i);
     Value v_name = reg_get(idx_path);
     if (v_name.type == TYPE_STR && v_name.data && strcmp((char*)v_name.data, path) == 0) {
-      reg_set(idx_path, val_str(""), RK_ALL);
       val_free(&v_name);
+      int last = count - 1;
+      if (i < last) {
+        char last_path[64];
+        snprintf(last_path, sizeof(last_path), "/sys/vfs/idx/%d", last);
+        Value v_last = reg_get(last_path);
+        reg_set(idx_path, v_last, RK_ALL);
+        val_free(&v_last);
+        reg_delete(last_path);
+      } else {
+        reg_delete(idx_path);
+      }
+      reg_set("/sys/vfs/count", val_int((int64_t)(count - 1)), RK_ALL);
       break;
     }
     val_free(&v_name);
@@ -825,16 +835,25 @@ Value builtin_vfs_mkdir(Value *args, int n) {
     strncat(dpath, "/", sizeof(dpath) - len - 1);
   }
 
-  /* Add to index as a directory (ends with /) */
+  /* Add to index as a directory (ends with /), idempotent */
   Value v_count = reg_get("/sys/vfs/count");
   int count = (int)val_to_int(&v_count);
   val_free(&v_count);
+
+  for (int i = 0; i < count; i++) {
+    char chk[64];
+    snprintf(chk, sizeof(chk), "/sys/vfs/idx/%d", i);
+    Value v = reg_get(chk);
+    int dup = (v.type == TYPE_STR && v.data && strcmp((char*)v.data, dpath) == 0);
+    val_free(&v);
+    if (dup) return val_nil();
+  }
 
   char idx_path[64];
   snprintf(idx_path, sizeof(idx_path), "/sys/vfs/idx/%d", count);
   reg_set(idx_path, val_str(dpath), RK_ALL);
   reg_set("/sys/vfs/count", val_int((int64_t)count + 1), RK_ALL);
-  
+
   return val_nil();
 }
 
@@ -955,48 +974,6 @@ static Value builtin_tb_delete_char(Value *args, int n) {
   xfree(new_str);
   val_free(&line_val);
   return val_int(1);
-}
-
-/* Registry navigation built-in (legacy 'ls' for Registry) */
-Value builtin_ls(Value *args, int n) {
-  const char *path = (n >= 1 && args[0].type == TYPE_STR && args[0].data) ? (char *)args[0].data : "";
-  FILE *out = (nexs_g_eval_ctx && nexs_g_eval_ctx->out) ? nexs_g_eval_ctx->out : stdout;
-
-  if (path[0] == '/') {
-    reg_ls((char *)path, out);
-  } else {
-    /* Use Registry CWD */
-    char full[REG_PATH_MAX];
-    const char *cwd = nexs_g_eval_ctx ? nexs_g_eval_ctx->scope : "/";
-    if (strcmp(cwd, "/") == 0) snprintf(full, sizeof(full), "/%s", path);
-    else snprintf(full, sizeof(full), "%s/%s", cwd, path);
-    reg_ls(full, out);
-  }
-  return val_nil();
-}
-
-/* Registry navigation built-in (legacy 'cd' for Registry) */
-Value builtin_cd(Value *args, int n) {
-  if (n < 1 || args[0].type != TYPE_STR) return val_err(4, "cd: path");
-  const char *path = (char*)args[0].data;
-  if (nexs_g_eval_ctx) {
-    RegKey *k = reg_resolve(path, nexs_g_eval_ctx->scope);
-    if (k) {
-      strncpy(nexs_g_eval_ctx->scope, k->path, REG_PATH_MAX - 1);
-    } else {
-      return val_err(404, "Registry path not found");
-    }
-  }
-  return val_nil();
-}
-
-/* Registry navigation built-in (legacy 'pwd' for Registry) */
-Value builtin_pwd(Value *args, int n) {
-  if (nexs_g_eval_ctx) {
-    FILE *out = nexs_g_eval_ctx->out ? nexs_g_eval_ctx->out : stdout;
-    nexs_fprintf(out, "REG_CWD: %s\n", nexs_g_eval_ctx->scope);
-  }
-  return val_nil();
 }
 
 /* =========================================================

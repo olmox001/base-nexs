@@ -26,6 +26,10 @@
 #include <stdio.h>
 #include <string.h>
 
+extern Value builtin_vfs_ls(Value *args, int n);
+extern Value builtin_vfs_cd(Value *args, int n);
+extern Value builtin_vfs_pwd(Value *args, int n);
+
 /* =========================================================
    CONTEXT INIT
    ========================================================= */
@@ -378,8 +382,6 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
   /* --- VFS list (ls) --- */
   case AST_LS: {
     Value arg = val_str(n->path);
-    /* We can call the builtin directly if we forward declare it, or use the registry */
-    extern Value builtin_vfs_ls(Value *args, int n);
     Value res = builtin_vfs_ls(&arg, 1);
     val_free(&arg);
     return ok(res);
@@ -395,17 +397,16 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
       if (vr.sig != CTRL_NONE) return vr;
       arg = vr.ret_val;
     }
-    extern Value builtin_vfs_cd(Value *args, int n);
     Value res = builtin_vfs_cd(&arg, 1);
     val_free(&arg);
     return ok(res);
   }
+
+  /* --- VFS PWD (pwd) --- */
   case AST_PWD: {
-    /* VFS pwd */
-    extern Value builtin_vfs_pwd(Value *args, int n);
     Value r = builtin_vfs_pwd(NULL, 0);
     if (r.type == TYPE_STR) {
-      printf("%s\n", (char *)r.data);
+      nexs_fprintf(ctx->out, "%s\n", (char *)r.data);
     }
     return ok(r);
   }

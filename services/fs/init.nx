@@ -42,7 +42,7 @@ fs_mount("/sd98"         "/guest"    "regfs")
 fs_mount("/sd99"         "/cache"    "regfs")
 
 fn vfs_cp(src, dst) {
-    var data = vfs_read(src)
+    data = vfs_read(src)
     if (type(data) != "err") {
         vfs_write(dst, data)
     }

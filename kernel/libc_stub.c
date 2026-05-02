@@ -14,6 +14,7 @@
 #include "../core/include/nexs_alloc.h"
 #include "../hal/include/nexs_hal.h"
 #include "../core/include/nexs_utils.h"
+#include "include/nexs_proc.h"
 
 static char dummy_stdout[16];
 static char dummy_stderr[16];
@@ -420,6 +421,12 @@ char* strstr(const char* haystack, const char* needle) {
     }
     return NULL;
 }
+char* strcat(char* dest, const char* src) {
+    char* p = dest;
+    while (*p) p++;
+    while ((*p++ = *src++));
+    return dest;
+}
 char* strncat(char* dest, const char* src, size_t count) {
     char* p = dest;
     while (*p) p++;
@@ -559,6 +566,6 @@ int poll(struct pollfd *fds, unsigned int nfds, int timeout) { (void)fds; (void)
 int usleep(useconds_t usec) { (void)usec; return 0; }
 unsigned int alarm(unsigned int seconds) { (void)seconds; return 0; }
 pid_t fork(void) { return -1; }
-pid_t getpid(void) { return 1; }
+pid_t getpid(void) { return (pid_t)(g_current_proc ? g_current_proc->pid : 1); }
 char *getcwd(char *buf, size_t size) { (void)buf; (void)size; return NULL; }
 void (*signal(int signum, void (*handler)(int)))(int) { (void)signum; (void)handler; return SIG_IGN; }

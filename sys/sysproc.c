@@ -21,6 +21,7 @@
 
 #ifdef NEXS_BAREMETAL
 #  include "../hal/include/nexs_hal.h"
+#  include "../kernel/include/nexs_sched.h"
 #endif
 
 /*
@@ -42,6 +43,12 @@ __attribute__((weak)) const char *nexs_embedded_lookup(const char *path) {
 int nexs_sleep(int msec) {
   if (msec <= 0) return 0;
   usleep((useconds_t)msec * 1000);
+  return 0;
+}
+#else
+int nexs_sleep(int msec) {
+  int yields = msec > 0 ? msec / 10 + 1 : 0;
+  for (int i = 0; i < yields; i++) sched_yield();
   return 0;
 }
 #endif
@@ -78,6 +85,19 @@ void nexs_exits(const char *status) {
   exit(1);
 #endif
 }
+
+#ifdef NEXS_BAREMETAL
+int nexs_rfork(int flags) {
+  (void)flags;
+  return -1;  /* address-space fork unavailable; use exec() directly */
+}
+
+int nexs_await(char *buf, int nbuf) {
+  if (!buf || nbuf <= 0) return -1;
+  strncpy(buf, "", (size_t)nbuf);
+  return -1;
+}
+#endif
 
 #ifndef NEXS_BAREMETAL
 int nexs_alarm(int msec) {
@@ -118,12 +138,10 @@ int nexs_await(char *buf, int nbuf) {
    BUILT-IN WRAPPERS
    ========================================================= */
 
-#ifndef NEXS_BAREMETAL
 static Value bi_sleep(Value *args, int n) {
   if (n < 1) return val_err(4, "sleep: requires milliseconds");
   return val_int(nexs_sleep((int)val_to_int(&args[0])));
 }
-#endif
 
 static Value bi_exec(Value *args, int n) {
   if (n < 1) return val_err(4, "exec: requires a path");
@@ -147,6 +165,7 @@ static Value bi_alarm(Value *args, int n) {
   if (n < 1) return val_err(4, "alarm: requires milliseconds");
   return val_int(nexs_alarm((int)val_to_int(&args[0])));
 }
+#endif
 
 static Value bi_rfork(Value *args, int n) {
   int flags = (n >= 1) ? (int)val_to_int(&args[0]) : NEXS_RFPROC;
@@ -163,16 +182,27 @@ static Value bi_await(Value *args, int n) {
 
 static Value bi_getpid(Value *args, int n) {
   (void)args; (void)n;
+#ifdef NEXS_BAREMETAL
+  NexsProc *p = proc_current();
+  return val_int(p ? (int64_t)p->pid : 1);
+#else
   return val_int((int64_t)getpid());
+#endif
 }
 
 static Value bi_getwd(Value *args, int n) {
   (void)args; (void)n;
+#ifdef NEXS_BAREMETAL
+  Value cwd = reg_get("/sys/vfs/cwd");
+  if (cwd.type == TYPE_STR && cwd.data) return cwd;
+  val_free(&cwd);
+  return val_str("/");
+#else
   char buf[REG_PATH_MAX];
   if (!getcwd(buf, sizeof(buf))) return val_err(4, "getwd: failed");
   return val_str(buf);
-}
 #endif
+}
 
 /* =========================================================
    REGISTRATION
@@ -185,12 +215,8 @@ void sysproc_register_builtins(void) {
     SIG("exec(path str)") "nil");
   fn_register_builtin_sig("exits",  bi_exits,
     SIG("exits(status str)") "nil");
-
-#ifndef NEXS_BAREMETAL
   fn_register_builtin_sig("sleep",  bi_sleep,
     SIG("sleep(msec int)") "nil");
-  fn_register_builtin_sig("alarm",  bi_alarm,
-    SIG("alarm(msec int)") "int");
   fn_register_builtin_sig("rfork",  bi_rfork,
     SIG("rfork(flags int)") "pid int");
   fn_register_builtin_sig("await",  bi_await,
@@ -200,27 +226,26 @@ void sysproc_register_builtins(void) {
   fn_register_builtin_sig("getwd",  bi_getwd,
     SIG("getwd()") "str");
 
+#ifndef NEXS_BAREMETAL
+  fn_register_builtin_sig("alarm",  bi_alarm,
+    SIG("alarm(msec int)") "int");
+#endif
+
   /* Store actual fn_table indices in /sys/<name> */
   {
+#ifndef NEXS_BAREMETAL
     static const char *names[] = {
       "sleep","exec","exits","alarm","rfork","await","getpid","getwd"
     };
-    char path[REG_PATH_MAX];
-    for (int _i = 0; _i < 8; _i++) {
-      NexsFnDef *def = fn_lookup(names[_i]);
-      if (def) {
-        int idx = (int)(def - g_fn_table);
-        snprintf(path, sizeof(path), "/sys/%s", names[_i]);
-        reg_set(path, val_fn_idx(idx), RK_READ | RK_EXEC);
-      }
-    }
-  }
+    int count = 8;
 #else
-  /* Only register baremetal builtins */
-  {
-    static const char *names[] = { "exec", "exits" };
+    static const char *names[] = {
+      "sleep","exec","exits","rfork","await","getpid","getwd"
+    };
+    int count = 7;
+#endif
     char path[REG_PATH_MAX];
-    for (int _i = 0; _i < 2; _i++) {
+    for (int _i = 0; _i < count; _i++) {
       NexsFnDef *def = fn_lookup(names[_i]);
       if (def) {
         int idx = (int)(def - g_fn_table);
@@ -229,7 +254,6 @@ void sysproc_register_builtins(void) {
       }
     }
   }
-#endif
 
   reg_set("/sys/rfork/RFPROC",   val_int(NEXS_RFPROC),   RK_READ);
   reg_set("/sys/rfork/RFNOWAIT", val_int(NEXS_RFNOWAIT), RK_READ);
