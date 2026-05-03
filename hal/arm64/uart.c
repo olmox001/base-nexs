@@ -7,21 +7,21 @@
 
 #include "../../hal/include/nexs_hal.h"
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 /* PL011 register offsets */
-#define UART0_BASE  0x09000000UL
-#define UART_DR     ((volatile uint32_t *)(UART0_BASE + 0x000))
-#define UART_FR     ((volatile uint32_t *)(UART0_BASE + 0x018))
-#define UART_IBRD   ((volatile uint32_t *)(UART0_BASE + 0x024))
-#define UART_FBRD   ((volatile uint32_t *)(UART0_BASE + 0x028))
-#define UART_LCRH   ((volatile uint32_t *)(UART0_BASE + 0x02C))
-#define UART_CR     ((volatile uint32_t *)(UART0_BASE + 0x030))
+#define UART0_BASE 0x09000000UL
+#define UART_DR ((volatile uint32_t *)(UART0_BASE + 0x000))
+#define UART_FR ((volatile uint32_t *)(UART0_BASE + 0x018))
+#define UART_IBRD ((volatile uint32_t *)(UART0_BASE + 0x024))
+#define UART_FBRD ((volatile uint32_t *)(UART0_BASE + 0x028))
+#define UART_LCRH ((volatile uint32_t *)(UART0_BASE + 0x02C))
+#define UART_CR ((volatile uint32_t *)(UART0_BASE + 0x030))
 
 /* FR register bits */
-#define UART_FR_TXFF  (1U << 5)   /* Transmit FIFO full */
-#define UART_FR_RXFE  (1U << 4)   /* Receive FIFO empty */
+#define UART_FR_TXFF (1U << 5) /* Transmit FIFO full */
+#define UART_FR_RXFE (1U << 4) /* Receive FIFO empty */
 
 #include "../include/hal_internal.h"
 
@@ -45,23 +45,25 @@ static void arm64_hal_init(void) {
 
 static void arm64_hal_putc(char c) {
   /* Wait while TX FIFO is full */
-  while (*UART_FR & UART_FR_TXFF) {}
+  while (*UART_FR & UART_FR_TXFF) {
+  }
   *UART_DR = (uint32_t)(unsigned char)c;
 }
 
 static int arm64_hal_getc(void) {
   /* Return -1 if RX FIFO is empty */
-  if (*UART_FR & UART_FR_RXFE) return -1;
+  if (*UART_FR & UART_FR_RXFE)
+    return -1;
   return (int)(*UART_DR & 0xFF);
 }
 
-
 static void arm64_hal_memory_map(NexsMemMap *map) {
-  if (!map) return;
-  map->entry_point = (uintptr_t)0x40000000UL;  /* as per nexs.ld */
-  map->ram_base    = (uintptr_t)0x40000000UL;
-  map->ram_size    = 128 * 1024 * 1024;          /* 128 MB (QEMU default) */
-  map->uart_base   = (uintptr_t)UART0_BASE;
+  if (!map)
+    return;
+  map->entry_point = (uintptr_t)0x40000000UL; /* as per nexs.ld */
+  map->ram_base = (uintptr_t)0x40000000UL;
+  map->ram_size = 256 * 1024 * 1024; /* 128 MB (QEMU default) */
+  map->uart_base = (uintptr_t)UART0_BASE;
 }
 
 static void arm64_hal_irq_disable(void) {
@@ -79,25 +81,24 @@ static void arm64_hal_halt(void) {
   register uint64_t x0 __asm__("x0") = 0x84000008UL;
   __asm__ volatile("hvc #0" : : "r"(x0) : "memory", "x1", "x2", "x3");
 #endif
-  while (1) { __asm__ volatile("wfi"); }
+  while (1) {
+    __asm__ volatile("wfi");
+  }
 }
 
 /* =========================================================
    DRIVER REGISTRATION
    ========================================================= */
 
-static HalDriver s_arm64_driver = {
-    .name = "arm64-pl011",
-    .init = arm64_hal_init,
-    .putc = arm64_hal_putc,
-    .getc = arm64_hal_getc,
-    .halt = arm64_hal_halt,
-    .irq_disable = arm64_hal_irq_disable,
-    .irq_enable = arm64_hal_irq_enable,
-    .memory_map = arm64_hal_memory_map
-};
+static HalDriver s_arm64_driver = {.name = "arm64-pl011",
+                                   .init = arm64_hal_init,
+                                   .putc = arm64_hal_putc,
+                                   .getc = arm64_hal_getc,
+                                   .halt = arm64_hal_halt,
+                                   .irq_disable = arm64_hal_irq_disable,
+                                   .irq_enable = arm64_hal_irq_enable,
+                                   .memory_map = arm64_hal_memory_map};
 
-__attribute__((constructor))
-static void arm64_register_hal(void) {
-    g_hal_driver = &s_arm64_driver;
+__attribute__((constructor)) static void arm64_register_hal(void) {
+  g_hal_driver = &s_arm64_driver;
 }

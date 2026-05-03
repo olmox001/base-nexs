@@ -43,10 +43,10 @@
 ### Bug corretti da revision1.MD
 | File | Bug | Stato |
 |------|-----|-------|
-| `services/auth/init.nx` | `auth_cap_grant`: 3 args a `reg_set` invece di 2 | ✅ Corretto |
-| `services/pm/init.nx` | `pm_ps` scansione da PID 1 invece di 100 | ✅ Corretto |
-| `services/fs/init.nx` | `vfs_resolve` restituiva path con `/` iniziale | ✅ Corretto |
-| `services/fs/regfs.nx` | `_regfs_dump_node` ricorsivo → stack overflow | ✅ Iterativo |
+| `library/auth/init.nx` | `auth_cap_grant`: 3 args a `reg_set` invece di 2 | ✅ Corretto |
+| `library/pm/init.nx` | `pm_ps` scansione da PID 1 invece di 100 | ✅ Corretto |
+| `library/fs/init.nx` | `vfs_resolve` restituiva path con `/` iniziale | ✅ Corretto |
+| `library/fs/regfs.nx` | `_regfs_dump_node` ricorsivo → stack overflow | ✅ Iterativo |
 | `example/minios/shell.nx` | `cd var` trattato come percorso letterale | ✅ Riscritto |
 | `sys/sysproc.c` | `nexs_exits()` non usava `nexs_hal_halt` su baremetal | ✅ Corretto |
 | `compiler/driver.c` | `tc->ld_script` non quotato → shell injection | ✅ Corretto |
@@ -83,8 +83,8 @@
 | Componente | Dove | Problema |
 |------------|------|---------|
 | Bitcode encoder/decoder | `compiler/bitcode.c` (non esiste) | Header `nexs_bitcode.h` completo, zero implementazione |
-| `services/ui/init.nx` | Non caricato in `boot.nx` | UI service esiste ma non si avvia |
-| `boot.nx` → `services/ui/init.nx` | `example/minios/boot.nx` | Da aggiungere dopo tty |
+| `library/ui/init.nx` | Non caricato in `boot.nx` | UI service esiste ma non si avvia |
+| `boot.nx` → `library/ui/init.nx` | `example/minios/boot.nx` | Da aggiungere dopo tty |
 | `journal_log` ordering | `kernel/journal.c:97` | Legge dati old senza garanzia di ordinamento (flush prima di log) |
 | `blk.c` read fail | `kernel/blk.c:105` | Read device fallita → buffer con dati non inizializzati in cache |
 

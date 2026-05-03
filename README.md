@@ -68,7 +68,7 @@ bash scripts/qemu-arm64.sh
 ```
 ┌────────────────────────────────────────────────────┐
 │         NEXS Scripts (.nx) — userspace             │
-│  example/minios/  services/  modules/              │
+│  example/minios/  library/  modules/              │
 ├────────────────────────────────────────────────────┤
 │         Registry Namespace (/sys /proc /dev)       │  ← everything is a path
 ├──────────────┬─────────────┬───────────────────────┤
@@ -95,7 +95,7 @@ bash scripts/qemu-arm64.sh
 | `hal/arm64/` | EL setup, exception vectors, GIC, timer, FDT, UART |
 | `kernel/` | Process, scheduler, VFS, blk cache, WAL journal, syscall dispatch |
 | `fs/` | regfs (C binary format), FAT16, 9P server |
-| `services/` | NEXS-language system services (loaded at boot) |
+| `library/` | NEXS-language system services (loaded at boot) |
 | `modules/` | Auto-loaded stdlib (available in REPL without exec) |
 | `example/minios/` | Demo mini-OS: boot, shell, nxed editor |
 
@@ -287,15 +287,15 @@ Services are NEXS libraries loaded by `example/minios/boot.nx`:
 
 | Service | Path | What it provides |
 |---------|------|-----------------|
-| Stdlib | `services/stdlib.nx` | `input()`, `cat()`, `cp()`, etc. |
-| VFS | `services/fs/init.nx` | `vfs_read/write/ls/resolve`, `fs_mount` |
-| Process Manager | `services/pm/init.nx` | `pm_spawn/kill/ps` |
-| Auth | `services/auth/init.nx` | `auth_cap_grant/check`, ring levels |
-| TTY | `services/tty/init.nx` | TTY session setup |
-| P9 Mounts | `services/fs/p9_mnt.nx` | Namespace bindings via 9P |
-| HW Device Tree | `services/hw_dt.nx` | CPU/memory/bus detection |
-| Text Buffer | `services/textbuf.nx` | Line buffer for nxed editor |
-| UI | `services/ui/init.nx` | Framebuffer/app manager |
+| Stdlib | `library/stdlib.nx` | `input()`, `cat()`, `cp()`, etc. |
+| VFS | `library/fs/init.nx` | `vfs_read/write/ls/resolve`, `fs_mount` |
+| Process Manager | `library/pm/init.nx` | `pm_spawn/kill/ps` |
+| Auth | `library/auth/init.nx` | `auth_cap_grant/check`, ring levels |
+| TTY | `library/tty/init.nx` | TTY session setup |
+| P9 Mounts | `library/fs/p9_mnt.nx` | Namespace bindings via 9P |
+| HW Device Tree | `library/hw_dt.nx` | CPU/memory/bus detection |
+| Text Buffer | `library/textbuf.nx` | Line buffer for nxed editor |
+| UI | `library/ui/init.nx` | Framebuffer/app manager |
 
 Modules in `modules/` are auto-loaded into the REPL without explicit `exec`:
 

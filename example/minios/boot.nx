@@ -16,18 +16,19 @@ if (G_DEBUG == 1) {
 exec("modules/stdlib.nx")
 PROC_PID = 1
 PROC_UID = 1
-exec("library///fs/init.nx")
-exec("library///pm/pm.nx")
-exec("library///auth/init.nx")
+exec("library/fs/init.nx")
+exec("library/pm/init.nx")
+exec("library/auth/init.nx")
 auth_set_ring(1)
-exec("library///tty/init.nx")
-exec("library///ui/init.nx")
-exec("library///ui/img.nx")
-exec("library///fs/p9_mnt.nx")
-exec("library///hw_dt.nx")
-exec("library///textbuf.nx")
-exec("library///logos/init.nx")
+exec("library/tty/init.nx")
+exec("library/ui/init.nx")
+exec("library/ui/img.nx")
+exec("library/fs/p9_mnt.nx")
+exec("library/hw_dt.nx")
+exec("library/textbuf.nx")
+exec("library/logos/init.nx")
 exec("example/minios/shell.nx")
+
 
 if (G_DEBUG == 1) {
   out "[INIT] Fase 2: Inizializzazione Sottosistemi..."
@@ -55,7 +56,7 @@ if (G_DEBUG == 1) {
 
 reg_set("/sys/config/standalone" 1)
 
-pm_session_init()
+ pm_session_init() 
 
 loop {
   msg = receivemessage /proc/1/inbox

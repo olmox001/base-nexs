@@ -6,8 +6,8 @@
 
 #include "../../hal/include/nexs_hal.h"
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define COM1_PORT 0x3F8
 
@@ -16,16 +16,16 @@
    ========================================================= */
 
 static inline void outb(uint16_t port, uint8_t val) {
-  __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
+  __asm__ volatile("outb %0, %1" : : "a"(val), "Nd"(port));
 }
 
 static inline void outw(uint16_t port, uint16_t val) {
-  __asm__ volatile ("outw %0, %1" : : "a"(val), "Nd"(port));
+  __asm__ volatile("outw %0, %1" : : "a"(val), "Nd"(port));
 }
 
 static inline uint8_t inb(uint16_t port) {
   uint8_t val;
-  __asm__ volatile ("inb %1, %0" : "=a"(val) : "Nd"(port));
+  __asm__ volatile("inb %1, %0" : "=a"(val) : "Nd"(port));
   return val;
 }
 
@@ -55,21 +55,24 @@ static void amd64_hal_init(void) {
 
 static void amd64_hal_putc(char c) {
   /* Wait until transmitter empty */
-  while (!(inb(COM1_PORT + 5) & 0x20)) {}
+  while (!(inb(COM1_PORT + 5) & 0x20)) {
+  }
   outb(COM1_PORT, (uint8_t)c);
 }
 
 static int amd64_hal_getc(void) {
-  if (!(inb(COM1_PORT + 5) & 0x01)) return -1;
+  if (!(inb(COM1_PORT + 5) & 0x01))
+    return -1;
   return (int)inb(COM1_PORT);
 }
 
 static void amd64_hal_memory_map(NexsMemMap *map) {
-  if (!map) return;
-  map->entry_point = (uintptr_t)0x100000UL;  /* 1 MB (as per nexs.ld) */
-  map->ram_base    = (uintptr_t)0x100000UL;
-  map->ram_size    = 4 * 1024 * 1024;         /* conservative 4 MB */
-  map->uart_base   = (uintptr_t)COM1_PORT;
+  if (!map)
+    return;
+  map->entry_point = (uintptr_t)0x100000UL; /* 1 MB (as per nexs.ld) */
+  map->ram_base = (uintptr_t)0x100000UL;
+  map->ram_size = 256 * 1024 * 1024; /* conservative 4 MB */
+  map->uart_base = (uintptr_t)COM1_PORT;
 }
 
 static void amd64_hal_irq_disable(void) {
@@ -87,26 +90,25 @@ static void amd64_hal_halt(void) {
   outw(0x604, 0x2000);
   /* Bochs / older QEMU fallback */
   outw(0xB004, 0x2000);
-  while (1) { __asm__ volatile("hlt"); }
+  while (1) {
+    __asm__ volatile("hlt");
+  }
 }
 
 /* =========================================================
    DRIVER REGISTRATION
    ========================================================= */
 
-static HalDriver s_amd64_driver = {
-    .name = "amd64-uart",
-    .init = amd64_hal_init,
-    .putc = amd64_hal_putc,
-    .getc = amd64_hal_getc,
-    .halt = amd64_hal_halt,
-    .irq_disable = amd64_hal_irq_disable,
-    .irq_enable = amd64_hal_irq_enable,
-    .memory_map = amd64_hal_memory_map
-};
+static HalDriver s_amd64_driver = {.name = "amd64-uart",
+                                   .init = amd64_hal_init,
+                                   .putc = amd64_hal_putc,
+                                   .getc = amd64_hal_getc,
+                                   .halt = amd64_hal_halt,
+                                   .irq_disable = amd64_hal_irq_disable,
+                                   .irq_enable = amd64_hal_irq_enable,
+                                   .memory_map = amd64_hal_memory_map};
 
 /* Use a constructor to register the driver at startup */
-__attribute__((constructor))
-static void amd64_register_hal(void) {
-    g_hal_driver = &s_amd64_driver;
+__attribute__((constructor)) static void amd64_register_hal(void) {
+  g_hal_driver = &s_amd64_driver;
 }

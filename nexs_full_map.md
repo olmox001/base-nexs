@@ -13,11 +13,11 @@ Generated at: 2026-05-03
 - `mmu_flush_tlb` duplicated in: hal/arm64/mmu.c, hal/amd64/mmu.c
 - `mmu_virt_to_phys` duplicated in: hal/arm64/mmu.c, hal/amd64/mmu.c
 - `s_pid_roots` duplicated in: hal/arm64/mmu.c, hal/amd64/mmu.c
-- `hal_timer_set_hz` duplicated in: hal/amd64/apic.c, hal/arm64/timer.c
-- `hal_timer_init` duplicated in: hal/amd64/apic.c, hal/arm64/timer.c
-- `stat` duplicated in: kernel/libc_stub.c, modules/stdlib.nx
+- `hal_timer_set_hz` duplicated in: hal/arm64/timer.c, hal/amd64/apic.c
+- `hal_timer_init` duplicated in: hal/arm64/timer.c, hal/amd64/apic.c
+- `stat` duplicated in: modules/stdlib.nx, kernel/libc_stub.c
 - `sys_chdir` duplicated in: modules/stdlib.nx, kernel/syscall.c
-- `s_dev` duplicated in: modules/journal/journal.c, fs/fat.c
+- `s_dev` duplicated in: fs/fat.c, modules/journal/journal.c
 
 ---
 
@@ -59,7 +59,7 @@ Generated at: 2026-05-03
 **Globals:** s_phys_bump, s_pid_roots
 
 ### hal/amd64/uart.c
-**Functions:** outb, outw, inb, amd64_hal_init, amd64_hal_putc, amd64_hal_getc, amd64_hal_memory_map, amd64_hal_irq_disable, amd64_hal_irq_enable, amd64_hal_halt, amd64_register_hal
+**Functions:** outb, outw, inb, amd64_hal_init, amd64_hal_putc, amd64_hal_getc, amd64_hal_memory_map, amd64_hal_irq_disable, amd64_hal_irq_enable, amd64_hal_halt
 **Globals:** s_amd64_driver
 
 ### hal/arm64/exc_handler.c
@@ -81,7 +81,7 @@ Generated at: 2026-05-03
 **Globals:** s_reload
 
 ### hal/arm64/uart.c
-**Functions:** arm64_hal_init, arm64_hal_putc, arm64_hal_getc, arm64_hal_memory_map, arm64_hal_irq_disable, arm64_hal_irq_enable, arm64_hal_halt, arm64_register_hal
+**Functions:** arm64_hal_init, arm64_hal_putc, arm64_hal_getc, arm64_hal_memory_map, arm64_hal_irq_disable, arm64_hal_irq_enable, arm64_hal_halt
 **Globals:** s_arm64_driver
 
 ### hal/common/console.c

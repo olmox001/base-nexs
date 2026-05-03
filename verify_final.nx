@@ -1,6 +1,6 @@
 # Final verification
-exec("services/stdlib.nx")
-exec("services/fs/init.nx")
+exec("library/stdlib.nx")
+exec("library/fs/init.nx")
 out "--- VFS LS ---"
 ls
 out "--- VFS PWD ---"
