@@ -39,19 +39,16 @@ __attribute__((weak)) const char *nexs_embedded_lookup(const char *path) {
    SYSCALL IMPLEMENTATIONS
    ========================================================= */
 
-#ifndef NEXS_BAREMETAL
 int nexs_sleep(int msec) {
   if (msec <= 0) return 0;
+#ifndef NEXS_BAREMETAL
   usleep((useconds_t)msec * 1000);
-  return 0;
-}
 #else
-int nexs_sleep(int msec) {
-  int yields = msec > 0 ? msec / 10 + 1 : 0;
+  int yields = msec / 10 + 1;
   for (int i = 0; i < yields; i++) sched_yield();
+#endif
   return 0;
 }
-#endif
 
 int nexs_exec(EvalCtx *ctx, const char *path) {
   if (!ctx || !path) return -1;
@@ -86,27 +83,19 @@ void nexs_exits(const char *status) {
 #endif
 }
 
-#ifdef NEXS_BAREMETAL
-int nexs_rfork(int flags) {
-  (void)flags;
-  return -1;  /* address-space fork unavailable; use exec() directly */
-}
-
-int nexs_await(char *buf, int nbuf) {
-  if (!buf || nbuf <= 0) return -1;
-  strncpy(buf, "", (size_t)nbuf);
-  return -1;
-}
-#endif
-
 #ifndef NEXS_BAREMETAL
 int nexs_alarm(int msec) {
   unsigned int secs = (msec > 0) ? (unsigned int)((msec + 999) / 1000) : 0;
   unsigned int old = alarm(secs);
   return (int)(old * 1000);
 }
+#endif
 
 int nexs_rfork(int flags) {
+#ifdef NEXS_BAREMETAL
+  (void)flags;
+  return -1;  /* address-space fork unavailable; use exec() directly */
+#else
   if (!(flags & NEXS_RFPROC)) return 0;
   pid_t pid = fork();
   if (pid < 0) return -1;
@@ -122,17 +111,22 @@ int nexs_rfork(int flags) {
   /* Child (pid == 0) */
   reg_ipc_enable_pipes();
   return 0;
+#endif
 }
 
 int nexs_await(char *buf, int nbuf) {
   if (!buf || nbuf <= 0) return -1;
+#ifdef NEXS_BAREMETAL
+  strncpy(buf, "", (size_t)nbuf);
+  return -1;
+#else
   int status;
   pid_t pid = waitpid(-1, &status, 0);
   if (pid < 0) { strncpy(buf, "", (size_t)nbuf); return -1; }
   int exit_status = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
   return snprintf(buf, (size_t)nbuf, "%d %d", (int)pid, exit_status);
-}
 #endif
+}
 
 /* =========================================================
    BUILT-IN WRAPPERS
@@ -208,9 +202,137 @@ static Value bi_getwd(Value *args, int n) {
    REGISTRATION
    ========================================================= */
 
+#ifdef NEXS_BAREMETAL
+#include "../kernel/include/nexs_ipc.h"
+#include "../kernel/include/nexs_cap.h"
+extern Cap *cap_lookup(uint32_t slot);
+extern uint64_t nexs_brk(uint64_t new_brk);
+#endif
+
+static Value bi_ipc_send(Value *args, int n) {
+  if (n < 2) return val_err(4, "ipc_send: requires (cap, msg)");
+  uint32_t slot = (uint32_t)val_to_int(&args[0]);
+  Value msg = args[1];
+
+#ifdef NEXS_BAREMETAL
+  Cap *c = cap_lookup(slot);
+  if (!c || c->type != CAP_ENDPOINT) return val_err(4, "ipc_send: invalid cap");
+  if (!(c->rights & CAP_WRITE)) return val_err(4, "ipc_send: no write rights");
+  int res = nexs_ipc_send((Endpoint *)c->obj, msg, c->badge);
+  return val_int(res);
+#else
+  (void)slot; (void)msg;
+  return val_err(4, "ipc_send: only available on baremetal");
+#endif
+}
+
+static Value bi_ipc_recv(Value *args, int n) {
+  if (n < 1) return val_err(4, "ipc_recv: requires (cap)");
+  uint32_t slot = (uint32_t)val_to_int(&args[0]);
+
+#ifdef NEXS_BAREMETAL
+  Cap *c = cap_lookup(slot);
+  if (!c || c->type != CAP_ENDPOINT) return val_err(4, "ipc_recv: invalid cap");
+  if (!(c->rights & CAP_READ)) return val_err(4, "ipc_recv: no read rights");
+  Value out_msg;
+  uint32_t badge = 0;
+  int res = nexs_ipc_recv((Endpoint *)c->obj, &out_msg, &badge);
+  if (res < 0) return val_err(4, "ipc_recv failed");
+  /* TODO: handle badge if needed by user */
+  return out_msg;
+#else
+  (void)slot;
+  return val_err(4, "ipc_recv: only available on baremetal");
+#endif
+}
+
 #define SIG(s) s " \xe2\x86\x92 "
 
+static Value bi_brk(Value *args, int n) {
+  uint64_t addr = (n >= 1) ? (uint64_t)val_to_int(&args[0]) : 0;
+#ifdef NEXS_BAREMETAL
+  return val_int((int64_t)nexs_brk(addr));
+#else
+  /* Hosted stub: return dummy or use sbrk() if available */
+  (void)addr;
+  return val_int(0x40000000ULL);
+#endif
+}
+
+static Value bi_ipc_signal(Value *args, int n) {
+  if (n < 1) return val_err(4, "ipc_signal: requires (cap)");
+  uint32_t slot = (uint32_t)val_to_int(&args[0]);
+  uint32_t badge = (n >= 2) ? (uint32_t)val_to_int(&args[1]) : 1;
+#ifdef NEXS_BAREMETAL
+  Cap *c = cap_lookup(slot);
+  if (!c || c->type != CAP_NOTIFICATION) return val_err(4, "ipc_signal: invalid cap");
+  return val_int(nexs_ipc_signal((Notification *)c->obj, badge));
+#else
+  (void)slot; (void)badge;
+  return val_err(4, "ipc_signal: baremetal only");
+#endif
+}
+
+static Value bi_ipc_wait(Value *args, int n) {
+  if (n < 1) return val_err(4, "ipc_wait: requires (cap)");
+  uint32_t slot = (uint32_t)val_to_int(&args[0]);
+#ifdef NEXS_BAREMETAL
+  Cap *c = cap_lookup(slot);
+  if (!c || c->type != CAP_NOTIFICATION) return val_err(4, "ipc_wait: invalid cap");
+  uint32_t badge = 0;
+  nexs_ipc_wait((Notification *)c->obj, &badge);
+  return val_int((int64_t)badge);
+#else
+  (void)slot;
+  return val_err(4, "ipc_wait: baremetal only");
+#endif
+}
+
+static Value bi_ipc_create(Value *args, int n) {
+  if (n < 1) return val_err(4, "ipc_create: requires type ('endpoint' or 'notification')");
+  const char *type = (args[0].type == TYPE_STR) ? (char *)args[0].data : "";
+#ifdef NEXS_BAREMETAL
+  NexsProc *curr = proc_current();
+  uint32_t slot = 0;
+  while (slot < curr->cspace.size && curr->cspace.caps[slot].type != CAP_NONE) slot++;
+  if (slot >= curr->cspace.size) return val_err(4, "ipc_create: cspace full");
+
+  Cap c;
+  memset(&c, 0, sizeof(c));
+  if (strcmp(type, "endpoint") == 0) {
+    c.type = CAP_ENDPOINT;
+    c.obj  = ipc_endpoint_create();
+    c.rights = CAP_READ | CAP_WRITE;
+  } else if (strcmp(type, "notification") == 0) {
+    c.type = CAP_NOTIFICATION;
+    c.obj  = ipc_notification_create();
+    c.rights = CAP_READ | CAP_WRITE;
+  } else {
+    return val_err(4, "ipc_create: unknown type");
+  }
+
+  extern int cap_insert(NexsProc *p, uint32_t slot, Cap c);
+  cap_insert(curr, slot, c);
+  return val_int(slot);
+#else
+  (void)type;
+  return val_err(4, "ipc_create: baremetal only");
+#endif
+}
+
 void sysproc_register_builtins(void) {
+  fn_register_builtin_sig("ipc_create", bi_ipc_create,
+    SIG("ipc_create(type str)") "slot int");
+  fn_register_builtin_sig("ipc_signal", bi_ipc_signal,
+    SIG("ipc_signal(cap int, badge int)") "int");
+  fn_register_builtin_sig("ipc_wait",   bi_ipc_wait,
+    SIG("ipc_wait(cap int)") "badge int");
+  fn_register_builtin_sig("ipc_send", bi_ipc_send,
+    SIG("ipc_send(cap int, msg any)") "int");
+  fn_register_builtin_sig("ipc_recv", bi_ipc_recv,
+    SIG("ipc_recv(cap int)") "any");
+  fn_register_builtin_sig("brk",    bi_brk,
+    SIG("brk(addr int)") "addr int");
   fn_register_builtin_sig("exec",   bi_exec,
     SIG("exec(path str)") "nil");
   fn_register_builtin_sig("exits",  bi_exits,
@@ -235,14 +357,16 @@ void sysproc_register_builtins(void) {
   {
 #ifndef NEXS_BAREMETAL
     static const char *names[] = {
-      "sleep","exec","exits","alarm","rfork","await","getpid","getwd"
+      "sleep","exec","exits","alarm","rfork","await","getpid","getwd","brk",
+      "ipc_send","ipc_recv","ipc_create","ipc_signal","ipc_wait"
     };
-    int count = 8;
+    int count = 14;
 #else
     static const char *names[] = {
-      "sleep","exec","exits","rfork","await","getpid","getwd"
+      "sleep","exec","exits","rfork","await","getpid","getwd","brk",
+      "ipc_send","ipc_recv","ipc_create","ipc_signal","ipc_wait"
     };
-    int count = 7;
+    int count = 13;
 #endif
     char path[REG_PATH_MAX];
     for (int _i = 0; _i < count; _i++) {

@@ -45,6 +45,10 @@ function activate(context) {
     const symbolMap = new Map();
 
     const triggerLint = (document) => {
+        if (!document.uri.fsPath.endsWith('.nx')) {
+            diagnosticCollection.delete(document.uri);
+            return;
+        }
         if (timeout) clearTimeout(timeout);
         timeout = setTimeout(() => lintWithDaemon(document), 150); 
     };

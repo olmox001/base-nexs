@@ -41,8 +41,6 @@
 /* ── State ────────────────────────────────────────────────── */
 static volatile uint32_t *s_lapic  = NULL;
 static volatile uint32_t *s_ioapic = (volatile uint32_t *)IOAPIC_BASE_DEFAULT;
-static uint64_t           s_ticks  = 0;
-static TimerCallback      s_tick_cb = NULL;
 
 /* ── LAPIC MMIO helpers ───────────────────────────────────── */
 static inline uint32_t lapic_read(uint32_t off) {
@@ -120,23 +118,15 @@ static uint32_t lapic_calibrate_ticks_per_ms(void) {
     s_cached_tpm = elapsed / CALIB_MS;
     return s_cached_tpm;
 }
-
 /* ── Timer ISR ────────────────────────────────────────────── */
 static void apic_timer_isr(IsrFrame *f) {
     (void)f;
-    s_ticks++;
-    if (s_tick_cb) s_tick_cb();
+    g_hal_ticks++;
+    if (g_hal_tick_cb) g_hal_tick_cb();
     lapic_write(LAPIC_EOI, 0);
 }
 
 /* ── Public API ───────────────────────────────────────────── */
-
-uint64_t hal_timer_ticks(void) { return s_ticks; }
-
-void hal_timer_sleep_ms(uint32_t ms) {
-    uint64_t target = s_ticks + ms;
-    while (s_ticks < target) __asm__ volatile("pause");
-}
 
 void hal_timer_set_hz(uint32_t hz) {
     /* Re-programs the LAPIC timer — requires apic_init() called first */
@@ -198,6 +188,6 @@ void apic_init(void) {
 }
 
 void hal_timer_init(TimerCallback cb) {
-    s_tick_cb = cb;
+    g_hal_tick_cb = cb;
     apic_init();
 }

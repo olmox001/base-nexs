@@ -1,19 +1,59 @@
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <ctype.h>
-#include <unistd.h>
-#include <sys/stat.h>
-#include <signal.h>
-#include <sys/wait.h>
-#include <termios.h>
-#include <poll.h>
+#define NEXS_BAREMETAL 1
+#include <stddef.h>
+#include <stdint.h>
 #include <stdarg.h>
+
+/* Undefine fortified builtins that some compilers force-include */
+#undef vsnprintf
+#undef snprintf
+#undef sprintf
+#undef vfprintf
+#undef fprintf
+#undef printf
+#undef vprintf
+#undef memset
+#undef memcpy
+#undef memmove
+#undef strcpy
+#undef strncpy
+#undef strcat
+#undef strncat
+
+/* Force bypass of fortified variants */
+#define __vsnprintf_chk(s, f, l, o, ...) vsnprintf(s, l, o, __VA_ARGS__)
+#define __memset_chk(d, c, n, s) memset(d, c, n)
+#define __memcpy_chk(d, s, n, ds) memcpy(d, s, n)
+
+/* Manual type definitions for baremetal stub (if not provided by headers) */
+typedef long ssize_t;
+typedef int pid_t;
+typedef unsigned int useconds_t;
+
+struct stat;
+struct termios;
+struct pollfd;
+
+#ifndef NULL
+#define NULL ((void*)0)
+#endif
+
+#ifndef SIG_IGN
+#define SIG_IGN ((void(*)(int))1)
+#endif
+
+#define STDIN_FILENO 0
+#define STDOUT_FILENO 1
+#define STDERR_FILENO 2
+
+/* Forward declarations for functions defined later in this file */
+void* memset(void* dest, int ch, size_t count);
+void* memcpy(void* dest, const void* src, size_t count);
+int isspace(int c);
+int isdigit(int c);
 
 /* Nexs includes for actual implementations */
 #include "../core/include/nexs_alloc.h"
 #include "../hal/include/nexs_hal.h"
-#include "../core/include/nexs_utils.h"
 #include "include/nexs_proc.h"
 
 static char dummy_stdout[16];
@@ -61,90 +101,90 @@ static void print_int(char **buf, size_t *remain, long long val, int base, int w
     print_uint(buf, remain, (unsigned long long)val, base, width, zero_pad);
 }
 
-int vsnprintf(char *str, size_t size, const char *format, va_list ap) {
+int vsnprintf(char *str, size_t size, const char *fmt, va_list ap) {
     if (size == 0) return 0;
     char *out = str;
     size_t remain = size;
-    while (*format && remain > 1) {
-        if (*format == '%') {
-            format++;
+    while (*fmt && remain > 1) {
+        if (*fmt == '%') {
+            fmt++;
             int left_align = 0;
             int zero_pad = 0;
             int width = 0;
             int precision = -1;
 
-            if (*format == '\0') {
+            if (*fmt == '\0') {
                 /* Trailing % - just ignore it or handle as needed. 
                    We must not advance further. */
                 break; 
             }
 
-            if (*format == '-') {
+            if (*fmt == '-') {
                 left_align = 1;
-                format++;
+                fmt++;
             }
-            if (*format == '0') {
+            if (*fmt == '0') {
                 zero_pad = 1;
-                format++;
+                fmt++;
             }
-            if (*format == '*') {
+            if (*fmt == '*') {
                 width = va_arg(ap, int);
-                format++;
+                fmt++;
             } else {
-                while (*format >= '0' && *format <= '9') {
-                    width = width * 10 + (*format - '0');
-                    format++;
+                while (*fmt >= '0' && *fmt <= '9') {
+                    width = width * 10 + (*fmt - '0');
+                    fmt++;
                 }
             }
-            if (*format == '.') {
-                format++;
-                if (*format == '*') {
+            if (*fmt == '.') {
+                fmt++;
+                if (*fmt == '*') {
                     precision = va_arg(ap, int);
-                    format++;
+                    fmt++;
                 } else {
                     precision = 0;
-                    while (*format >= '0' && *format <= '9') {
-                        precision = precision * 10 + (*format - '0');
-                        format++;
+                    while (*fmt >= '0' && *fmt <= '9') {
+                        precision = precision * 10 + (*fmt - '0');
+                        fmt++;
                     }
                 }
             }
 
             int is_long = 0;
             int is_long_long = 0;
-            if (*format == 'l') {
-                format++;
+            if (*fmt == 'l') {
+                fmt++;
                 is_long = 1;
-                if (*format == 'l') {
-                    format++;
+                if (*fmt == 'l') {
+                    fmt++;
                     is_long_long = 1;
                 }
             }
-            if (*format == 'd') {
+            if (*fmt == 'd') {
                 if (is_long_long || is_long) {
                     print_int(&out, &remain, va_arg(ap, long long), 10, width, zero_pad);
                 } else {
                     print_int(&out, &remain, va_arg(ap, int), 10, width, zero_pad);
                 }
-            } else if (*format == 'u') {
+            } else if (*fmt == 'u') {
                 if (is_long_long || is_long) {
                     print_uint(&out, &remain, va_arg(ap, unsigned long long), 10, width, zero_pad);
                 } else {
                     print_uint(&out, &remain, va_arg(ap, unsigned int), 10, width, zero_pad);
                 }
-            } else if (*format == 'x') {
+            } else if (*fmt == 'x') {
                 if (is_long_long || is_long) {
                     print_uint(&out, &remain, va_arg(ap, unsigned long long), 16, width, zero_pad);
                 } else {
                     print_uint(&out, &remain, va_arg(ap, unsigned int), 16, width, zero_pad);
                 }
-            } else if (*format == 'o') {
+            } else if (*fmt == 'o') {
                 if (is_long_long || is_long) {
                     print_uint(&out, &remain, va_arg(ap, unsigned long long), 8, width, zero_pad);
                 } else {
                     print_uint(&out, &remain, va_arg(ap, unsigned int), 8, width, zero_pad);
                 }
-            } else if (*format == 'f' || *format == 'g') {
+            } else if (*fmt == 'f' || *fmt == 'g') {
                 double fv = va_arg(ap, double);
                 long long ip = (long long)fv;
                 double fp_part = fv - (double)ip;
@@ -158,7 +198,7 @@ int vsnprintf(char *str, size_t size, const char *format, va_list ap) {
                     if (remain > 1) { *out++ = '0' + d; remain--; }
                     fp_part -= d;
                 }
-            } else if (*format == 's') {
+            } else if (*fmt == 's') {
                 const char *s = va_arg(ap, const char *);
                 if (!s) s = "(null)";
                 size_t len = 0;
@@ -176,36 +216,36 @@ int vsnprintf(char *str, size_t size, const char *format, va_list ap) {
                         *out++ = ' '; remain--; width--;
                     }
                 }
-            } else if (*format == 'c') {
+            } else if (*fmt == 'c') {
                 *out++ = (char)va_arg(ap, int); remain--;
-            } else if (*format == '%') {
+            } else if (*fmt == '%') {
                 if (remain > 1) { *out++ = '%'; remain--; }
             } else {
                 /* Unknown specifier, just print the character */
-                if (remain > 1) { *out++ = *format; remain--; }
+                if (remain > 1) { *out++ = *fmt; remain--; }
             }
-            if (*format != '\0') format++;
+            if (*fmt != '\0') fmt++;
         } else {
-            if (remain > 1) { *out++ = *format; remain--; }
-            format++;
+            if (remain > 1) { *out++ = *fmt; remain--; }
+            fmt++;
         }
     }
     if (remain > 0) *out = '\0';
     return (int)(out - str);
 }
 
-int snprintf(char* buffer, size_t count, const char* format, ...) {
+int snprintf(char* buffer, size_t count, const char* fmt, ...) {
     va_list ap;
-    va_start(ap, format);
-    int ret = vsnprintf(buffer, count, format, ap);
+    va_start(ap, fmt);
+    int ret = vsnprintf(buffer, count, fmt, ap);
     va_end(ap);
     return ret;
 }
 
-int sprintf(char* buffer, const char* format, ...) {
+int sprintf(char* buffer, const char* fmt, ...) {
     va_list ap;
-    va_start(ap, format);
-    int ret = vsnprintf(buffer, 4096, format, ap);
+    va_start(ap, fmt);
+    int ret = vsnprintf(buffer, 4096, fmt, ap);
     va_end(ap);
     return ret;
 }
@@ -386,7 +426,11 @@ int memcmp(const void* lhs, const void* rhs, size_t count) {
     return 0;
 }
 size_t strlen(const char* str) { size_t l=0; while(*str++) l++; return l; }
-char* strcpy(char* dest, const char* src) { char* d=dest; while((*d++ = *src++)); return dest; }
+char* strcpy(char* dest, const char* src) { 
+    char* d=dest; 
+    while((*d++ = *src++)) { /* empty */ } 
+    return dest; 
+}
 char* strncpy(char* dest, const char* src, size_t count) {
     char* d = dest;
     while (count && (*d++ = *src++)) count--;

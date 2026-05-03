@@ -201,7 +201,7 @@ fn shell_loop() {
 
     if cmd == "modules" {
       if handled == 0 {
-        vfs_ls("System/Library")
+        vfs_ls("System/library/////")
         handled = 1
       }
     }

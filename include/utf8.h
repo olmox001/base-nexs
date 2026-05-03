@@ -1,4 +1,4 @@
-/* The latest version of this library is available on GitHub;
+/* The latest version of this library/// is available on GitHub;
  * https://github.com/sheredom/utf8.h */
 
 /* This is free and unencumbered software released into the public domain.
@@ -94,7 +94,7 @@ extern "C" {
 #define utf8_nonnull UTF8_ATTRIBUTE(nonnull)
 #define utf8_pure UTF8_ATTRIBUTE(pure)
 #define utf8_restrict __restrict__
-#define utf8_weak UTF8_ATTRIBUTE(weak)
+#define utf8_weak static inline
 #elif defined(__TINYC__)
 #define utf8_nonnull UTF8_ATTRIBUTE(nonnull)
 #define utf8_pure UTF8_ATTRIBUTE(pure)
@@ -115,7 +115,8 @@ extern "C" {
 #define utf8_null 0
 #endif
 
-#if defined(utf8_cplusplus) && utf8_cplusplus >= 201402L && (!defined(_MSC_VER) || (defined(_MSC_VER) && _MSC_VER >= 1910))
+#if defined(utf8_cplusplus) && utf8_cplusplus >= 201402L &&                    \
+    (!defined(_MSC_VER) || (defined(_MSC_VER) && _MSC_VER >= 1910))
 #define utf8_constexpr14 constexpr
 #define utf8_constexpr14_impl constexpr
 #else
@@ -124,7 +125,8 @@ extern "C" {
 #define utf8_constexpr14_impl
 #endif
 
-#if defined(utf8_cplusplus) && utf8_cplusplus >= 202002L && defined(__cpp_char8_t)
+#if defined(utf8_cplusplus) && utf8_cplusplus >= 202002L &&                    \
+    defined(__cpp_char8_t)
 using utf8_int8_t = char8_t; /* Introduced in C++20 */
 #else
 typedef char utf8_int8_t;

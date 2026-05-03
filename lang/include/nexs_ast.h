@@ -99,6 +99,8 @@ typedef struct {
   int    loop_depth;
   char   local_fn_names[MAX_FN_DEFS][NAME_LEN];
   int    local_fn_count;
+  char   local_param_names[MAX_PARAMS][NAME_LEN];
+  int    local_param_count;
 } Parser;
 
 /* =========================================================

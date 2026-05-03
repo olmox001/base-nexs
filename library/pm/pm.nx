@@ -1,0 +1,137 @@
+# library/pm/pm.nx — NEXS Process & Window Manager
+# ===================================================================
+
+reg /sys/pm/next_pid = 100
+reg /sys/pm/fg_pid   = -1
+reg /sys/pm/focus_window = 0
+
+# Whitelist: system library/ functions are NOT mangled.
+PM_SYS_PREFIXES = "vfs_|fs_|pm_|auth_|tty_|ui_|hw_|p9_|tb_|ed_|nxed_|term_|logo_|kout|input|getcwd|chdir|cat|cp|mv|rm|mkdir|stat|basename|dirname|wc|replace_all|posix_|readkey|rawon|rawoff|write|read|open|close|create|out|eval|exec|exits|sleep|reg_|arr_|keys|split|replace|contains|substr|trim|upper|lower|len|type|str|int|float|abs|min|max|lines_of|print_reg|sendmessage|receivemessage|msgpending|mkptr|deref|fstat|seek|dup|fd2path|remove|pipe|bind|unmount|mount|alarm|rfork|await|getpid|getwd|chr|readbyte|set_layout|readkey_nb|buddy_stats|errstr|sys_debug|term_size|arr_join|arr_ins|arr_del|arr_create_anon|shell_|get_proc_|set_fg_pid|PROC_"
+
+fn set_fg_pid(pid) {
+  reg /sys/kernel/fg_pid = pid
+  reg /sys/pm/fg_pid     = pid
+}
+
+fn _pm_is_system_fn(name) {
+  prefixes = split(PM_SYS_PREFIXES "|")
+  i = 0
+  loop {
+    if i >= len(prefixes) { break }
+    p = prefixes[i]
+    if p != "" {
+      pl = len(p)
+      if len(name) >= pl {
+        if substr(name 0 pl) == p { ret 1 }
+      }
+    }
+    i = i + 1
+  }
+  ret 0
+}
+
+fn pm_mangle(uid pid code) {
+  prefix = "_U" + str(uid) + "_P" + str(pid) + "_"
+  lines = lines_of(code)
+
+  names = arr_create_anon()
+  ni = 0
+  li = 0
+  loop {
+    if li >= len(lines) { break }
+    line = trim(lines[li])
+    if len(line) > 3 && substr(line 0 3) == "fn " {
+      rest = substr(line 3 len(line)-3)
+      p = 0
+      loop {
+        if p >= len(rest) { break }
+        ch = substr(rest p 1)
+        if ch == "(" || ch == " " { break }
+        p = p + 1
+      }
+      fname = substr(rest 0 p)
+      if fname != "" && !_pm_is_system_fn(fname) {
+        arr_ins(names ni fname)
+        ni = ni + 1
+      }
+    }
+    li = li + 1
+  }
+
+  new_code = ""
+  li = 0
+  loop {
+    if li >= len(lines) { break }
+    l = lines[li]
+    i = 0
+    loop {
+      if i >= ni { break }
+      fn_name = names[i]
+      l = replace_all(l fn_name + "(" prefix + fn_name + "(")
+      l = replace_all(l "fn " + fn_name "fn " + prefix + fn_name)
+      i = i + 1
+    }
+    new_code = new_code + l + "\n"
+    li = li + 1
+  }
+  ret new_code
+}
+
+fn pm_alloc_pid() {
+  p = reg /sys/pm/next_pid
+  loop {
+    if type(reg_get("/sys/pm/procs/" + str(p) + "/base")) == "err" {
+      reg /sys/pm/next_pid = p + 1
+      ret p
+    }
+    p = p + 1
+  }
+}
+
+fn pm_alloc_window() {
+  i = 0
+  loop {
+    if i > 10 { ret -1 }
+    p = reg_get("/sys/pm/windows/" + str(i) + "/pid")
+    if type(p) == "err" || p == -1 { ret i }
+    i = i + 1
+  }
+}
+
+fn pm_register_proc(pid uid path window_id) {
+  base = "/sys/" + str(uid) + "/" + str(pid)
+  reg_set(base + "/uid"    uid)
+  reg_set(base + "/name"   path)
+  reg_set(base + "/state"  "running")
+  reg_set(base + "/window" window_id)
+
+  reg_set("/sys/pm/procs/" + str(pid) + "/base" base)
+  if window_id != -1 {
+    reg_set("/sys/pm/sessions/" + str(window_id) pid)
+    reg_set("/sys/pm/windows/" + str(window_id) + "/pid" pid)
+  }
+}
+
+fn pm_unregister_proc(pid) {
+  base = reg_get("/sys/pm/procs/" + str(pid) + "/base")
+  if type(base) != "err" {
+    win = reg_get(base + "/window")
+    if type(win) != "err" && win != -1 {
+      reg_set("/sys/pm/windows/" + str(win) + "/pid" -1)
+      reg_set("/sys/pm/sessions/" + str(win) -1)
+    }
+    reg_del(base)
+  }
+  reg_del("/sys/pm/procs/" + str(pid))
+}
+
+fn pm_set_focus(window_id) {
+  reg_set("/sys/pm/focus_window" window_id)
+  term_cls()
+}
+
+fn pm_get_focus_pid() {
+  win = reg_get("/sys/pm/focus_window")
+  if type(win) == "err" { ret -1 }
+  ret reg_get("/sys/pm/windows/" + str(win) + "/pid")
+}

@@ -13,7 +13,7 @@
  */
 
 #include "include/nexs_vfs.h"
-#include "include/nexs_proc.h"
+#include "../core/include/nexs_fd.h"
 #include "../registry/include/nexs_registry.h"
 #include "../core/include/nexs_value.h"
 #include "../core/include/nexs_alloc.h"
@@ -43,61 +43,51 @@ static void ino_publish(uint64_t ino, const char *path, uint32_t mode) {
    FD TABLE  (per-process, stored in registry)
    ========================================================= */
 
-#define VFS_MAX_FD 64
-
-typedef struct {
-    int      in_use;
-    uint64_t ino;
-    int      flags;
-    uint64_t pos;
-} VfsFd;
-
-static VfsFd s_fd_table[VFS_MAX_FD];
+NexsFd g_fd_table[NEXS_MAX_FDS];
 
 void vfs_init(void) {
+    memset(g_fd_table, 0, sizeof(g_fd_table));
     /* Reserve fd 0/1/2 for stdin/stdout/stderr (inode 0/1/2 = sentinel) */
     for (int i = 0; i < 3; i++) {
-        s_fd_table[i].in_use = 1;
-        s_fd_table[i].ino    = (uint64_t)i;
-        s_fd_table[i].flags  = (i == 0) ? 0 : 1;
-        s_fd_table[i].pos    = 0;
+        g_fd_table[i].in_use = 1;
+        g_fd_table[i].ino    = (uint64_t)i;
+        g_fd_table[i].flags  = (i == 0) ? 0 : 1;
+        g_fd_table[i].pos    = 0;
     }
 }
 
-static int fd_alloc(uint64_t ino, int flags) {
-    for (int i = 3; i < VFS_MAX_FD; i++) {
-        if (!s_fd_table[i].in_use) {
-            s_fd_table[i].in_use = 1;
-            s_fd_table[i].ino    = ino;
-            s_fd_table[i].flags  = flags;
-            s_fd_table[i].pos    = 0;
-            return i;
-        }
+int vfs_fd_alloc(uint64_t ino, int flags) {
+    int fd = NEXS_ALLOC_SLOT(g_fd_table, NEXS_MAX_FDS, 3, in_use);
+    if (fd != -1) {
+        g_fd_table[fd].in_use = 1;
+        g_fd_table[fd].ino    = ino;
+        g_fd_table[fd].flags  = flags;
+        g_fd_table[fd].pos    = 0;
     }
-    return -1;
+    return fd;
 }
 
-static VfsFd *fd_get(int fd) {
-    if (fd < 0 || fd >= VFS_MAX_FD || !s_fd_table[fd].in_use) return NULL;
-    return &s_fd_table[fd];
+NexsFd *vfs_fd_get(int fd) {
+    if (fd < 0 || fd >= NEXS_MAX_FDS || !g_fd_table[fd].in_use) return NULL;
+    return &g_fd_table[fd];
 }
 
 int vfs_dup(int oldfd, int newfd) {
-    VfsFd *src = fd_get(oldfd);
+    NexsFd *src = vfs_fd_get(oldfd);
     if (!src) return -1;
     if (newfd == -1) {
-        for (int i = 3; i < VFS_MAX_FD; i++) {
-            if (!s_fd_table[i].in_use) { newfd = i; break; }
+        for (int i = 3; i < NEXS_MAX_FDS; i++) {
+            if (!g_fd_table[i].in_use) { newfd = i; break; }
         }
     }
-    if (newfd < 0 || newfd >= VFS_MAX_FD) return -1;
-    if (s_fd_table[newfd].in_use) vfs_close(newfd);
-    s_fd_table[newfd] = *src;
+    if (newfd < 0 || newfd >= NEXS_MAX_FDS) return -1;
+    if (g_fd_table[newfd].in_use) vfs_close(newfd);
+    g_fd_table[newfd] = *src;
     return newfd;
 }
 
 int vfs_seek(int fd, int64_t offset, int whence) {
-    VfsFd *f = fd_get(fd);
+    NexsFd *f = vfs_fd_get(fd);
     if (!f) return -1;
     int64_t new_pos;
     switch (whence) {
@@ -157,7 +147,9 @@ int vfs_open(const char *path, int flags) {
         ino = ino_alloc();
         ino_publish(ino, path, 0100644);
     }
-    return fd_alloc(ino, flags);
+    int fd = vfs_fd_alloc(ino, flags);
+    if (fd != -1) strncpy(g_fd_table[fd].path, path, sizeof(g_fd_table[fd].path) - 1);
+    return fd;
 }
 
 int vfs_read(int fd, void *buf, size_t n) {
@@ -173,7 +165,7 @@ int vfs_read(int fd, void *buf, size_t n) {
         }
         return (int)got;
     }
-    VfsFd *f = fd_get(fd);
+    NexsFd *f = vfs_fd_get(fd);
     if (!f) return -1;
     char reg_path[REG_PATH_MAX];
     snprintf(reg_path, sizeof(reg_path), "/vfs/inode/%llu/data",
@@ -198,7 +190,7 @@ int vfs_write(int fd, const void *buf, size_t n) {
         for (size_t i = 0; i < n; i++) nexs_hal_putc(s[i]);
         return (int)n;
     }
-    VfsFd *f = fd_get(fd);
+    NexsFd *f = vfs_fd_get(fd);
     if (!f) return -1;
     char reg_path[REG_PATH_MAX];
     snprintf(reg_path, sizeof(reg_path), "/vfs/inode/%llu/data",
@@ -221,7 +213,7 @@ int vfs_write(int fd, const void *buf, size_t n) {
 
 int vfs_close(int fd) {
     if (fd >= 0 && fd < 3) return 0; /* never close stdin/stdout/stderr */
-    VfsFd *f = fd_get(fd);
+    NexsFd *f = vfs_fd_get(fd);
     if (!f) return -1;
     f->in_use = 0;
     return 0;

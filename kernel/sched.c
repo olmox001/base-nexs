@@ -14,6 +14,7 @@
 #include "../registry/include/nexs_registry.h"
 #include "../core/include/nexs_value.h"
 #include "../hal/include/nexs_hal.h"
+#include "../hal/include/nexs_mmu.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -117,6 +118,8 @@ void sched_tick(void) {
     g_current_proc = next;
     next->state = PROC_RUNNING;
     if (prev) prev->state = PROC_READY;
+
+    mmu_switch_address_space(next->pid);
 
     /* Context switch */
     if (prev)

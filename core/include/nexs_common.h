@@ -10,7 +10,11 @@
 #pragma once
 
 #include <stddef.h>
+#ifndef NEXS_BAREMETAL
 #include <stdio.h>
+#else
+typedef struct FILE FILE;
+#endif
 
 #ifdef NEXS_BAREMETAL
 typedef __INT8_TYPE__ int8_t;

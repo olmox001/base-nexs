@@ -104,7 +104,7 @@
 ## Prossimi step consigliati (in ordine)
 
 1. **Avviare `kmsg_dispatch_loop()`** nel kernel baremetal dopo `sched_init()` — collega syscall IPC al kernel
-2. **Caricare `services/ui/init.nx`** in `boot.nx` — completa lo stack di servizi
+2. **Caricare `library/ui/init.nx`** in `boot.nx` — completa lo stack di servizi
 3. **Implementare `fat_readdir()`** — sblocca FAT directory listing per initrd
 4. **Patch `hal/amd64/boot.S`** — PAE ordering fix (abilitare PAE prima di costruire le page table)
 5. **Patch `hal/amd64/isr_stubs.S`** — stack frame canonico per interrupt annidati
@@ -119,7 +119,7 @@
 C runtime (lang/ sys/ registry/ core/ hal/) 
   ↑ C builtins: out, reg_get/set, keys, vfs_*, read, write, ...
   
-services/  ← librerie NEXS caricate da boot.nx (sistema)
+library/  ← librerie NEXS caricate da boot.nx (sistema)
   stdlib.nx  → input(), cat(), cp(), ...  (dipende da VFS)
   fs/init.nx → vfs_write/read/ls/resolve (VFS simulato in registry)
   pm/init.nx → pm_spawn/kill/ps

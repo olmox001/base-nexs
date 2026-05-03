@@ -36,6 +36,7 @@ typedef enum {
   TYPE_BOOL  = 7,
   TYPE_REF   = 8,  /* reference to a registry path (data = buddy_strdup'd path) */
   TYPE_PTR   = 9,  /* pointer to another registry key (data = buddy_strdup'd target path) */
+  TYPE_MAP   = 10, /* key-value map (data = DynArray*) */
 } ValueType;
 
 /* =========================================================
@@ -144,6 +145,15 @@ NEXS_API Value     arr_get_at(DynArray *arr, size_t index);
 NEXS_API void      arr_delete(DynArray *arr, size_t index);
 NEXS_API void      arr_print(DynArray *arr, FILE *out);
 NEXS_API void      arr_free(DynArray *arr);
+
+/* =========================================================
+   MAP API (Implemented using DynArray [k1, v1, k2, v2, ...])
+   ========================================================= */
+
+NEXS_API Value val_map_new(void);
+NEXS_API void  val_map_set(Value *map, const char *key, Value val);
+NEXS_API Value val_map_get(const Value *map, const char *key);
+NEXS_API int   val_eq_str(const Value *v, const char *s);
 
 /* =========================================================
    CONVENIENCE MACROS

@@ -13,20 +13,20 @@ if (G_DEBUG == 1) {
   out "[INIT] Fase 1: Caricamento Driver e Servizi (Librerie di Sistema)..."
 }
 
-exec("services/stdlib.nx")
+exec("modules/stdlib.nx")
 PROC_PID = 1
 PROC_UID = 1
-exec("services/fs/init.nx")
-exec("services/pm/init.nx")
-exec("services/auth/init.nx")
+exec("library///fs/init.nx")
+exec("library///pm/pm.nx")
+exec("library///auth/init.nx")
 auth_set_ring(1)
-exec("services/tty/init.nx")
-exec("services/ui/init.nx")
-exec("services/ui/img.nx")
-exec("services/fs/p9_mnt.nx")
-exec("services/hw_dt.nx")
-exec("services/textbuf.nx")
-exec("services/logos/init.nx")
+exec("library///tty/init.nx")
+exec("library///ui/init.nx")
+exec("library///ui/img.nx")
+exec("library///fs/p9_mnt.nx")
+exec("library///hw_dt.nx")
+exec("library///textbuf.nx")
+exec("library///logos/init.nx")
 exec("example/minios/shell.nx")
 
 if (G_DEBUG == 1) {
@@ -48,8 +48,9 @@ if (G_DEBUG == 1) {
 } else {
   term_cls()
   main_l = reg_get("/sys/logos/main")
-  if type(main_l) == "err" || main_l == "" { main_l = "/System/Library/logos/logo1.nxtimg" }
+  if type(main_l) == "err" || main_l == "" { main_l = "/System/library///logos/logo1.nxtimg" }
   ui_draw_image(main_l 1 1)
+  sleep(2000)
 }
 
 reg_set("/sys/config/standalone" 1)

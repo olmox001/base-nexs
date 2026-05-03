@@ -15,58 +15,58 @@
 #ifndef NEXS_BITCODE_H
 #define NEXS_BITCODE_H
 #pragma once
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
-#define NXB_MAGIC        "NXBC"
-#define NXB_MAGIC_LEN    4
-#define NXB_VERSION      1
-#define NXB_FLAG_NONE    0
+#define NXB_MAGIC "NXBC"
+#define NXB_MAGIC_LEN 4
+#define NXB_VERSION 1
+#define NXB_FLAG_NONE 0
 
 /* Const types */
-#define NXB_CONST_NIL    0
-#define NXB_CONST_INT    1
-#define NXB_CONST_FLOAT  2
-#define NXB_CONST_STR    3
+#define NXB_CONST_NIL 0
+#define NXB_CONST_INT 1
+#define NXB_CONST_FLOAT 2
+#define NXB_CONST_STR 3
 
 /* Node kinds */
-#define NXB_NODE_NOP     0
-#define NXB_NODE_CONST   1   /* extra=const_pool_idx */
-#define NXB_NODE_VAR     2   /* extra=name_const_idx */
-#define NXB_NODE_ASSIGN  3   /* left=var_node, right=expr_node */
-#define NXB_NODE_BINOP   4   /* flags=op, left, right */
-#define NXB_NODE_CALL    5   /* extra=fn_const_idx, left=arg_list_start */
-#define NXB_NODE_IF      6   /* left=cond, right=body */
-#define NXB_NODE_LOOP    7   /* right=body */
-#define NXB_NODE_RET     8   /* left=val */
-#define NXB_NODE_OUT     9   /* left=val */
-#define NXB_NODE_FN_DEF  10  /* extra=name_const_idx, left=params, right=body */
-#define NXB_NODE_EXEC    11  /* extra=path_const_idx */
-#define NXB_NODE_REG_GET 12  /* extra=path_const_idx */
-#define NXB_NODE_REG_SET 13  /* extra=path_const_idx, left=val */
-#define NXB_NODE_BREAK   14
-#define NXB_NODE_SEQ     15  /* left=first, right=rest (singly-linked) */
+#define NXB_NODE_NOP 0
+#define NXB_NODE_CONST 1    /* extra=const_pool_idx */
+#define NXB_NODE_VAR 2      /* extra=name_const_idx */
+#define NXB_NODE_ASSIGN 3   /* left=var_node, right=expr_node */
+#define NXB_NODE_BINOP 4    /* flags=op, left, right */
+#define NXB_NODE_CALL 5     /* extra=fn_const_idx, left=arg_list_start */
+#define NXB_NODE_IF 6       /* left=cond, right=body */
+#define NXB_NODE_LOOP 7     /* right=body */
+#define NXB_NODE_RET 8      /* left=val */
+#define NXB_NODE_OUT 9      /* left=val */
+#define NXB_NODE_FN_DEF 10  /* extra=name_const_idx, left=params, right=body */
+#define NXB_NODE_EXEC 11    /* extra=path_const_idx */
+#define NXB_NODE_REG_GET 12 /* extra=path_const_idx */
+#define NXB_NODE_REG_SET 13 /* extra=path_const_idx, left=val */
+#define NXB_NODE_BREAK 14
+#define NXB_NODE_SEQ 15 /* left=first, right=rest (singly-linked) */
 
 typedef struct {
-    uint8_t  kind;
-    uint8_t  flags;
-    uint32_t left;
-    uint32_t right;
-    uint64_t extra;
+  uint8_t kind;
+  uint8_t flags;
+  uint32_t left;
+  uint32_t right;
+  uint64_t extra;
 } NxbNode;
 
 typedef struct {
-    uint8_t  type;
-    uint32_t len;
-    uint8_t *data;   /* heap-allocated by decode */
+  uint8_t type;
+  uint32_t len;
+  uint8_t *data; /* heap-allocated by decode */
 } NxbConst;
 
 typedef struct {
-    uint32_t  n_consts;
-    NxbConst *consts;
-    uint32_t  n_nodes;
-    NxbNode  *nodes;
-    uint32_t  entry;
+  uint32_t n_consts;
+  NxbConst *consts;
+  uint32_t n_nodes;
+  NxbNode *nodes;
+  uint32_t entry;
 } NxbProgram;
 
 /* Encode the AST of src_path to out_path (.nxb file).

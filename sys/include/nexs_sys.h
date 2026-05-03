@@ -19,20 +19,7 @@
 extern "C" {
 #endif
 
-/* =========================================================
-   FILE DESCRIPTOR TABLE
-   ========================================================= */
-
-typedef struct {
-  FILE *fp;
-  char  path[REG_PATH_MAX];
-  int   in_use;
-  int   flags;
-  const char *emb_src;
-  size_t      emb_pos;
-} NexsFd;
-
-extern NexsFd g_fd_table[NEXS_MAX_FDS];
+#include "../../core/include/nexs_fd.h"
 
 /* =========================================================
    SYSIO API

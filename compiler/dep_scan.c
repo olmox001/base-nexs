@@ -15,6 +15,7 @@
  */
 
 #include "include/nexs_compiler.h"
+#include "../core/include/nexs_utils.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,35 +25,6 @@
 /* =========================================================
    INTERNAL HELPERS
    ========================================================= */
-
-/* Extract the directory part of path into buf (no trailing slash unless root) */
-static void path_dirname(const char *path, char *buf, size_t bufsz) {
-    strncpy(buf, path, bufsz - 1);
-    buf[bufsz - 1] = '\0';
-    char *slash = strrchr(buf, '/');
-    if (slash && slash != buf) {
-        *slash = '\0';
-    } else if (slash == buf) {
-        buf[1] = '\0'; /* root "/" */
-    } else {
-        strncpy(buf, ".", bufsz - 1); /* no slash → current dir */
-    }
-}
-
-/* Join dir + "/" + file into buf */
-static void path_join(const char *dir, const char *file, char *buf, size_t bufsz) {
-    if (file[0] == '/') {
-        /* Already absolute */
-        strncpy(buf, file, bufsz - 1);
-        buf[bufsz - 1] = '\0';
-        return;
-    }
-    if (strcmp(dir, ".") == 0) {
-        strncpy(buf, file, bufsz - 1);
-    } else {
-        snprintf(buf, bufsz, "%s/%s", dir, file);
-    }
-}
 
 /* Check whether path already exists in the dep list */
 static int dep_already_seen(NexsDepEntry *deps, int count, const char *path) {
@@ -95,7 +67,7 @@ static int scan_source(const char *src_path, const char *src,
     if (!src || !src_path) return count;
 
     char parent_dir[NEXS_DEP_PATH_MAX];
-    path_dirname(src_path, parent_dir, sizeof(parent_dir));
+    nexs_path_dirname(src_path, parent_dir, sizeof(parent_dir));
 
     const char *p = src;
     while (*p) {
@@ -153,7 +125,7 @@ static int scan_source(const char *src_path, const char *src,
                                     char alt[NEXS_DEP_PATH_MAX];
                                     
                                     /* 1. Try parent-dir-relative */
-                                    path_join(parent_dir, rel_path, alt, sizeof(alt));
+                                    nexs_path_join(alt, sizeof(alt), parent_dir, rel_path, NULL);
                                     probe = fopen(alt, "r");
                                     if (probe) {
                                         strncpy(abs_path, alt, NEXS_DEP_PATH_MAX - 1);

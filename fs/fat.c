@@ -7,6 +7,7 @@
  */
 
 #include "include/nexs_fat.h"
+#include "../core/include/nexs_fd.h"
 #include "../kernel/include/nexs_blk.h"
 #include <string.h>
 #include <stdio.h>
@@ -100,9 +101,7 @@ int fat_init(uint32_t dev_id) {
 }
 
 static int handle_alloc(void) {
-    for (int i = 0; i < FAT_MAX_HANDLES; i++)
-        if (!s_handles[i].in_use) return i;
-    return -1;
+    return NEXS_ALLOC_SLOT(s_handles, FAT_MAX_HANDLES, 0, in_use);
 }
 
 static Fat16DirEntry *find_in_root(const char *name, uint8_t *sector_buf) {

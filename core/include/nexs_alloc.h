@@ -14,7 +14,11 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+#ifndef NEXS_BAREMETAL
 #include <stdio.h>
+#else
+typedef struct FILE FILE;
+#endif
 
 #ifdef __cplusplus
 extern "C" {

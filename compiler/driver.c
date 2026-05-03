@@ -184,8 +184,10 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
                   script_c);
 
   if (tc->is_baremetal) {
-    pos +=
-        snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " kernel/libc_stub.c");
+    pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
+                    " kernel/libc_stub.c kernel/proc.c kernel/sched.c"
+                    " kernel/vfs.c kernel/syscall.c kernel/msg.c"
+                    " kernel/blk.c kernel/journal.c");
   } else {
     pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " hal/hal_hosted.c");
   }

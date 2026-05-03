@@ -6,6 +6,7 @@
 # =============================================================================
 
 CC     = gcc
+CXX    = g++
 TARGET = nexs
 
 # Platform Detection
@@ -41,14 +42,19 @@ CFLAGS = -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
          -DMACOS_AMD64_CC_BIN='"$(MACOS_AMD64_CC)"' \
          $(INCS)
 
+CXXFLAGS = -O2 -std=c++17 -Wall -Wextra -fno-exceptions -fno-rtti \
+           -fno-threadsafe-statics -fno-use-cxa-atexit \
+           -DPOOL_$(POOL_PROFILE) -DHOST_OS_$(HOST_PLATFORM) \
+           $(INCS)
+
 # Debug flags
 DBGFLAGS = -O0 -g -std=c11 -Wall -Wextra -Wno-unused-parameter \
             -fsanitize=address,undefined -DPOOL_$(POOL_PROFILE) $(INCS)
 
 # All runtime source files (no src/)
 SRCS = \
-  core/buddy.c \
-  core/pager.c \
+  kernel/mm/buddy.c \
+  kernel/mm/pmm.c \
   core/value.c \
   core/dynarray.c \
   core/utils.c \
@@ -59,6 +65,7 @@ SRCS = \
   lang/parser.c \
   lang/eval.c \
   lang/builtins.c \
+  kernel/vfs.c \
   sys/sysio.c \
   sys/sysproc.c \
   runtime/runtime.c \
@@ -67,14 +74,14 @@ SRCS = \
   compiler/codegen.c \
   compiler/driver.c \
   compiler/dep_scan.c \
-  hal/bc/nexs_hal_bc.c \
+  experimental/hal_bc/nexs_hal_bc.c \
   hal/module/nexs_hal_module.c \
+  hal/common/console.c \
+  hal/common/timer.c \
   hal/hal_hosted.c
 
 # Baremetal doesn't use the hosted HAL, but it keeps the AOT compiler
 BAREMETAL_SRCS = \
-  core/buddy.c \
-  core/pager.c \
   core/value.c \
   core/dynarray.c \
   core/utils.c \
@@ -87,14 +94,18 @@ BAREMETAL_SRCS = \
   lang/builtins.c \
   sys/sysio.c \
   sys/sysproc.c \
+  kernel/sys_brk.c \
+  kernel/ipc.c \
+  kernel/cap.c \
   runtime/runtime.c \
   runtime/nexs_line.c \
   runtime/main.c \
   compiler/codegen.c \
   compiler/driver.c \
   compiler/dep_scan.c \
-  hal/bc/nexs_hal_bc.c \
-  hal/module/nexs_hal_module.c
+  experimental/hal_bc/nexs_hal_bc.c \
+  hal/module/nexs_hal_module.c \
+  kernel/libcxx_stub.cpp
 
 OBJS = $(SRCS:.c=.o)
 
@@ -233,9 +244,17 @@ macos-amd64: $(TARGET)
 
 # Kernel sources
 KERNEL_SRCS = \
+  kernel/mm/pmm.c \
+  kernel/mm/buddy.c \
   kernel/libc_stub.c \
   kernel/proc.c \
-  kernel/sched.c
+  kernel/sched.c \
+  kernel/vfs.c \
+  kernel/vfs_server.c \
+  kernel/blk.c \
+  kernel/syscall.c \
+  hal/common/console.c \
+  hal/common/timer.c
 
 ARM64_HAL_SRCS = \
   hal/arm64/boot.S \
@@ -279,12 +298,13 @@ baremetal-amd64: $(TARGET)
 		mkdir -p build/baremetal-amd64 && \
 		x86_64-elf-gcc -march=x86-64 -DNEXS_BAREMETAL -DPOOL_$(POOL_PROFILE) \
 			-O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
-			-fno-stack-protector -fno-pic -mno-red-zone \
+			-fno-stack-protector -fno-pic -mno-red-zone -fno-threadsafe-statics \
 			-nostdlib -nostartfiles -ffreestanding \
 			-Wl,--no-warn-rwx-segments \
 			-T hal/amd64/nexs.ld \
 			$(INCS) -Ikernel/include -Ihal/include \
 			$(BAREMETAL_SRCS) $(KERNEL_SRCS) $(AMD64_HAL_SRCS) \
+			hal/module/uart_cpp.cpp \
 			-o build/baremetal-amd64/nexs.elf && \
 		echo "[+] Baremetal ELF creato con strap header."; \
 	else \
@@ -322,9 +342,9 @@ install: $(TARGET) nexsd
 	@cp $(TARGET) $(DESTDIR)$(BINDIR)/$(TARGET)
 	@cp tools/nexsd/nexsd $(DESTDIR)$(BINDIR)/nexsd
 	@mkdir -p $(DESTDIR)$(DATADIR)/modules
-	@mkdir -p $(DESTDIR)$(DATADIR)/services
+	@mkdir -p $(DESTDIR)$(DATADIR)/library
 	@cp -r modules/*.nx $(DESTDIR)$(DATADIR)/modules/ 2>/dev/null || true
-	@cp -r services/* $(DESTDIR)$(DATADIR)/services/ 2>/dev/null || true
+	@cp -r library/* $(DESTDIR)$(DATADIR)/library/ 2>/dev/null || true
 	@echo "Install complete."
 
 nexsd:

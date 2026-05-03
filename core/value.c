@@ -32,6 +32,7 @@ const char *val_type_name(ValueType t) {
   case TYPE_BOOL:  return "bool";
   case TYPE_REF:   return "ref";
   case TYPE_PTR:   return "ptr";
+  case TYPE_MAP:   return "map";
   default:         return "?";
   }
 }
@@ -215,6 +216,22 @@ void val_print(const Value *v, FILE *out) {
   case TYPE_PTR:
     nexs_fprintf(out, "<ptr:%s>", v->data ? (char *)v->data : "?");
     break;
+  case TYPE_MAP: {
+    DynArray *arr = (DynArray *)v->data;
+    if (!arr) {
+      nexs_fprintf(out, "{}");
+    } else {
+      nexs_fprintf(out, "{");
+      for (size_t i = 0; i < arr->size; i += 2) {
+        val_print(&arr->items[i], out);
+        nexs_fprintf(out, ": ");
+        if (i + 1 < arr->size) val_print(&arr->items[i + 1], out);
+        if (i + 2 < arr->size) nexs_fprintf(out, ", ");
+      }
+      nexs_fprintf(out, "}");
+    }
+    break;
+  }
   case TYPE_ERR:
     nexs_fprintf(out, "ERR(%d: %s)", v->err_code, v->err_msg ? v->err_msg : "");
     break;
@@ -230,7 +247,7 @@ void val_free(Value *v) {
   if (v->type == TYPE_STR) {
     if (v->data) xfree(v->data);
     v->data = NULL;
-  } else if (v->type == TYPE_ARR) {
+  } else if (v->type == TYPE_ARR || v->type == TYPE_MAP) {
     if (v->data) arr_unref((DynArray *)v->data);
     v->data = NULL;
   } else if (v->type == TYPE_REF || v->type == TYPE_PTR) {
@@ -254,7 +271,7 @@ Value val_clone(const Value *v) {
     } else {
       res.data = buddy_strdup("");
     }
-  } else if (v->type == TYPE_ARR) {
+  } else if (v->type == TYPE_ARR || v->type == TYPE_MAP) {
     if (v->data) arr_ref((DynArray *)v->data);
   } else if (v->type == TYPE_REF || v->type == TYPE_PTR) {
     if (v->data) res.data = buddy_strdup((char *)v->data);
@@ -357,3 +374,46 @@ Value val_ne(const Value *a, const Value *b) { return val_bool(!val_equal(a, b))
 Value val_and(const Value *a, const Value *b) { return val_bool(val_is_truthy(a) && val_is_truthy(b)); }
 Value val_or(const Value *a, const Value *b)  { return val_bool(val_is_truthy(a) || val_is_truthy(b)); }
 Value val_not(const Value *a) { return val_bool(!val_is_truthy(a)); }
+
+/* =========================================================
+   MAP IMPLEMENTATION (DynArray with [k1, v1, k2, v2, ...])
+   ========================================================= */
+
+Value val_map_new(void) {
+  DynArray *arr = arr_create_anon();
+  return (Value){TYPE_MAP, arr, 0, 0.0, 0, NULL};
+}
+
+void val_map_set(Value *map, const char *key, Value val) {
+  if (!map || map->type != TYPE_MAP || !map->data || !key) return;
+  DynArray *arr = (DynArray *)map->data;
+  /* Find existing key */
+  for (size_t i = 0; i < arr->size; i += 2) {
+    Value *kv = &arr->items[i];
+    if (kv->type == TYPE_STR && kv->data && strcmp((char *)kv->data, key) == 0) {
+      val_free(&arr->items[i + 1]);
+      arr->items[i + 1] = val_clone(&val);
+      return;
+    }
+  }
+  /* Not found, add new pair */
+  arr_set(arr, arr->size, val_str(key));
+  arr_set(arr, arr->size, val_clone(&val));
+}
+
+Value val_map_get(const Value *map, const char *key) {
+  if (!map || map->type != TYPE_MAP || !map->data || !key) return val_nil();
+  DynArray *arr = (DynArray *)map->data;
+  for (size_t i = 0; i < arr->size; i += 2) {
+    Value *kv = &arr->items[i];
+    if (kv->type == TYPE_STR && kv->data && strcmp((char *)kv->data, key) == 0) {
+      if (i + 1 < arr->size) return val_clone(&arr->items[i + 1]);
+    }
+  }
+  return val_nil();
+}
+
+int val_eq_str(const Value *v, const char *s) {
+  if (!v || !s || v->type != TYPE_STR || !v->data) return 0;
+  return strcmp((char *)v->data, s) == 0;
+}

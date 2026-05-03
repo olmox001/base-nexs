@@ -7,6 +7,7 @@
 #include "include/nexs_proc.h"
 #include "include/nexs_ctx.h"
 #include "include/nexs_sched.h"
+#include "../hal/include/nexs_mmu.h"
 #include "../registry/include/nexs_registry.h"
 #include "../core/include/nexs_value.h"
 #include "../core/include/nexs_alloc.h"
@@ -42,6 +43,13 @@ NexsProc *proc_create(const char *name, void (*entry)(void *), void *arg) {
     strncpy(p->name, name ? name : "unnamed", sizeof(p->name) - 1);
     snprintf(p->reg_path,   sizeof(p->reg_path),   "/proc/%u", p->pid);
     snprintf(p->ipc_inbox,  sizeof(p->ipc_inbox),  "/proc/%u/inbox", p->pid);
+    p->mmu_root = mmu_create_address_space(p->pid);
+
+    /* Initialize CSpace (seL4-style) */
+    extern void cap_init(NexsProc *p, uint32_t size);
+    extern struct Endpoint *ipc_endpoint_create(void);
+    cap_init(p, 256);
+    p->reply_ep = ipc_endpoint_create();
 
     /* Allocate context + stack */
 #ifdef __aarch64__

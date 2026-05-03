@@ -5,7 +5,10 @@
 #define NEXS_PROC_H
 #pragma once
 #include "../../core/include/nexs_common.h"
+#include "../../core/include/nexs_value.h"
 #include <stdint.h>
+
+#include "nexs_cap.h"
 
 typedef enum {
     PROC_RUNNING = 0,
@@ -25,6 +28,13 @@ typedef struct NexsProc {
     uint64_t   timeslice_us;
     uint64_t   ticks_used;
     char       wait_path[REG_PATH_MAX];  /* non-empty when PROC_BLOCKED */
+    uint64_t   mmu_root;                 /* PML4/TTBR0 physical address */
+    uint64_t   heap_start;
+    uint64_t   heap_end;
+    CNode      cspace;                   /* Capability Space (seL4 style) */
+    Value      ipc_msg;                  /* IPC Message payload */
+    uint32_t   ipc_badge;                /* Badge from sender */
+    struct Endpoint *reply_ep;           /* Private reply endpoint */
     struct NexsProc *next;
 } NexsProc;
 

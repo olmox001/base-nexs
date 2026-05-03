@@ -1,5 +1,5 @@
 /*
- * runtime/include/nexs_line.h — NEXS Terminal Library
+ * runtime/include/nexs_line.h — NEXS Terminal library//
  * =====================================================
  * Low-level terminal primitives:
  *   - Raw mode (termios)
@@ -66,41 +66,41 @@ typedef enum {
 
 typedef struct {
   NxKeyCode code;
-  uint32_t  codepoint;  /* Unicode codepoint for NXK_CHAR */
-  char      utf8[5];    /* UTF-8 bytes (NUL-terminated) for NXK_CHAR */
+  uint32_t codepoint; /* Unicode codepoint for NXK_CHAR */
+  char utf8[5];       /* UTF-8 bytes (NUL-terminated) for NXK_CHAR */
 } NxKey;
 
 /* =========================================================
    LINE EDITOR STATE
    ========================================================= */
 
-#define NEXS_LINE_BUFSIZE  4096   /* max line length */
-#define NEXS_LINE_HISTORY  256    /* history ring size */
-#define NEXS_LINE_KILLSZ   4096   /* kill ring size */
+#define NEXS_LINE_BUFSIZE 4096 /* max line length */
+#define NEXS_LINE_HISTORY 256  /* history ring size */
+#define NEXS_LINE_KILLSZ 4096  /* kill ring size */
 
 typedef struct {
   /* Current line buffer */
-  char  buf[NEXS_LINE_BUFSIZE];
-  int   len;                        /* used bytes */
-  int   pos;                        /* cursor byte offset */
+  char buf[NEXS_LINE_BUFSIZE];
+  int len; /* used bytes */
+  int pos; /* cursor byte offset */
 
   /* History ring */
-  char  history[NEXS_LINE_HISTORY][NEXS_LINE_BUFSIZE];
-  int   hist_head;                  /* index of newest entry */
-  int   hist_count;                 /* entries stored */
-  int   hist_nav;                   /* -1 = not navigating; 0..count-1 = index */
-  char  hist_saved[NEXS_LINE_BUFSIZE]; /* line saved before navigating */
+  char history[NEXS_LINE_HISTORY][NEXS_LINE_BUFSIZE];
+  int hist_head;  /* index of newest entry */
+  int hist_count; /* entries stored */
+  int hist_nav;   /* -1 = not navigating; 0..count-1 = index */
+  char hist_saved[NEXS_LINE_BUFSIZE]; /* line saved before navigating */
 
   /* Kill ring (Ctrl+K / Ctrl+U) */
-  char  kill_buf[NEXS_LINE_KILLSZ];
+  char kill_buf[NEXS_LINE_KILLSZ];
 
   /* State */
-  int   raw_mode;          /* 1 if terminal is in raw mode */
-  int   need_redraw;       /* 1 if display is dirty */
-  int   ctrl_c_seen;       /* 1 if Ctrl+C was pressed */
-  int   interrupted;       /* set on Ctrl+C to signal caller */
-  const char *prompt;      /* current prompt string */
-  int   prompt_len;        /* visible length of prompt (no escape codes) */
+  int raw_mode;       /* 1 if terminal is in raw mode */
+  int need_redraw;    /* 1 if display is dirty */
+  int ctrl_c_seen;    /* 1 if Ctrl+C was pressed */
+  int interrupted;    /* set on Ctrl+C to signal caller */
+  const char *prompt; /* current prompt string */
+  int prompt_len;     /* visible length of prompt (no escape codes) */
 } NxLineEditor;
 
 /* =========================================================
@@ -108,15 +108,15 @@ typedef struct {
    ========================================================= */
 
 NEXS_API void nexs_line_init(NxLineEditor *le);
-NEXS_API int nexs_line_read(NxLineEditor *le, const char *prompt,
-                              char *out, int outsz);
+NEXS_API int nexs_line_read(NxLineEditor *le, const char *prompt, char *out,
+                            int outsz);
 NEXS_API void nexs_line_add_history(NxLineEditor *le, const char *line);
 
-NEXS_API int  nexs_line_raw_on(void);
+NEXS_API int nexs_line_raw_on(void);
 NEXS_API void nexs_line_raw_off(void);
-NEXS_API int  nexs_line_is_tty(void);
+NEXS_API int nexs_line_is_tty(void);
 
-NEXS_API NxKey      nexs_key_read(void);
+NEXS_API NxKey nexs_key_read(void);
 NEXS_API const char *nexs_key_name(NxKeyCode k);
 
 NEXS_API void nexs_term_write(const char *s, int n);
@@ -132,4 +132,3 @@ NEXS_API void nexs_term_clear_screen(void);
 #endif
 
 #endif /* NEXS_LINE_H */
-

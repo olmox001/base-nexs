@@ -45,11 +45,16 @@ static volatile uint64_t *pte_at(uint64_t phys_base, uint16_t idx) {
 }
 
 static uint64_t phys_alloc_page(void) {
+#ifdef NEXS_BAREMETAL
+    void *p = page_alloc(1);
+    if (!p) return 0;
+    return (uint64_t)p;
+#else
     uint64_t p = s_phys_bump;
     s_phys_bump += 4096;
-    /* Zero the new page */
     memset((void *)p, 0, 4096);
     return p;
+#endif
 }
 
 /* ── Walk PML4 → PT read-only; returns PTE address or 0 ─────── */
@@ -111,15 +116,56 @@ static uint64_t pml4_walk_alloc(uint64_t pml4_phys, vaddr_t virt) {
     return pt_phys + (uint64_t)pti * 8; /* address of final PTE */
 }
 
+/* Local PID -> PML4 root cache */
+static uint64_t s_pid_roots[256];
+
+paddr_t mmu_create_address_space(uint32_t pid) {
+    uint64_t root = phys_alloc_page();
+    if (!root) return (paddr_t)-1;
+
+    /* Copy kernel mappings (PML4 entries 256-511) from the master KERNEL_PML4_PHYS */
+    uint64_t *src = (uint64_t *)KERNEL_PML4_PHYS;
+    uint64_t *dst = (uint64_t *)root;
+    for (int i = 256; i < 512; i++) {
+        dst[i] = src[i];
+    }
+
+    if (pid < 256) s_pid_roots[pid] = root;
+    
+    char path[128];
+    snprintf(path, sizeof(path), "/hal/mmu/proc/%u/root", pid);
+    reg_set(path, val_int((int64_t)root), RK_READ);
+    
+    return root;
+}
+
+int mmu_switch_address_space(uint32_t pid) {
+    uint64_t root = KERNEL_PML4_PHYS;
+    if (pid > 0 && pid < 256 && s_pid_roots[pid] != 0) {
+        root = s_pid_roots[pid];
+    }
+    
+    __asm__ volatile("mov %0, %%cr3" :: "r"(root) : "memory");
+    return 0;
+}
+
+void mmu_destroy_address_space(uint32_t pid) {
+    if (pid > 0 && pid < 256 && s_pid_roots[pid] != 0) {
+        /* Future: traverse and free all page tables */
+        page_free((void*)s_pid_roots[pid], 1);
+        s_pid_roots[pid] = 0;
+    }
+}
+
 /* ── Init: identity map + kernel high map ─────────────────── */
 void mmu_init(void) {
-    /* The boot.S already created a working identity map via 2MB pages.
-     * Here we refine it: set up /hal/mmu/ registry entries and the
-     * page fault handler, then flush to ensure consistency. */
-
     /* Register page fault handler */
     void pf_isr(IsrFrame *f);
     nexs_isr_register(14, pf_isr);
+
+    /* Initialize root map */
+    memset(s_pid_roots, 0, sizeof(s_pid_roots));
+    s_pid_roots[0] = KERNEL_PML4_PHYS;
 
     /* Publish map to registry */
     reg_set("/hal/mmu/pml4_phys", val_int((int64_t)KERNEL_PML4_PHYS), RK_READ);
@@ -131,8 +177,12 @@ void mmu_init(void) {
 
 /* ── Map a single 4KB page ────────────────────────────────── */
 int mmu_map_page(uint32_t pid, vaddr_t virt, paddr_t phys, uint32_t flags) {
-    (void)pid; /* kernel map only for now */
-    uint64_t pte_addr = pml4_walk_alloc(KERNEL_PML4_PHYS, virt);
+    uint64_t root = KERNEL_PML4_PHYS;
+    if (pid > 0 && pid < 256 && s_pid_roots[pid] != 0) {
+        root = s_pid_roots[pid];
+    }
+
+    uint64_t pte_addr = pml4_walk_alloc(root, virt);
     if (!pte_addr) return -1;
 
     uint64_t entry = (phys & ~0xFFFULL) | PTE_P;
@@ -147,8 +197,12 @@ int mmu_map_page(uint32_t pid, vaddr_t virt, paddr_t phys, uint32_t flags) {
 }
 
 int mmu_unmap_page(uint32_t pid, vaddr_t virt) {
-    (void)pid;
-    uint64_t pte_addr = pml4_walk_readonly(KERNEL_PML4_PHYS, virt);
+    uint64_t root = KERNEL_PML4_PHYS;
+    if (pid > 0 && pid < 256 && s_pid_roots[pid] != 0) {
+        root = s_pid_roots[pid];
+    }
+
+    uint64_t pte_addr = pml4_walk_readonly(root, virt);
     if (!pte_addr) return 0; /* already unmapped */
     *(volatile uint64_t *)pte_addr = 0;
     mmu_flush_tlb(virt);

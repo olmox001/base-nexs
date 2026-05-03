@@ -9,17 +9,19 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <fcntl.h>
-#include <signal.h>
 
 #include "../../runtime/include/nexs_runtime.h"
-#include "../../lang/include/nexs_eval.h"
-#include "../../core/include/nexs_common.h"
-#include "../../core/include/nexs_alloc.h"
 #include "../../lang/include/nexs_lex.h"
 #include "../../lang/include/nexs_ast.h"
 #include "nexsd_protocol.h"
 #include "../../compiler/include/nexs_compiler.h"
 #include "../../lang/include/nexs_fn.h"
+
+void register_fns_in_fn_table(ASTNode *node);
+void scan_symbols_in_ast(ASTNode *node, const char *filename);
+
+int c_builtins_count = 0;
+int baseline_fn_count = 0;
 
 #define MAX_SYMBOLS 16384
 
@@ -39,12 +41,18 @@ Symbol symbol_table[MAX_SYMBOLS];
 int symbol_count = 0;
 
 void add_symbol(const char *name, const char *file, int line, int col, int params, int is_c) {
+    char norm_file[512];
+    if (realpath(file, norm_file) == NULL) {
+        strncpy(norm_file, file, sizeof(norm_file) - 1);
+        norm_file[sizeof(norm_file) - 1] = '\0';
+    }
+
     for (int i = 0; i < symbol_count; i++) {
-        if (strcmp(symbol_table[i].name, name) == 0 && strcmp(symbol_table[i].filename, file) == 0) return;
+        if (strcmp(symbol_table[i].name, name) == 0 && strcmp(symbol_table[i].filename, norm_file) == 0) return;
     }
     if (symbol_count < MAX_SYMBOLS) {
         strncpy(symbol_table[symbol_count].name, name, NAME_LEN - 1);
-        strncpy(symbol_table[symbol_count].filename, file, 511);
+        strncpy(symbol_table[symbol_count].filename, norm_file, 511);
         symbol_table[symbol_count].line = line;
         symbol_table[symbol_count].col = col;
         symbol_table[symbol_count].n_params = params;
@@ -131,6 +139,56 @@ void scan_project_c(const char *root) {
     }
 }
 
+void scan_nx_file(const char *path) {
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char *content = malloc(sz + 1);
+    fread(content, 1, sz, f);
+    content[sz] = '\0';
+    fclose(f);
+
+    Lexer lex;
+    lexer_init(&lex, content);
+    Parser par;
+    parser_init(&par, &lex, path);
+    extern int g_fn_count;
+    int before = g_fn_count;
+    ASTNode *prog = parse_program(&par);
+    if (prog) {
+        register_fns_in_fn_table(prog);
+        scan_symbols_in_ast(prog, path);
+        ast_free_safe(prog);
+    } else if (par.had_error) {
+        printf("  [!] Error parsing %s: %s\n", path, par.error_msg);
+    }
+    free(content);
+    // printf("  Indexed %s (%d new fns)\n", path, g_fn_count - before);
+}
+
+void scan_project_nx(const char *root) {
+    DIR *d = opendir(root);
+    if (!d) return;
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        if (ent->d_name[0] == '.') continue;
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/%s", root, ent->d_name);
+        
+        struct stat st;
+        if (stat(path, &st) == 0) {
+            if (S_ISDIR(st.st_mode)) {
+                scan_project_nx(path);
+            } else if (strstr(ent->d_name, ".nx")) {
+                scan_nx_file(path);
+            }
+        }
+    }
+    closedir(d);
+}
+
 int count_nx_files(const char *root) {
     int count = 0;
     DIR *d = opendir(root);
@@ -150,31 +208,35 @@ int count_nx_files(const char *root) {
 }
 
 void handle_client(int client_fd) {
-    char *buffer = malloc(BUF_SIZE);
-    ssize_t n = read(client_fd, buffer, BUF_SIZE - 1);
-    if (n <= 0) { free(buffer); return; }
-    buffer[n] = '\0';
+    /* Read everything */
+    char *payload = NULL;
+    size_t payload_size = 0;
+    char buf[8192];
+    
+    while (1) {
+        ssize_t n = recv(client_fd, buf, sizeof(buf), 0);
+        if (n <= 0) break;
+        char *new_payload = realloc(payload, payload_size + n + 1);
+        if (!new_payload) { free(payload); return; }
+        payload = new_payload;
+        memcpy(payload + payload_size, buf, n);
+        payload_size += n;
+        payload[payload_size] = '\0';
+        if (n < (ssize_t)sizeof(buf)) break;
+    }
 
-    if (strcmp(buffer, CMD_SHUTDOWN) == 0) {
+    if (!payload) return;
+
+    if (strcmp(payload, CMD_SHUTDOWN) == 0) {
         printf("Spegnimento ordinato richiesto...\n");
         unlink(SOCKET_PATH);
         unlink(LOCK_FILE);
         exit(0);
     }
 
-    char filename[MAX_FILENAME];
-    n = read(client_fd, filename, MAX_FILENAME);
-    if (n <= 0) { free(buffer); return; }
-    
-    /* Read the rest of the content */
-    int total_read = 0;
-    while (total_read < BUF_SIZE - 1) {
-        ssize_t rd = read(client_fd, buffer + total_read, BUF_SIZE - 1 - total_read);
-        if (rd <= 0) break;
-        total_read += rd;
-    }
-    buffer[total_read] = '\0';
-    char *content = buffer;
+    /* Protocol: [filename]\0[content] */
+    char *filename = payload;
+    char *content = filename + strlen(filename) + 1;
 
     /* Check if file ends with .nx */
     int flen = strlen(filename);
@@ -182,13 +244,29 @@ void handle_client(int client_fd) {
 
     if (!is_nx) {
         write(client_fd, "OK\n", 3);
-        free(buffer);
+        free(payload);
         return;
     }
 
-    /* Reset runtime to baseline (built-ins) */
-    void nexs_runtime_reset_to_baseline(void);
-    nexs_runtime_reset_to_baseline();
+    /* Normalize current file path */
+    char norm_filename[512];
+    if (realpath(filename, norm_filename) == NULL) {
+        strncpy(norm_filename, filename, sizeof(norm_filename) - 1);
+        norm_filename[sizeof(norm_filename) - 1] = '\0';
+    }
+
+    /* Reset runtime to C built-ins only */
+    extern int g_fn_count;
+    g_fn_count = c_builtins_count;
+
+    /* Re-register project symbols EXCEPT those from this file */
+    for (int i = 0; i < symbol_count; i++) {
+        if (!symbol_table[i].is_c && strcmp(symbol_table[i].filename, norm_filename) != 0) {
+            char params[MAX_PARAMS][NAME_LEN];
+            memset(params, 0, sizeof(params));
+            fn_register(symbol_table[i].name, NULL, params, symbol_table[i].n_params);
+        }
+    }
 
     /* Reset symbol table to baseline (C symbols) */
     int nx_start = 0;
@@ -251,13 +329,12 @@ void handle_client(int client_fd) {
     if (err_n > 0) { err_buf[err_n] = '\0'; write(client_fd, err_buf, (size_t)err_n); }
     else { write(client_fd, "OK\n", 3); }
     write(client_fd, sym_buf, (size_t)strlen(sym_buf));
-    free(buffer);
+    free(payload);
 }
 
-static int baseline_fn_count = 0;
 void nexs_runtime_reset_to_baseline(void) {
     extern int g_fn_count;
-    g_fn_count = baseline_fn_count;
+    g_fn_count = c_builtins_count;
 }
 
 void register_fns_in_fn_table(ASTNode *node) {
@@ -270,9 +347,10 @@ void register_fns_in_fn_table(ASTNode *node) {
     }
     register_fns_in_fn_table(node->left);
     register_fns_in_fn_table(node->right);
-    if (node->kind == AST_BLOCK || node->kind == AST_PROGRAM) {
-        for (int i = 0; i < node->n_args; i++) register_fns_in_fn_table(node->args[i]);
-    }
+    register_fns_in_fn_table(node->children);
+    register_fns_in_fn_table(node->next);
+    register_fns_in_fn_table(node->alt);
+    for (int i = 0; i < node->n_args; i++) register_fns_in_fn_table(node->args[i]);
 }
 
 void scan_symbols_in_ast(ASTNode *node, const char *filename) {
@@ -280,9 +358,10 @@ void scan_symbols_in_ast(ASTNode *node, const char *filename) {
     if (node->kind == AST_FN_DECL) add_symbol(node->name, filename, node->tok.line, node->tok.col, node->n_params, 0);
     scan_symbols_in_ast(node->left, filename);
     scan_symbols_in_ast(node->right, filename);
-    if (node->kind == AST_BLOCK || node->kind == AST_PROGRAM) {
-        for (int i = 0; i < node->n_args; i++) scan_symbols_in_ast(node->args[i], filename);
-    }
+    scan_symbols_in_ast(node->children, filename);
+    scan_symbols_in_ast(node->next, filename);
+    scan_symbols_in_ast(node->alt, filename);
+    for (int i = 0; i < node->n_args; i++) scan_symbols_in_ast(node->args[i], filename);
 }
 
 int main(int argc, char *argv[]) {
@@ -293,6 +372,7 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    g_nexs_lint_mode = 1;
     nexs_runtime_init();
     
     /* Modalità Standby se non ci sono file .nx */
@@ -305,8 +385,11 @@ int main(int argc, char *argv[]) {
 
     scan_project_c(cwd);
     extern int g_fn_count;
+    c_builtins_count = g_fn_count;
+    
+    scan_project_nx(cwd);
     baseline_fn_count = g_fn_count;
-    printf("nexsd indexed %d C built-ins\n", symbol_count);
+    printf("nexsd indexed %d symbols (%d total fns, %d C built-ins)\n", symbol_count, baseline_fn_count, c_builtins_count);
 
     int server_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     struct sockaddr_un addr;
@@ -314,8 +397,14 @@ int main(int argc, char *argv[]) {
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, SOCKET_PATH, sizeof(addr.sun_path) - 1);
     unlink(SOCKET_PATH);
-    bind(server_fd, (struct sockaddr *)&addr, sizeof(addr));
-    listen(server_fd, 5);
+    if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        perror("bind");
+        exit(1);
+    }
+    if (listen(server_fd, 5) < 0) {
+        perror("listen");
+        exit(1);
+    }
     
     printf("nexsd ready and monitoring...\n");
 

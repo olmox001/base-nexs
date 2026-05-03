@@ -1,0 +1,47 @@
+# library//t.nx — NEXS Device Tree
+# ===================================================================
+# Populates /sys/hw/ with hardware node descriptions.
+# Supports dynamic node registration and DTB loading.
+
+fn hw_dt_init() {
+  kout("[HW] Inizializzazione Device Tree...")
+
+  dtb = vfs_read("/etc/dtb.nx")
+  if type(dtb) != "err" && len(dtb) > 0 && substr(dtb 0 4) != "ERR:" {
+    eval(dtb)
+    kout("[HW] Configurazione hardware caricata da /etc/dtb.nx")
+  } else {
+    hw_dt_node_set("cpu/vendor"    "GenericCPU")
+    hw_dt_node_set("cpu/model"     "NEXS Virtual Core")
+    hw_dt_node_set("cpu/cores"     1)
+    hw_dt_node_set("cpu/frequency" 1000)
+    hw_dt_node_set("mem/pool_size" 8192)
+    hw_dt_node_set("dev/tty0"      "Console TTY")
+    hw_dt_node_set("dev/stdin"     "fd:0")
+    hw_dt_node_set("dev/stdout"    "fd:1")
+    hw_dt_node_set("dev/stderr"    "fd:2")
+    kout("[HW] Detection completata (defaults).")
+  }
+}
+
+fn hw_dt_node_set(path val) {
+  reg_set("/sys/hw/" + path val)
+  ret 0
+}
+
+fn hw_dt_node_get(path) {
+  ret reg_get("/sys/hw/" + path)
+}
+
+fn hw_dt_dump() {
+  out "=== NEXS DEVICE TREE ==="
+  cpu_vendor = hw_dt_node_get("cpu/vendor")
+  if type(cpu_vendor) == "err" { cpu_vendor = "unknown" }
+  cpu_cores = hw_dt_node_get("cpu/cores")
+  if type(cpu_cores) == "err" { cpu_cores = "?" }
+  mem_sz = hw_dt_node_get("mem/pool_size")
+  if type(mem_sz) == "err" { mem_sz = "?" }
+  out "CPU: " + str(cpu_vendor) + " (" + str(cpu_cores) + " core)"
+  out "RAM: " + str(mem_sz) + " KB"
+  out "TTY: " + str(hw_dt_node_get("dev/tty0"))
+}

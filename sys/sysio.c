@@ -7,12 +7,14 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "include/nexs_sys.h"
-#include "nexs_hal.h"
+#include "../core/include/nexs_fd.h"
+#include "../hal/include/nexs_hal.h"
 #include "../registry/include/nexs_registry.h"
 #include "../lang/include/nexs_fn.h"
 #include "../core/include/nexs_alloc.h"
 #include "../core/include/nexs_value.h"
 #include "../core/include/nexs_common.h"
+#include "nexs_line.h"
 
 #include <string.h>
 #include <sys/stat.h>
@@ -31,7 +33,7 @@ extern const char *nexs_embedded_lookup(const char *path);
    GLOBAL STATE
    ========================================================= */
 
-NexsFd g_fd_table[NEXS_MAX_FDS];
+extern NexsFd g_fd_table[NEXS_MAX_FDS];
 static char g_errstr[REG_PATH_MAX] = "";
 
 /* =========================================================
@@ -39,7 +41,6 @@ static char g_errstr[REG_PATH_MAX] = "";
    ========================================================= */
 
 void sysio_init(void) {
-  memset(g_fd_table, 0, sizeof(g_fd_table));
 
   g_fd_table[0].fp = stdin;
   strncpy(g_fd_table[0].path, "/dev/stdin", REG_PATH_MAX - 1);
@@ -61,11 +62,8 @@ void sysio_init(void) {
    HELPERS
    ========================================================= */
 
-static int fd_alloc(void) {
-  for (int i = 3; i < NEXS_MAX_FDS; i++)
-    if (!g_fd_table[i].in_use) return i;
-  return -1;
-}
+/* Centralized vfs_fd_alloc used instead of local fd_alloc */
+extern int vfs_fd_alloc(uint64_t ino, int flags);
 
 static void set_errstr(const char *msg) {
   if (msg) strncpy(g_errstr, msg, sizeof(g_errstr) - 1);
@@ -79,7 +77,7 @@ static void set_errstr(const char *msg) {
 
 int nexs_open(const char *path, int mode) {
   if (!path) { set_errstr("open: NULL path"); return -1; }
-  int fd = fd_alloc();
+  int fd = vfs_fd_alloc(0, mode);
   if (fd < 0) { set_errstr("open: fd table full"); return -1; }
   const char *fmode;
   int base = mode & 0x0F;
@@ -126,7 +124,7 @@ int nexs_open(const char *path, int mode) {
 int nexs_create(const char *path, int mode, int perm) {
   (void)perm;
   if (!path) { set_errstr("create: NULL path"); return -1; }
-  int fd = fd_alloc();
+  int fd = vfs_fd_alloc(0, mode);
   if (fd < 0) { set_errstr("create: fd table full"); return -1; }
   const char *fmode;
   int base = mode & 0x0F;
@@ -236,7 +234,7 @@ int64_t nexs_seek(int fd, int64_t offset, int whence) {
 int nexs_dup(int oldfd, int newfd) {
   if (oldfd < 0 || oldfd >= NEXS_MAX_FDS || !g_fd_table[oldfd].in_use)
     { set_errstr("dup: invalid oldfd"); return -1; }
-  if (newfd < 0) newfd = fd_alloc();
+  if (newfd < 0) newfd = vfs_fd_alloc(0, 0);
   if (newfd < 0 || newfd >= NEXS_MAX_FDS) { set_errstr("dup: invalid newfd"); return -1; }
   if (g_fd_table[newfd].in_use && newfd >= 3) nexs_close(newfd);
   g_fd_table[newfd] = g_fd_table[oldfd];
@@ -265,13 +263,13 @@ int nexs_pipe(int fd[2]) {
   if (!fd) { set_errstr("pipe: NULL fd"); return -1; }
   int pipefd[2];
   if (pipe(pipefd) != 0) { set_errstr("pipe: creation failed"); return -1; }
-  int fd0 = fd_alloc();
+  int fd0 = vfs_fd_alloc(0, NEXS_OREAD);
   if (fd0 < 0) { close(pipefd[0]); close(pipefd[1]); set_errstr("pipe: fd table full"); return -1; }
   g_fd_table[fd0].fp = fdopen(pipefd[0], "r");
   strncpy(g_fd_table[fd0].path, "/dev/pipe/r", REG_PATH_MAX - 1);
   g_fd_table[fd0].in_use = 1;
   g_fd_table[fd0].flags  = NEXS_OREAD;
-  int fd1 = fd_alloc();
+  int fd1 = vfs_fd_alloc(0, NEXS_OWRITE);
   if (fd1 < 0) {
     fclose(g_fd_table[fd0].fp);
     g_fd_table[fd0].in_use = 0;
@@ -483,30 +481,17 @@ static Value bi_unmount(Value *args, int n) {
    TERMINAL SYSCALLS (rawon / rawoff / readbyte / chr)
    ========================================================= */
 
-static struct termios s_orig_term;
-static int            s_raw_active = 0;
-
 static Value bi_rawon(Value *args, int n) {
   (void)args; (void)n;
-  if (s_raw_active) return val_int(0);
-  if (!isatty(STDIN_FILENO)) return val_int(-1);
-  if (tcgetattr(STDIN_FILENO, &s_orig_term) != 0) return val_int(-1);
-  struct termios raw = s_orig_term;
-  raw.c_iflag &= ~(tcflag_t)(ICRNL | IXON | BRKINT | ISTRIP | INPCK);
-  raw.c_lflag &= ~(tcflag_t)(ECHO | ICANON | IEXTEN | ISIG);
-  raw.c_cflag |= CS8;
-  raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0;
-  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) != 0) return val_int(-1);
-  s_raw_active = 1;
+  if (nexs_line_raw_on() == 0)
+    return val_int(1);
   return val_int(0);
 }
 
 static Value bi_rawoff(Value *args, int n) {
   (void)args; (void)n;
-  if (!s_raw_active) return val_int(0);
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &s_orig_term);
-  s_raw_active = 0;
-  return val_int(0);
+  nexs_line_raw_off();
+  return val_int(1);
 }
 
 static char s_key_layout[16] = "us";
@@ -729,20 +714,32 @@ void sysio_register_builtins(void) {
     SIG("set_layout(name str)") "int");
   fn_register_builtin_sig("readkey",    bi_readkey,
     SIG("readkey()") "str");
+  fn_register_builtin_sig("_readkey",   bi_readkey,
+    SIG("_readkey()") "str");
   fn_register_builtin_sig("readkey_nb", bi_readkey_nb,
     SIG("readkey_nb(ms int)") "str");
   fn_register_builtin_sig("term_at",   bi_term_at,
     SIG("term_at(y int, x int, s str)") "nil");
+  fn_register_builtin_sig("_term_at",  bi_term_at,
+    SIG("_term_at(y int, x int, s str)") "nil");
   fn_register_builtin_sig("term_cls",  bi_term_cls,
     SIG("term_cls()") "nil");
+  fn_register_builtin_sig("_term_cls", bi_term_cls,
+    SIG("_term_cls()") "nil");
   fn_register_builtin_sig("term_cursor_move", bi_term_cursor_move,
     SIG("term_cursor_move(y int, x int)") "nil");
+  fn_register_builtin_sig("_term_cursor_move", bi_term_cursor_move,
+    SIG("_term_cursor_move(y int, x int)") "nil");
   fn_register_builtin_sig("term_erase_eol",   bi_term_erase_eol,
     SIG("term_erase_eol()") "nil");
   fn_register_builtin_sig("term_cursor_show", bi_term_cursor_show,
     SIG("term_cursor_show(bool)") "nil");
+  fn_register_builtin_sig("_term_cursor_show", bi_term_cursor_show,
+    SIG("_term_cursor_show(bool)") "nil");
   fn_register_builtin_sig("term_flush", bi_term_flush,
     SIG("term_flush()") "nil");
+  fn_register_builtin_sig("_term_flush", bi_term_flush,
+    SIG("_term_flush()") "nil");
 
   /* Store actual fn_table indices in /sys/<name> for val_print and eval resolution */
   {
@@ -754,11 +751,13 @@ void sysio_register_builtins(void) {
       {"mount",bi_mount},{"bind",bi_bind},{"unmount",bi_unmount},
       {"rawon",bi_rawon},{"rawoff",bi_rawoff},
       {"readbyte",bi_readbyte},{"chr",bi_chr},
-      {"set_layout",bi_set_layout},{"readkey",bi_readkey},
-      {"readkey_nb",bi_readkey_nb},{"term_at",bi_term_at},
-      {"term_cls",bi_term_cls},{"term_cursor_move",bi_term_cursor_move},
+      {"set_layout",bi_set_layout},{"readkey",bi_readkey},{"_readkey",bi_readkey},
+      {"readkey_nb",bi_readkey_nb},{"term_at",bi_term_at},{"_term_at",bi_term_at},
+      {"term_cls",bi_term_cls},{"_term_cls",bi_term_cls},{"term_cursor_move",bi_term_cursor_move},
+      {"_term_cursor_move",bi_term_cursor_move},
       {"term_erase_eol",bi_term_erase_eol},{"term_cursor_show",bi_term_cursor_show},
-      {"term_flush",bi_term_flush},
+      {"_term_cursor_show",bi_term_cursor_show},
+      {"term_flush",bi_term_flush},{"_term_flush",bi_term_flush},
     };
     char path[REG_PATH_MAX];
     for (int _i = 0; _i < (int)(sizeof(t)/sizeof(t[0])); _i++) {

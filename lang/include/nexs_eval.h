@@ -13,7 +13,11 @@
 #include "../../core/include/nexs_value.h"
 #include "../../core/include/nexs_common.h"
 
+#ifndef NEXS_BAREMETAL
 #include <stdio.h>
+#else
+typedef struct FILE FILE;
+#endif
 
 #ifdef __cplusplus
 extern "C" {

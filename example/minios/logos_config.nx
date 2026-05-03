@@ -8,9 +8,9 @@ fn configure_logos() {
   main_logo = reg_get("/sys/logos/main")
   if (debug == 1) { out "  Logo principale: " + str(main_logo) }
 
-  reg_set("/sys/logo_shortcuts/l0" "/System/Library/logos/logo.nxtimg")
-  reg_set("/sys/logo_shortcuts/l1" "/System/Library/logos/logo1.nxtimg")
-  reg_set("/sys/logo_shortcuts/l2" "/System/Library/logos/logo2.nxtimg")
+  reg_set("/sys/logo_shortcuts/l0" "/System/library///logos/logo.nxtimg")
+  reg_set("/sys/logo_shortcuts/l1" "/System/library///logos/logo1.nxtimg")
+  reg_set("/sys/logo_shortcuts/l2" "/System/library///logos/logo2.nxtimg")
   reg_set("/sys/logo_shortcuts/main" main_logo)
 
   if (debug == 1) { out "[LOGO-CONFIG] Setup completato." }

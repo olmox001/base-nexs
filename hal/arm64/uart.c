@@ -23,7 +23,9 @@
 #define UART_FR_TXFF  (1U << 5)   /* Transmit FIFO full */
 #define UART_FR_RXFE  (1U << 4)   /* Receive FIFO empty */
 
-void nexs_hal_init(void) {
+#include "../include/hal_internal.h"
+
+static void arm64_hal_init(void) {
   /* On QEMU virt, the PL011 UART is already usable after reset.
    * Configure for 115200 baud, 8N1 (assuming 24 MHz UART clock). */
 
@@ -41,27 +43,20 @@ void nexs_hal_init(void) {
   *UART_CR = (1U << 0) | (1U << 8) | (1U << 9);
 }
 
-void nexs_hal_putc(char c) {
+static void arm64_hal_putc(char c) {
   /* Wait while TX FIFO is full */
   while (*UART_FR & UART_FR_TXFF) {}
   *UART_DR = (uint32_t)(unsigned char)c;
 }
 
-int nexs_hal_getc(void) {
+static int arm64_hal_getc(void) {
   /* Return -1 if RX FIFO is empty */
   if (*UART_FR & UART_FR_RXFE) return -1;
   return (int)(*UART_DR & 0xFF);
 }
 
-void nexs_hal_print(const char *s) {
-  if (!s) return;
-  while (*s) {
-    if (*s == '\n') nexs_hal_putc('\r');
-    nexs_hal_putc(*s++);
-  }
-}
 
-void nexs_hal_memory_map(NexsMemMap *map) {
+static void arm64_hal_memory_map(NexsMemMap *map) {
   if (!map) return;
   map->entry_point = (uintptr_t)0x40000000UL;  /* as per nexs.ld */
   map->ram_base    = (uintptr_t)0x40000000UL;
@@ -69,18 +64,40 @@ void nexs_hal_memory_map(NexsMemMap *map) {
   map->uart_base   = (uintptr_t)UART0_BASE;
 }
 
-void nexs_hal_irq_disable(void) {
+static void arm64_hal_irq_disable(void) {
   __asm__ volatile("msr daifset, #0xf" : : : "memory");
 }
 
-void nexs_hal_irq_enable(void) {
+static void arm64_hal_irq_enable(void) {
   __asm__ volatile("msr daifclr, #0xf" : : : "memory");
 }
 
-void nexs_hal_halt(void) {
+static void arm64_hal_halt(void) __attribute__((noreturn));
+static void arm64_hal_halt(void) {
   __asm__ volatile("msr daifset, #0xf");
-  /* PSCI SYSTEM_OFF (0x84000008) via HVC — tells QEMU to power off */
+#ifdef __aarch64__
   register uint64_t x0 __asm__("x0") = 0x84000008UL;
   __asm__ volatile("hvc #0" : : "r"(x0) : "memory", "x1", "x2", "x3");
+#endif
   while (1) { __asm__ volatile("wfi"); }
+}
+
+/* =========================================================
+   DRIVER REGISTRATION
+   ========================================================= */
+
+static HalDriver s_arm64_driver = {
+    .name = "arm64-pl011",
+    .init = arm64_hal_init,
+    .putc = arm64_hal_putc,
+    .getc = arm64_hal_getc,
+    .halt = arm64_hal_halt,
+    .irq_disable = arm64_hal_irq_disable,
+    .irq_enable = arm64_hal_irq_enable,
+    .memory_map = arm64_hal_memory_map
+};
+
+__attribute__((constructor))
+static void arm64_register_hal(void) {
+    g_hal_driver = &s_arm64_driver;
 }

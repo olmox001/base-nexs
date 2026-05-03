@@ -31,28 +31,18 @@ static inline void write_cntv_ctl(uint64_t val) {
 }
 
 /* ── State ────────────────────────────────────────────────── */
-static uint64_t       s_ticks    = 0;
 static uint32_t       s_reload   = 0;
-static TimerCallback  s_tick_cb  = NULL;
 
 /* ── Timer IRQ handler (IRQ 27, routed via GIC) ─────────── */
 static void timer_irq(uint32_t irq) {
     (void)irq;
-    s_ticks++;
-    if (s_tick_cb) s_tick_cb();
+    g_hal_ticks++;
+    if (g_hal_tick_cb) g_hal_tick_cb();
     /* Rearm: write reload value to TVAL (countdown restarts) */
     write_cntv_tval(s_reload);
 }
 
 /* ── Public API ───────────────────────────────────────────── */
-
-uint64_t hal_timer_ticks(void) { return s_ticks; }
-
-void hal_timer_sleep_ms(uint32_t ms) {
-    uint64_t target = s_ticks + ms;
-    while (s_ticks < target)
-        __asm__ volatile("wfe");
-}
 
 void hal_timer_set_hz(uint32_t hz) {
     uint64_t freq = read_cntfrq();
@@ -61,7 +51,7 @@ void hal_timer_set_hz(uint32_t hz) {
 }
 
 void hal_timer_init(TimerCallback cb) {
-    s_tick_cb = cb;
+    g_hal_tick_cb = cb;
 
     uint64_t freq = read_cntfrq();
     if (freq == 0) freq = 62500000; /* QEMU default 62.5 MHz */

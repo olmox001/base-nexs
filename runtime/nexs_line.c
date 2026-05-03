@@ -32,20 +32,19 @@
 #endif
 
 /* =========================================================
-   INTERNAL: TERMIOS STATE
+   INTERNAL: TERMIOS / I/O STATE
    ========================================================= */
 
 #ifndef NEXS_BAREMETAL
 static struct termios s_orig_termios;
 static int s_raw_active = 0;
+#endif
 
 int nexs_line_raw_on(void) {
-  if (s_raw_active)
-    return 0;
-  if (!isatty(STDIN_FILENO))
-    return -1;
-  if (tcgetattr(STDIN_FILENO, &s_orig_termios) == -1)
-    return -1;
+#ifndef NEXS_BAREMETAL
+  if (s_raw_active) return 0;
+  if (!isatty(STDIN_FILENO)) return -1;
+  if (tcgetattr(STDIN_FILENO, &s_orig_termios) == -1) return -1;
 
   struct termios raw = s_orig_termios;
   raw.c_iflag &= ~(tcflag_t)(ICRNL | IXON | BRKINT | ISTRIP | INPCK);
@@ -54,28 +53,39 @@ int nexs_line_raw_on(void) {
   raw.c_cc[VMIN] = 1;
   raw.c_cc[VTIME] = 0;
 
-  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1)
-    return -1;
+  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) return -1;
   s_raw_active = 1;
   return 0;
+#else
+  return 0;
+#endif
 }
 
 void nexs_line_raw_off(void) {
-  if (!s_raw_active)
-    return;
+#ifndef NEXS_BAREMETAL
+  if (!s_raw_active) return;
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &s_orig_termios);
   s_raw_active = 0;
+#endif
 }
 
 static int read_byte(void) {
+#ifndef NEXS_BAREMETAL
   unsigned char c;
   ssize_t n = read(STDIN_FILENO, &c, 1);
-  if (n <= 0)
-    return -1;
+  if (n <= 0) return -1;
   return (int)c;
+#else
+  int c = -1;
+  while (c == -1) {
+    c = nexs_hal_getc();
+  }
+  return c;
+#endif
 }
 
 static int read_byte_timeout(void) {
+#ifndef NEXS_BAREMETAL
   struct termios tmp;
   tcgetattr(STDIN_FILENO, &tmp);
   struct termios t2 = tmp;
@@ -85,29 +95,15 @@ static int read_byte_timeout(void) {
   int c = read_byte();
   tcsetattr(STDIN_FILENO, TCSANOW, &tmp);
   return c;
-}
 #else
-int nexs_line_raw_on(void) { return 0; }
-void nexs_line_raw_off(void) {}
-
-static int read_byte(void) {
-  int c = -1;
-  while (c == -1) {
-    c = nexs_hal_getc();
-  }
-  return c;
-}
-
-static int read_byte_timeout(void) {
   for (int i = 0; i < 100; i++) {
     int c = nexs_hal_getc();
-    if (c != -1)
-      return c;
+    if (c != -1) return c;
     hal_timer_sleep_ms(1);
   }
   return -1;
-}
 #endif
+}
 
 /* =========================================================
    UTF-8 HELPERS

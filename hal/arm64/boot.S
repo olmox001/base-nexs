@@ -72,7 +72,7 @@ _start:
 .Lbss_done:
 
     /* MMU + cache init (identity map) */
-    bl      nexs_mmu_init
+    bl      mmu_init
 
     /* HAL init (UART, etc.) */
     bl      nexs_hal_init

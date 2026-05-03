@@ -1,0 +1,35 @@
+# example/ipc_echo.nx
+# Fusion ABI Test: Plan 9 (Paths) + seL4 (Messages)
+
+# 1. Create a synchronous endpoint
+# In seL4, this would be a retyped Memory object.
+# In NEXS, we use a dedicated syscall.
+slot = ipc_create("endpoint")
+out "Created endpoint cap at slot: " + slot
+
+# 2. Publish to Registry (Plan 9 style)
+# This allows other processes to find the endpoint.
+reg /library//echo = slot
+out "Published endpoint to /library//echo"
+
+# 3. Server Loop
+fn server() {
+    out "[Server] Waiting for messages..."
+    loop {
+        # ipc_recv is synchronous and blocking
+        msg = ipc_recv(slot)
+        out "[Server] Received: " + msg
+        if msg == "exit" { break }
+    }
+    out "[Server] Shutting down."
+}
+
+# 4. Client (In a real system, this would be another process)
+# For now, we'll use a simple simulation if we had rfork()
+# Since baremetal rfork is -1, we'll just demonstrate the logic.
+
+# In a real client:
+# cap = reg /library//echo
+# ipc_send(cap, "Hello seL4!")
+
+server()

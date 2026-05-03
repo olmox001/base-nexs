@@ -224,8 +224,15 @@ static ASTNode *parse_primary(Parser *p) {
                   break;
               }
           }
+          int found_local_param = 0;
+          for (int i = 0; i < p->local_param_count; i++) {
+              if (strcmp(p->local_param_names[i], t.text) == 0) {
+                  found_local_param = 1;
+                  break;
+              }
+          }
 
-          if (!def && !found_local) {
+          if (!def && !found_local && !found_local_param) {
               fprintf(stderr, "%s:%d:%d: warning: call to unknown function '%s'\n",
                       p->filename, t.line, t.col, t.text);
           } else if (def && !def->is_builtin && n->n_args != def->n_params) {
@@ -490,8 +497,9 @@ ASTNode *parse_stmt(Parser *p) {
 
     if (g_nexs_lint_mode) {
         /* Check global redefinition */
-        if (fn_lookup(name_tok.text)) {
-            fprintf(stderr, "%s:%d:%d: warning: redefinition of global function '%s'\n",
+        NexsFnDef *old = fn_lookup(name_tok.text);
+        if (old && old->is_builtin) {
+            fprintf(stderr, "%s:%d:%d: warning: redefinition of builtin function '%s'\n",
                     p->filename, name_tok.line, name_tok.col, name_tok.text);
         }
         /* Check local redefinition and track */
@@ -509,9 +517,16 @@ ASTNode *parse_stmt(Parser *p) {
       ast_free(n);
       return NULL;
     }
+    
+    p->local_param_count = 0; /* Reset params for this function body */
     while (p->cur.kind == TK_IDENT && n->n_params < MAX_PARAMS) {
       strncpy(n->params[n->n_params], p->cur.text, NAME_LEN - 1);
       n->params[n->n_params][NAME_LEN - 1] = '\0';
+      
+      if (g_nexs_lint_mode && p->local_param_count < MAX_PARAMS) {
+          strncpy(p->local_param_names[p->local_param_count++], p->cur.text, NAME_LEN - 1);
+      }
+      
       n->n_params++;
       parser_advance(p);
       if (p->cur.kind == TK_COMMA)
@@ -920,6 +935,7 @@ void parser_init(Parser *p, Lexer *lex, const char *filename) {
   }
   p->loop_depth = 0;
   p->local_fn_count = 0;
+  p->local_param_count = 0;
   p->peek.kind = TK_EOF;
   parser_advance(p);
 }
@@ -938,7 +954,7 @@ ASTNode *parse_program(Parser *p) {
       last = s;
 
       if (!p->had_error && p->cur.kind != TK_NEWLINE && p->cur.kind != TK_EOF &&
-          p->cur.kind != TK_RBRACE) {
+          p->cur.kind != TK_RBRACE && s->kind != AST_IF) {
         snprintf(p->error_msg, sizeof(p->error_msg),
                  "%s:%d:%d: error: expected end of line after statement, found '%s'",
                  p->filename, p->cur.line, p->cur.col, p->cur.text);
