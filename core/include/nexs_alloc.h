@@ -14,7 +14,11 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+#ifndef NEXS_BAREMETAL
 #include <stdio.h>
+#else
+typedef struct FILE FILE;
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,6 +43,8 @@ NEXS_API void   buddy_free(void *ptr);
 
 /* xmalloc: alloc + zero-fill; calls die() on OOM */
 NEXS_API void  *xmalloc(size_t size);
+/* xrealloc: buddy realloc; calls die() on OOM */
+NEXS_API void  *xrealloc(void *ptr, size_t size);
 /* xfree: alias of buddy_free */
 NEXS_API void   xfree(void *ptr);
 
