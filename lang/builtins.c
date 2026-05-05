@@ -32,6 +32,7 @@
 #include <string.h>
 
 #ifndef NEXS_BAREMETAL
+#include <dirent.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 #define nexs_sleep_ms(ms) usleep((ms) * 1000)
@@ -597,11 +598,181 @@ static Value builtin_sleep(Value *args, int n) {
 }
 
 /* =========================================================
+   TEXT BUFFER BUILT-INS
+   ========================================================= */
+
+static Value builtin_tb_create(Value *args, int n) {
+  (void)args; (void)n;
+  DynArray *arr = arr_create_anon();
+  arr_set(arr, 0, val_str(""));
+  Value v;
+  v.type = TYPE_ARR;
+  v.data = arr;
+  v.ival = 0;
+  v.fval = 0;
+  v.err_code = 0;
+  v.err_msg = NULL;
+  return v;
+}
+
+static Value builtin_tb_load(Value *args, int n) {
+  if (n < 2 || args[0].type != TYPE_ARR || args[1].type != TYPE_STR)
+    return val_err(4, "tb_load: buffer array and content string required");
+
+  DynArray *buf = (DynArray *)args[0].data;
+  const char *content = (char *)args[1].data;
+
+  for (size_t i = 0; i < buf->size; i++)
+    val_free(&buf->items[i]);
+  buf->size = 0;
+
+  char *copy = buddy_strdup(content);
+  char *p = copy;
+  char *line = p;
+  size_t idx = 0;
+  while (*p) {
+    if (*p == '\n') {
+      *p = '\0';
+      arr_set(buf, idx++, val_str(line));
+      line = p + 1;
+    }
+    p++;
+  }
+  if (*line || p > line)
+    arr_set(buf, idx++, val_str(line));
+  if (idx == 0)
+    arr_set(buf, 0, val_str(""));
+
+  xfree(copy);
+  return val_int((int64_t)idx);
+}
+
+static Value builtin_tb_to_str(Value *args, int n) {
+  if (n < 1 || args[0].type != TYPE_ARR)
+    return val_err(4, "tb_to_str: buffer required");
+  DynArray *buf = (DynArray *)args[0].data;
+
+  /* First pass: compute total size needed */
+  size_t total = 1; /* NUL terminator */
+  for (size_t i = 0; i < buf->size; i++) {
+    if (buf->items[i].type == TYPE_STR && buf->items[i].data)
+      total += strlen((char *)buf->items[i].data) + 1; /* +1 for '\n' */
+  }
+
+  char *res = xmalloc(total);
+  res[0] = '\0';
+  size_t cur_len = 0;
+
+  for (size_t i = 0; i < buf->size; i++) {
+    if (buf->items[i].type == TYPE_STR && buf->items[i].data) {
+      const char *line = (char *)buf->items[i].data;
+      size_t llen = strlen(line);
+      memcpy(res + cur_len, line, llen);
+      cur_len += llen;
+      if (i < buf->size - 1)
+        res[cur_len++] = '\n';
+    }
+  }
+  res[cur_len] = '\0';
+
+  Value v = val_str(res);
+  xfree(res);
+  return v;
+}
+
+static Value builtin_tb_insert_char(Value *args, int n) {
+  if (n < 4 || args[0].type != TYPE_ARR)
+    return val_err(4, "tb_insert_char args");
+  DynArray *buf = (DynArray *)args[0].data;
+  int y = (int)val_to_int(&args[1]);
+  int x = (int)val_to_int(&args[2]);
+  const char *ch = (args[3].type == TYPE_STR) ? (char *)args[3].data : "";
+
+  Value line_val = arr_get_at(buf, (size_t)y);
+  if (line_val.type != TYPE_STR) {
+    val_free(&line_val);
+    return val_nil();
+  }
+  const char *old = (char *)line_val.data;
+  size_t olen = strlen(old);
+
+  if (x < 0) x = 0;
+  if (x > (int)olen) x = (int)olen;
+
+  char *new_str = xmalloc(olen + strlen(ch) + 1);
+  strncpy(new_str, old, (size_t)x);
+  strcpy(new_str + x, ch);
+  strcpy(new_str + x + strlen(ch), old + x);
+
+  arr_set(buf, (size_t)y, val_str(new_str));
+  xfree(new_str);
+  val_free(&line_val);
+  return val_nil();
+}
+
+static Value builtin_tb_delete_char(Value *args, int n) {
+  if (n < 3 || args[0].type != TYPE_ARR)
+    return val_err(4, "tb_delete_char args");
+  DynArray *buf = (DynArray *)args[0].data;
+  int y = (int)val_to_int(&args[1]);
+  int x = (int)val_to_int(&args[2]);
+
+  if (x <= 0) return val_int(0);
+
+  Value line_val = arr_get_at(buf, (size_t)y);
+  if (line_val.type != TYPE_STR) {
+    val_free(&line_val);
+    return val_int(0);
+  }
+  const char *old = (char *)line_val.data;
+  size_t olen = strlen(old);
+
+  if (x > (int)olen) x = (int)olen;
+
+  char *new_str = xmalloc(olen + 1);
+  strncpy(new_str, old, (size_t)x - 1);
+  strcpy(new_str + x - 1, old + x);
+
+  arr_set(buf, (size_t)y, val_str(new_str));
+  xfree(new_str);
+  val_free(&line_val);
+  return val_int(1);
+}
+
+/* =========================================================
    REGISTRATION
    ========================================================= */
 
 /* Arrow UTF-8 → (U+2192) */
 #define SIG(s) s " \xe2\x86\x92 "
+
+static Value builtin_sys_bundled(Value *args, int n) {
+  (void)args; (void)n;
+  DynArray *arr = arr_create_anon();
+  size_t idx = 0;
+#ifndef NEXS_BAREMETAL
+  DIR *d = opendir("modules");
+  if (d) {
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+      if (ent->d_name[0] == '.') continue;
+      arr_set(arr, idx++, val_str(ent->d_name));
+    }
+    closedir(d);
+  }
+#else
+  arr_set(arr, idx++, val_str("stdlib.nx"));
+  arr_set(arr, idx++, val_str("init.nx"));
+#endif
+  Value v;
+  v.type = TYPE_ARR;
+  v.data = arr;
+  v.ival = 0;
+  v.fval = 0;
+  v.err_code = 0;
+  v.err_msg = NULL;
+  return v;
+}
 
 static Value builtin_sys_debug(Value *args, int n) {
   if (n > 0) g_nexs_debug = val_is_truthy(&args[0]);
@@ -696,6 +867,20 @@ void builtins_register_all(void) {
     SIG("term_size()") "arr");
   register_builtin_sig("sys_debug", builtin_sys_debug,
     SIG("sys_debug(on bool)") "bool");
+  register_builtin_sig("sys_bundled", builtin_sys_bundled,
+    SIG("sys_bundled()") "arr");
+
+  /* Text Buffer library */
+  register_builtin_sig("tb_create", builtin_tb_create,
+                       SIG("tb_create()") "arr");
+  register_builtin_sig("tb_load", builtin_tb_load,
+                       SIG("tb_load(buf arr, content str)") "int");
+  register_builtin_sig("tb_to_str", builtin_tb_to_str,
+                       SIG("tb_to_str(buf arr)") "str");
+  register_builtin_sig("tb_insert_char", builtin_tb_insert_char,
+                       SIG("tb_insert_char(buf arr, y int, x int, ch str)") "nil");
+  register_builtin_sig("tb_delete_char", builtin_tb_delete_char,
+                       SIG("tb_delete_char(buf arr, y int, x int)") "int");
 }
 
 #undef SIG
