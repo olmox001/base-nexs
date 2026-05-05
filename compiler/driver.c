@@ -109,7 +109,9 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
         "core/utils.c registry/registry.c registry/reg_ipc.c lang/fn_table.c "
         "lang/lexer.c lang/parser.c lang/eval.c lang/builtins.c sys/sysio.c "
         "sys/sysproc.c runtime/runtime.c runtime/nexs_line.c "
-        "hal/bc/nexs_hal_bc.c hal/hal_hosted.c -o %s >/dev/null 2>&1",
+        "hal/bc/nexs_hal_bc.c hal/module/nexs_hal_module.c "
+        "hal/common/console.c hal/common/timer.c "
+        "hal/hal_hosted.c -o %s >/dev/null 2>&1",
         profiles[i], test_c, test_bin);
 
     if (system(build_cmd) != 0) {
@@ -187,7 +189,8 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
     pos +=
         snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " kernel/libc_stub.c");
   } else {
-    pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " hal/hal_hosted.c");
+    pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
+                   " hal/common/console.c hal/common/timer.c hal/hal_hosted.c");
   }
 
   /* Bare-metal extras */
