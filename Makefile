@@ -69,7 +69,9 @@ SRCS = \
   compiler/dep_scan.c \
   hal/bc/nexs_hal_bc.c \
   hal/module/nexs_hal_module.c \
-  hal/hal_hosted.c
+  hal/hal_hosted.c \
+  hal/common/console.c \
+  hal/common/timer.c
 
 # Baremetal doesn't use the hosted HAL, but it keeps the AOT compiler
 BAREMETAL_SRCS = \

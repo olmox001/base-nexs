@@ -22,6 +22,10 @@ void    mmu_init(void);
 int     mmu_map_page(uint32_t pid, vaddr_t virt, paddr_t phys, uint32_t flags);
 int     mmu_unmap_page(uint32_t pid, vaddr_t virt);
 void    mmu_flush_tlb(vaddr_t virt);
+paddr_t mmu_create_address_space(uint32_t pid);
+int     mmu_switch_address_space(uint32_t pid);
+void    mmu_destroy_address_space(uint32_t pid);
+
 paddr_t mmu_virt_to_phys(vaddr_t virt);
 
 /* Page fault handler — called from IDT vector 14 */

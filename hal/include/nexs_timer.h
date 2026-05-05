@@ -14,4 +14,8 @@ void     hal_timer_set_hz(uint32_t hz);
 uint64_t hal_timer_ticks(void);       /* monotonic tick counter */
 void     hal_timer_sleep_ms(uint32_t ms);
 
+/* Internal HAL state (exported for arch ISRs) */
+extern volatile uint64_t g_hal_ticks;
+extern TimerCallback     g_hal_tick_cb;
+
 #endif
