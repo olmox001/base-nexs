@@ -57,6 +57,8 @@ typedef enum {
   AST_SEND_MSG,    /* sendmessage /path expr  — enqueue expr onto queue at /path */
   AST_RECV_MSG,    /* receivemessage /path    — dequeue from queue at /path */
   AST_MSG_PENDING, /* msgpending /path        — count pending messages at /path */
+  AST_LIBRARY,     /* library "name"          — include guard marker */
+  AST_IMPORT,      /* import "path"           — dependency marker */
 } ASTKind;
 
 /* =========================================================

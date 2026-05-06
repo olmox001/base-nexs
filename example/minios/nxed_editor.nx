@@ -1,3 +1,5 @@
+# example/minios/nxed_editor.nx — Text Editor
+# Simple line-based editor using textbuf library.
 # ===================================================================
 # NXED v3.1 — NEXS NATIVE TEXT EDITOR
 # Sfrutta textbuf.nx per la manipolazione del testo e un approccio

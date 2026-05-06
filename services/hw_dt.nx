@@ -1,4 +1,6 @@
-# services/hw_dt.nx — NEXS Device Tree
+# services/hw_dt — Hardware Device Tree scanner
+library "hw_dt"
+# Populates /sys/hw/ nodes based on system detection.
 # ===================================================================
 
 fn hw_dt_init() {

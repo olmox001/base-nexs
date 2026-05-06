@@ -21,11 +21,20 @@ void lexer_init(Lexer *lex, const char *src) {
   if (!lex || !src)
     return;
   lex->src = src;
+  lex->lib_name = NULL;
+  lex->inject_stage = 0;
   lex->pos = 0;
   lex->len = strlen(src);
   lex->line = 1;
   lex->col = 1;
   lex->has_peek = 0;
+}
+
+void lexer_init_lib(Lexer *lex, const char *src, const char *lib_name) {
+  lexer_init(lex, src);
+  lex->lib_name = lib_name;
+  lex->inject_stage =
+      1; /* 1: TK_KW_LIBRARY, 2: TK_STRING, 3: TK_NEWLINE, 0: Done */
 }
 
 /* =========================================================
@@ -93,6 +102,8 @@ static struct {
                 {"nil", TK_KW_NIL},
                 {"cd", TK_KW_CD},
                 {"pwd", TK_KW_PWD},
+                {"library", TK_KW_LIBRARY},
+                {"module", TK_KW_MODULE},
                 /* New keywords */
                 {"ptr", TK_KW_PTR},
                 {"deref", TK_KW_DEREF},
@@ -109,6 +120,23 @@ Token lexer_next(Lexer *lex) {
   if (lex->has_peek) {
     lex->has_peek = 0;
     return lex->peeked;
+  }
+
+  /* Virtual Token Injection for libraries */
+  if (lex->lib_name && lex->inject_stage > 0) {
+    if (lex->inject_stage == 1) {
+      lex->inject_stage = 2;
+      return make_tok(TK_KW_LIBRARY, "library", 0);
+    }
+    if (lex->inject_stage == 2) {
+      lex->inject_stage = 3;
+      Token t = make_tok(TK_STRING, lex->lib_name, 0);
+      return t;
+    }
+    if (lex->inject_stage == 3) {
+      lex->inject_stage = 0;
+      return make_tok(TK_NEWLINE, "\n", 0);
+    }
   }
 
   lexer_skip_ws(lex);
@@ -420,6 +448,10 @@ const char *token_kind_name(TokenKind k) {
     return "receivemessage";
   case TK_KW_PENDING:
     return "msgpending";
+  case TK_KW_LIBRARY:
+    return "library";
+  case TK_KW_MODULE:
+    return "module";
   default:
     return "?";
   }

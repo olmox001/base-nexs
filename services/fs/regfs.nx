@@ -1,4 +1,5 @@
 # services/fs/regfs.nx — Registry File System Serialization
+library "regfs"
 # ===================================================================
 
 fn regfs_save(path_in_reg file_path) {

@@ -15,6 +15,9 @@ echo "=== NEXS RELEASE PACKAGER ($VERSION) ==="
 echo "Artifacts will be saved in: $RELEASE_DIR"
 echo "-------------------------------------------"
 
+# Force 64MB pool for all AOT builds
+export NEXS_POOL_PROFILE=POOL_64MB
+
 # 1. Build Native Interpreter (Host)
 UNAME_S=$(uname -s)
 if [ "$UNAME_S" = "Darwin" ]; then
@@ -29,7 +32,7 @@ fi
 
 echo "[*] Building Nexs-amd64-$HOST_NAME (Native Interpreter)..."
 make clean > /dev/null
-make POOL_PROFILE=16MB > /dev/null
+make POOL_PROFILE=64MB > /dev/null
 cp nexs "$RELEASE_DIR/Nexs-amd64-$HOST_NAME"
 
 # 2. Build Native AOT (MINIOS)
@@ -40,7 +43,8 @@ echo "[*] Building MINIOS-amd64-$HOST_NAME (AOT)..."
 # 3. Build Baremetal Interpreter (STANDALONE)
 echo "[*] Building Nexs-amd64-STANDALONE (Interpreter)..."
 make clean > /dev/null
-make baremetal-amd64 POOL_PROFILE=16MB > /dev/null
+make POOL_PROFILE=64MB > /dev/null  # Need native compiler
+./nexs --compile /dev/null --target baremetal-amd64 -o build/baremetal-amd64/nexs.elf
 cp build/baremetal-amd64/nexs.elf "$RELEASE_DIR/Nexs-amd64-STANDALONE.elf"
 
 echo "[*] Generating Nexs-amd64-STANDALONE.iso..."
@@ -66,7 +70,7 @@ cp build/nexs-amd64.iso "$RELEASE_DIR/MINIOS-amd64-STANDALONE.iso"
 # 5. Build Cross Interpreter
 echo "[*] Building Nexs-amd64-$CROSS_NAME (Cross-compiled Interpreter)..."
 make clean > /dev/null
-make "$CROSS_TARGET" POOL_PROFILE=16MB > /dev/null
+make "$CROSS_TARGET" POOL_PROFILE=64MB > /dev/null
 if [ -f "build/$CROSS_TARGET/nexs" ]; then
     cp "build/$CROSS_TARGET/nexs" "$RELEASE_DIR/Nexs-amd64-$CROSS_NAME"
 else

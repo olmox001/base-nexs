@@ -1,5 +1,6 @@
 # services/stdlib.nx — NEXS Standard Library
 # ===================================================================
+library "stdlib"
 
 fn input(prompt defval) {
   write(1 prompt)

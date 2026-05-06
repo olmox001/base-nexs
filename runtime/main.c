@@ -244,7 +244,7 @@ void nexs_repl(void) {
    ========================================================= */
 
 #ifdef NEXS_BAREMETAL
-void nexs_main_baremetal(void) {
+__attribute__((weak)) void nexs_main_baremetal(void) {
   nexs_runtime_init();
   EvalCtx ctx;
   eval_ctx_init(&ctx);
@@ -261,7 +261,7 @@ void nexs_main_baremetal(void) {
   extern const char nexs_script_src[] __attribute__((weak));
   if (nexs_script_src && nexs_script_src[0]) {
     EvalResult r = eval_str(&ctx, nexs_script_src);
-    (void)r;
+    val_free(&r.ret_val);
   } else {
     nexs_repl();
   }
@@ -273,10 +273,12 @@ void nexs_main_baremetal(void) {
    MAIN
    ========================================================= */
 
-int main(int argc, char *argv[]) {
+#ifdef NEXS_HOST_TOOL
+__attribute__((weak)) int main(int argc, char *argv[]) {
   nexs_runtime_init();
 
   if (argc == 1) {
+    nexs_runtime_autoload();
     nexs_repl();
     return 0;
   }
@@ -380,6 +382,7 @@ int main(int argc, char *argv[]) {
 
   /* <file.nx> */
   if (argc == 2) {
+    nexs_runtime_autoload();
     EvalCtx ctx;
     eval_ctx_init(&ctx);
     EvalResult r = eval_file(&ctx, argv[1]);
@@ -397,3 +400,4 @@ int main(int argc, char *argv[]) {
   fprintf(stderr, "Usage: nexs [file.nx]\n");
   return 1;
 }
+#endif /* NEXS_HOST_TOOL */

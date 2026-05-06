@@ -36,7 +36,7 @@ INCS = \
 # Production flags & Memory Pool Profiles (4KB, 16KB, 32KB, 512KB, 4MB, 16MB, 64MB)
 POOL_PROFILE ?= 64MB
 CFLAGS = -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
-         -DPOOL_$(POOL_PROFILE) -DHOST_OS_$(HOST_PLATFORM) \
+         -DPOOL_$(POOL_PROFILE) -DHOST_OS_$(HOST_PLATFORM) -DNEXS_HOST_TOOL \
          -DLINUX_AMD64_CC_BIN='"$(LINUX_AMD64_CC)"' \
          -DMACOS_AMD64_CC_BIN='"$(MACOS_AMD64_CC)"' \
          $(INCS)
@@ -179,7 +179,7 @@ compile-test: $(TARGET)
 linux-arm64: $(TARGET)
 	@if command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then \
 		mkdir -p build/linux-arm64 && \
-		aarch64-linux-gnu-gcc -march=armv8-a -DNEXS_LINUX -DPOOL_$(POOL_PROFILE) \
+		aarch64-linux-gnu-gcc -march=armv8-a -DNEXS_LINUX -DPOOL_$(POOL_PROFILE) -DNEXS_HOST_TOOL \
 			-O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
 			$(INCS) $(SRCS) -o build/linux-arm64/nexs; \
 		echo "Cross-compiled -> build/linux-arm64/nexs"; \
@@ -190,7 +190,7 @@ linux-arm64: $(TARGET)
 linux-amd64: $(TARGET)
 	@if command -v $(LINUX_AMD64_CC) >/dev/null 2>&1; then \
 		mkdir -p build/linux-amd64 && \
-		$(LINUX_AMD64_CC) -march=x86_64 -DNEXS_LINUX -DPOOL_$(POOL_PROFILE) -DHOST_OS_$(HOST_PLATFORM) \
+		$(LINUX_AMD64_CC) -march=x86_64 -DNEXS_LINUX -DPOOL_$(POOL_PROFILE) -DHOST_OS_$(HOST_PLATFORM) -DNEXS_HOST_TOOL \
 			-O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
 			$(INCS) $(SRCS) -o build/linux-amd64/nexs; \
 		echo "Cross-compiled -> build/linux-amd64/nexs"; \
@@ -201,7 +201,7 @@ linux-amd64: $(TARGET)
 macos-amd64: $(TARGET)
 	@if command -v $(MACOS_AMD64_CC) >/dev/null 2>&1; then \
 		mkdir -p build/macos-amd64 && \
-		$(MACOS_AMD64_CC) -DNEXS_MACOS -DPOOL_$(POOL_PROFILE) -DHOST_OS_$(HOST_PLATFORM) \
+		$(MACOS_AMD64_CC) -DNEXS_MACOS -DPOOL_$(POOL_PROFILE) -DHOST_OS_$(HOST_PLATFORM) -DNEXS_HOST_TOOL \
 			-O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
 			$(INCS) $(SRCS) -o build/macos-amd64/nexs; \
 		echo "Compiled -> build/macos-amd64/nexs"; \

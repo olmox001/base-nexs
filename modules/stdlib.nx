@@ -1,4 +1,5 @@
 # modules/stdlib.nx — NEXS core stdlib (auto-loaded by runtime)
+library "stdlib_mod"
 # Only uses C builtins — no dependency on VFS or other services.
 # ===================================================================
 

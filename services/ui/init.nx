@@ -1,4 +1,6 @@
-# services/ui — Framebuffer / UI service
+# services/ui — UI / Display service
+library "ui"
+# Handles windowing, focus, and display multiplexing.
 # Single-app model: one fullscreen app at a time (Android/iOS-style).
 # Uses double-buffering via /sys/ui/buf[0|1].
 

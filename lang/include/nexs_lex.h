@@ -90,6 +90,8 @@ typedef enum {
   TK_KW_SEND,  /* sendmessage    — enqueue a value on a registry IPC queue */
   TK_KW_RECV,  /* receivemessage — dequeue a value from a registry IPC queue */
   TK_KW_PENDING, /* msgpending     — query pending message count */
+  TK_KW_LIBRARY, /* library        — identify file as a library for include guards */
+  TK_KW_MODULE,  /* module         — alias for library */
 } TokenKind;
 
 /* =========================================================
@@ -111,6 +113,8 @@ typedef struct {
 
 typedef struct {
   const char *src;
+  const char *lib_name; /* Injected library identity for include guards */
+  int inject_stage;     /* 0:none, 1:TK_KW_LIBRARY, 2:TK_STRING, 3:TK_NEWLINE */
   size_t pos;
   size_t len;
   int line;
@@ -124,6 +128,7 @@ typedef struct {
    ========================================================= */
 
 NEXS_API void lexer_init(Lexer *lex, const char *src);
+NEXS_API void lexer_init_lib(Lexer *lex, const char *src, const char *lib_name);
 NEXS_API Token lexer_next(Lexer *lex);
 NEXS_API Token lexer_peek(Lexer *lex);
 NEXS_API const char *token_kind_name(TokenKind k);

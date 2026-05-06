@@ -79,6 +79,13 @@ NEXS_API int  nexs_scan_deps(const char *src_path,
  */
 NEXS_API void nexs_free_deps(NexsDepEntry *deps, int count);
 
+/*
+ * nexs_scan_directory — recursively index all .nx files in a directory.
+ * Used for bundling standard modules and services into standalone binaries.
+ */
+NEXS_API int nexs_scan_directory(const char *dir_path, NexsDepEntry *deps,
+                                 int count, int max_deps);
+
 /* =========================================================
    COMPILER API
    ========================================================= */

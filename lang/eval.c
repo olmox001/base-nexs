@@ -78,7 +78,10 @@ static EvalResult eval_block(EvalCtx *ctx, ASTNode *block) {
   Value last = val_nil();
   while (s) {
     EvalResult r = eval_node(ctx, s);
-    if (r.sig != CTRL_NONE) return r;
+    if (r.sig != CTRL_NONE) {
+      val_free(&last);
+      return r;
+    }
     val_free(&last);
     last = val_clone(&r.ret_val);
     val_free(&r.ret_val);
@@ -97,12 +100,33 @@ static EvalResult eval_block(EvalCtx *ctx, ASTNode *block) {
     }
 
 static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
-  if (!n) return ok(val_nil());
-  if (!ctx) return err_result("NULL EvalCtx in eval_node");
+  if (!n)
+    return ok(val_nil());
+  if (!ctx)
+    return err_result("NULL EvalCtx in eval_node");
 
   DEBUG_PRINT(ctx, "eval_node kind=%d", n->kind);
 
   switch (n->kind) {
+
+  /* --- Library / Module (Include Guard) --- */
+  case AST_LIBRARY: {
+    /* Check if this library is already loaded */
+    char guard_path[REG_PATH_MAX];
+    snprintf(guard_path, sizeof(guard_path), "/sys/loader/libs/%s", n->name);
+    if (reg_lookup(guard_path)) {
+      /* Already loaded: skip evaluation of the rest of the file */
+      return ctrl_ret(val_nil());
+    }
+    /* Register it as loaded */
+    reg_set(guard_path, val_int(1), RK_READ);
+    return ok(val_nil());
+  }
+
+  /* --- Import --- */
+  case AST_IMPORT: {
+    return eval_file(ctx, n->path);
+  }
 
   /* --- Literals --- */
   case AST_INT_LIT:
@@ -549,12 +573,21 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
    ========================================================= */
 
 EvalResult eval_str(EvalCtx *ctx, const char *src) {
-  if (!ctx || !src) return err_result("NULL ctx or src");
+  return eval_str_lib(ctx, src, NULL);
+}
+
+EvalResult eval_str_lib(EvalCtx *ctx, const char *src, const char *lib_name) {
+  if (!ctx || !src)
+    return err_result("NULL ctx or src");
   nexs_g_eval_ctx = ctx;
 
-  Lexer  lex;
+  Lexer lex;
   Parser par;
-  lexer_init(&lex, src);
+  if (lib_name)
+    lexer_init_lib(&lex, src, lib_name);
+  else
+    lexer_init(&lex, src);
+
   parser_init(&par, &lex);
   ASTNode *prog = parse_program(&par);
   if (par.had_error) {
@@ -570,10 +603,10 @@ EvalResult eval_str(EvalCtx *ctx, const char *src) {
     return err_result(par.error_msg);
   }
   EvalResult r = eval(ctx, prog);
-  
-  /* 
-   * IMPORTANT: If the result is a string, it might point into the AST we are about to free.
-   * We must clone it to ensure it remains valid after ast_free.
+
+  /*
+   * IMPORTANT: If the result is a string, it might point into the AST we are
+   * about to free. We must clone it to ensure it remains valid after ast_free.
    */
   Value final_val = val_clone(&r.ret_val);
   val_free(&r.ret_val);
@@ -588,7 +621,8 @@ EvalResult eval_str(EvalCtx *ctx, const char *src) {
 }
 
 EvalResult eval_file(EvalCtx *ctx, const char *fpath) {
-  if (!ctx || !fpath) return err_result("NULL ctx or fpath");
+  if (!ctx || !fpath)
+    return err_result("NULL ctx or fpath");
   FILE *f = fopen(fpath, "r");
   if (!f) {
     char msg[256];
@@ -597,13 +631,26 @@ EvalResult eval_file(EvalCtx *ctx, const char *fpath) {
   }
   fseek(f, 0, SEEK_END);
   long sz = ftell(f);
-  if (sz <= 0) { fclose(f); return ok(val_nil()); }
+  if (sz <= 0) {
+    fclose(f);
+    return ok(val_nil());
+  }
   fseek(f, 0, SEEK_SET);
   char *src = xmalloc((size_t)sz + 1);
   size_t bytes_read = fread(src, 1, (size_t)sz, f);
   src[bytes_read] = '\0';
   fclose(f);
-  EvalResult r = eval_str(ctx, src);
+
+  /* Auto-detect if this is a standard library file to trigger include guards */
+  const char *lib_name = NULL;
+  if (strstr(fpath, "services/stdlib.nx"))
+    lib_name = "stdlib";
+  else if (strstr(fpath, "modules/")) {
+    const char *last_slash = strrchr(fpath, '/');
+    lib_name = last_slash ? last_slash + 1 : fpath;
+  }
+
+  EvalResult r = eval_str_lib(ctx, src, lib_name);
   xfree(src);
   return r;
 }

@@ -1,6 +1,8 @@
 # services/pm/init.nx — NEXS Process & Memory Manager
 # ===================================================================
 
+library "pm"
+
 reg /sys/pm/next_pid = 100
 
 fn pm_spawn(nome_processo) {

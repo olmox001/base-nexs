@@ -482,6 +482,28 @@ ASTNode *parse_stmt(Parser *p) {
   parser_skip_newlines(p);
   Token t = p->cur;
 
+  /* library "name" */
+  if (t.kind == TK_KW_LIBRARY || t.kind == TK_KW_MODULE) {
+    parser_advance(p);
+    Token lib_tok = p->cur;
+    if (!parser_expect(p, TK_STRING))
+      return NULL;
+    ASTNode *n = ast_alloc(AST_LIBRARY, t);
+    strncpy(n->name, lib_tok.text, NAME_LEN - 1);
+    return n;
+  }
+
+  /* import "path" */
+  if (t.kind == TK_KW_IMPORT) {
+    parser_advance(p);
+    Token path_tok = p->cur;
+    if (!parser_expect(p, TK_STRING))
+      return NULL;
+    ASTNode *n = ast_alloc(AST_IMPORT, t);
+    strncpy(n->path, path_tok.text, REG_PATH_MAX - 1);
+    return n;
+  }
+
   /* fn name(params) { body } */
   if (t.kind == TK_KW_FN) {
     parser_advance(p);

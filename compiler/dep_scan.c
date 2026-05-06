@@ -21,6 +21,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#ifndef NEXS_BAREMETAL
+#include <dirent.h>
+#include <sys/stat.h>
+#endif
 
 /* =========================================================
    INTERNAL HELPERS
@@ -78,18 +82,27 @@ static int scan_source(const char *src_path, const char *src,
         }
 
         /*
-         * Look for exec( without requiring whitespace.
-         * Both keyword form  exec("path")
-         * and fn-call form   exec("path")  are identical textually.
+         * Look for exec( or import( without requiring whitespace.
+         * Both keyword form  exec("path") / import("path")
+         * and fn-call form   exec("path") / import("path") are identical textually.
          */
-        if (strncmp(p, "exec", 4) == 0) {
-            const char *after_exec = p + 4;
-            /* Skip optional whitespace between exec and ( */
+        const char *keyword = NULL;
+        if (strncmp(p, "exec", 4) == 0) keyword = "exec";
+        else if (strncmp(p, "import", 6) == 0) keyword = "import";
+
+        if (keyword) {
+            size_t kw_len = strlen(keyword);
+            const char *after_exec = p + kw_len;
+            /* Skip optional whitespace between keyword and ( or " */
             while (*after_exec == ' ' || *after_exec == '\t') after_exec++;
-            if (*after_exec == '(') {
-                after_exec++; /* skip ( */
-                /* Skip whitespace */
-                while (*after_exec == ' ' || *after_exec == '\t') after_exec++;
+            
+            if (*after_exec == '(' || *after_exec == '"' || *after_exec == '\'') {
+                int has_paren = (*after_exec == '(');
+                if (has_paren) {
+                    after_exec++;
+                    while (*after_exec == ' ' || *after_exec == '\t') after_exec++;
+                }
+
                 /* Expect a string literal */
                 char quote = *after_exec;
                 if (quote == '"' || quote == '\'') {
@@ -222,11 +235,56 @@ int nexs_scan_deps(const char *src_path,
  * nexs_free_deps — release the .src buffers allocated by nexs_scan_deps().
  */
 void nexs_free_deps(NexsDepEntry *deps, int count) {
-    if (!deps) return;
-    for (int i = 0; i < count; i++) {
-        if (deps[i].src) {
-            free(deps[i].src);
-            deps[i].src = NULL;
-        }
+  if (!deps)
+    return;
+  for (int i = 0; i < count; i++) {
+    if (deps[i].src) {
+      free(deps[i].src);
+      deps[i].src = NULL;
     }
+  }
 }
+
+/*
+ * nexs_scan_directory — recursively index all .nx files in a directory.
+ */
+#ifndef NEXS_BAREMETAL
+int nexs_scan_directory(const char *dir_path, NexsDepEntry *deps, int count, int max_deps) {
+  DIR *d = opendir(dir_path);
+  if (!d) return count;
+
+  struct dirent *ent;
+  while ((ent = readdir(d)) != NULL) {
+    if (ent->d_name[0] == '.') continue;
+
+    char path[NEXS_DEP_PATH_MAX];
+    snprintf(path, sizeof(path), "%s/%s", dir_path, ent->d_name);
+
+    struct stat st;
+    if (stat(path, &st) == 0) {
+      if (S_ISDIR(st.st_mode)) {
+        count = nexs_scan_directory(path, deps, count, max_deps);
+      } else {
+        size_t nlen = strlen(ent->d_name);
+        if (nlen > 3 && strcmp(ent->d_name + nlen - 3, ".nx") == 0) {
+          if (!dep_already_seen(deps, count, path)) {
+            if (count < max_deps) {
+              strncpy(deps[count].path, path, NEXS_DEP_PATH_MAX - 1);
+              deps[count].path[NEXS_DEP_PATH_MAX - 1] = '\0';
+              deps[count].src = dep_read_file(path);
+              count++;
+            }
+          }
+        }
+      }
+    }
+  }
+  closedir(d);
+  return count;
+}
+#else
+int nexs_scan_directory(const char *dir_path, NexsDepEntry *deps, int count, int max_deps) {
+  (void)dir_path; (void)deps; (void)max_deps;
+  return count;
+}
+#endif

@@ -84,8 +84,28 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
   /* --- Step 1: Detect memory footprint via Host dry-runs --- */
   const char *profiles[] = {"POOL_4KB", "POOL_16KB", "POOL_32KB", "POOL_512KB",
                             "POOL_4MB", "POOL_16MB", "POOL_64MB"};
-  const int profile_count = 6;
-  int best_profile_idx = profile_count - 1; /* Default to 16MB */
+  const int profile_count = 7;
+  int best_profile_idx = profile_count - 1; /* Default to 64MB */
+
+  /* Check for environment override */
+  const char *env_pool = getenv("NEXS_POOL_PROFILE");
+  if (env_pool) {
+    for (int i = 0; i < profile_count; i++) {
+      if (strcmp(profiles[i], env_pool) == 0) {
+        best_profile_idx = i;
+        goto skip_profiling;
+      }
+    }
+    /* If profile name matches without POOL_ prefix */
+    char buf[64];
+    snprintf(buf, sizeof(buf), "POOL_%s", env_pool);
+    for (int i = 0; i < profile_count; i++) {
+      if (strcmp(profiles[i], buf) == 0) {
+        best_profile_idx = i;
+        goto skip_profiling;
+      }
+    }
+  }
 
   char test_c[256];
   snprintf(test_c, sizeof(test_c), "/tmp/nexs_prof_test_%d.c", (int)getpid());
@@ -149,6 +169,8 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
   }
   unlink(test_c);
 
+skip_profiling:;
+
   /* --- Step 2: Generate actual C wrapper file --- */
   char script_c[256];
   snprintf(script_c, sizeof(script_c), "/tmp/nexs_build_%d.c", (int)getpid());
@@ -181,7 +203,7 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
                   " lang/fn_table.c lang/lexer.c lang/parser.c"
                   " lang/eval.c lang/builtins.c"
                   " sys/sysio.c sys/sysproc.c"
-                  " runtime/runtime.c runtime/nexs_line.c"
+                  " runtime/runtime.c runtime/nexs_line.c runtime/main.c"
                   " hal/bc/nexs_hal_bc.c hal/module/nexs_hal_module.c",
                   script_c);
 
@@ -200,8 +222,7 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
       pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -T '%s'",
                       tc->ld_script);
     pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
-                    " -nostdlib -nostartfiles -ffreestanding -Ikernel/include "
-                    "-Wl,--no-warn-rwx-segments");
+                    " -nostdlib -nostartfiles -ffreestanding -Ikernel/include");
 
     if (strcmp(tc->name, "baremetal-arm64") == 0) {
       pos += snprintf(

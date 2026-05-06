@@ -118,19 +118,19 @@ case "$CHOICE" in
         ;;
     3)
         echo "Testing Nexs-amd64-STANDALONE.elf (QEMU -kernel)..."
-        qemu-system-x86_64 -kernel "$REL_DIR/Nexs-amd64-STANDALONE.elf" -m 128M -nographic -no-reboot
+        qemu-system-x86_64 -kernel "$REL_DIR/Nexs-amd64-STANDALONE.elf" -m 512M -nographic -no-reboot
         ;;
     4)
         echo "Testing Nexs-amd64-STANDALONE.iso (QEMU -cdrom)..."
-        qemu-system-x86_64 -cdrom "$REL_DIR/Nexs-amd64-STANDALONE.iso" -m 256M -nographic -no-reboot
+        qemu-system-x86_64 -cdrom "$REL_DIR/Nexs-amd64-STANDALONE.iso" -m 512M -nographic -no-reboot
         ;;
     5)
         echo "Testing MINIOS-amd64-STANDALONE.elf (QEMU -kernel)..."
-        qemu-system-x86_64 -kernel "$REL_DIR/MINIOS-amd64-STANDALONE.elf" -m 128M -nographic -no-reboot
+        qemu-system-x86_64 -kernel "$REL_DIR/MINIOS-amd64-STANDALONE.elf" -m 512M -nographic -no-reboot
         ;;
     6)
         echo "Testing MINIOS-amd64-STANDALONE.iso (QEMU -cdrom)..."
-        qemu-system-x86_64 -cdrom "$REL_DIR/MINIOS-amd64-STANDALONE.iso" -m 256M -nographic -no-reboot
+        qemu-system-x86_64 -cdrom "$REL_DIR/MINIOS-amd64-STANDALONE.iso" -m 512M -nographic -no-reboot
         ;;
     7)
         echo "Testing Nexs-amd64-Linux (Interpreter)..."

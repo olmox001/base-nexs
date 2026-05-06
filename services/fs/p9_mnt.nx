@@ -1,32 +1,46 @@
-# services/fs/p9_mnt.nx — Plan 9 Namespace Mounts
+# services/fs/p9_mnt — Plan 9 Mount Manager
+library "p9_mnt"
+# Manages system hierarchy using Plan 9 / VFS integration.
 # ===================================================================
 
 fn p9_mnt_init() {
   out "[P9] Montaggio delle gerarchie di sistema..."
 
-  # Setup logical nodes in VFS
-  vfs_write("krnl/registry/type"   "Plan 9 Virtual Kernel Registry")
-  vfs_write("krnl/registry/status" "active")
+  # Setup logical nodes in VFS (mapped to SD disks)
+  vfs_write("sd01/sys/registry/type"   "Plan 9 Virtual Kernel Registry")
+  vfs_write("sd01/sys/registry/status" "active")
   
-  vfs_write("system/services"     "VFS_Daemon, Shell_TTY, Wasm_VM")
-  vfs_write("system/config"       "INIT_MODE=STANDALONE\nFS=Plan9")
+  vfs_write("sd01/sys/services"     "VFS_Daemon, Shell_TTY, Wasm_VM")
+  vfs_write("sd01/sys/config"       "INIT_MODE=STANDALONE\nFS=Plan9")
   
-  vfs_write("driver/tty0"         "COM1 Serial Terminal")
-  vfs_write("driver/ram"          "Dynamic Micro-kernel Memory Pool")
+  vfs_write("sd00/driver/tty0"         "COM1 Serial Terminal")
+  vfs_write("sd00/driver/ram"          "Dynamic Micro-kernel Memory Pool")
   
   # SD storage (machine maps)
   vfs_write("sd00/boot.nx"        "exec(\"example/minios/boot.nx\")")
   vfs_write("sd00/os.sys"         "NEXS CORE KERNEL BLOCK")
   vfs_write("sd00/machine.id"     "NEXS-NODE-00")
   
-  vfs_write("sd01/user.id"        "User-1-Root")
-  vfs_write("sd01/home/root.txt"  "Root workspace")
+  vfs_write("sd01/root/user.id"        "User-1-Root")
+  vfs_write("sd01/root/home/root.txt"  "Root workspace")
 
   vfs_write("sd02/user.id"        "User-2-user1")
   vfs_write("sd02/home/user1.txt"  "Ciao user1! Benvenuto.")
 
   vfs_write("sd99/user.id"        "User-Guest")
   vfs_write("sd99/tmp/test"       "Temporary guest cache")
+
+  # --- New: Auto-populate VFS with bundled dependencies ---
+  bundled = sys_bundled()
+  bcount = len(bundled)
+  bi = 0
+  loop {
+    if bi >= bcount { break }
+    bpath = bundled[bi]
+    # Register in VFS (vfs_read will handle the content fallback)
+    vfs_write(bpath "BUNDLED")
+    bi = bi + 1
+  }
 
   out "[P9] Hierarchy mounted successfully via 9P bindings."
 }

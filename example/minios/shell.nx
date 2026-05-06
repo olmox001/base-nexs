@@ -169,7 +169,7 @@ fn shell_loop() {
     }
 
     if cmd == "modules" {
-      vfs_ls("sys/modules")
+      vfs_ls("sd01/sys/modules")
       handled = 1
     }
 
