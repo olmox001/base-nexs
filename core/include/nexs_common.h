@@ -62,7 +62,18 @@ extern "C" {
    BUDDY ALLOCATOR & DYNAMIC LIMITS
    ========================================================= */
 
-#if defined(POOL_16MB)
+# if defined(POOL_64MB)
+# define POOL_SIZE (64 * 1024 * 1024)
+# define LARGE_POOL_PAGES 16384 /* 64MB */
+# define MIN_BLOCK 128
+# define MAX_STR_LEN 8192
+# define MAX_TOKENS 32768
+# define REG_PATH_MAX 512
+# define MAX_ARRAYS 2048
+# define NAME_LEN 64
+# define MAX_PARAMS 16
+# define MAX_FN_DEFS 2048
+# elif defined(POOL_16MB)
 #define POOL_SIZE (16 * 1024 * 1024)
 #define LARGE_POOL_PAGES 4096 /* 16MB */
 #define MIN_BLOCK 128

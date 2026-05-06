@@ -45,8 +45,8 @@ uint64_t nexs_brk(uint64_t new_brk) {
     } else if (new_brk < p->heap_end) {
         /* Shrink heap */
         for (uint64_t v = new_brk; v < p->heap_end; v += 4096) {
-            /* TODO: get physical address and call page_free */
-            mmu_unmap_page(p->pid, v);
+            /* Deallocate page and update registry for inspectability */
+            mm_free_page(p->pid, v);
         }
         p->heap_end = new_brk;
     }

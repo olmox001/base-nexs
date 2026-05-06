@@ -37,9 +37,9 @@ SECTIONS {
         _bss_end = .;
     }
 
-    /* Stack statico (aumentato a 128KB) */
+    /* Stack statico (aumentato a 512KB per ricorsione profonda) */
     . = ALIGN(4096);
     _stack_bottom = .;
-    . += 0x20000;
+    . += 0x80000;
     _stack_top = .;
 }

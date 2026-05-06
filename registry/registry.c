@@ -360,7 +360,7 @@ Value reg_get_deref(const char *path) {
    ========================================================= */
 
 static void reg_ls_node(RegKey *k, FILE *out, int depth, int recursive) {
-  if (!k || !out) return;
+  if (!k) return;
   for (int i = 0; i < depth; i++)
     nexs_fprintf(out, "  ");
 
@@ -429,7 +429,7 @@ void reg_ls_recursive(const char *path, FILE *out, int depth) {
 }
 
 void reg_key_print(RegKey *k, FILE *out) {
-  if (!k || !out) return;
+  if (!k) return;
   nexs_fprintf(out, "[%s] type=%s rights=%02x", k->path,
           val_type_name(k->val.type), k->rights);
   if (k->val.type != TYPE_NIL) {

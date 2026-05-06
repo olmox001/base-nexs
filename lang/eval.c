@@ -299,7 +299,13 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
         strncpy(target, n->path, REG_PATH_MAX - 1);
         target[REG_PATH_MAX - 1] = '\0';
       }
-      strncpy(ctx->scope, target, REG_PATH_MAX - 1);
+      if (reg_lookup(target)) {
+        strncpy(ctx->scope, target, REG_PATH_MAX - 1);
+      } else {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Path not found: '%s'", target);
+        return err_result(msg);
+      }
     } else if (n->left) {
       EvalResult vr = eval_node(ctx, n->left);
       if (vr.sig != CTRL_NONE) return vr;
@@ -310,7 +316,14 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
         strncpy(target, p, REG_PATH_MAX - 1);
         target[REG_PATH_MAX - 1] = '\0';
       }
-      strncpy(ctx->scope, target, REG_PATH_MAX - 1);
+      if (reg_lookup(target)) {
+        strncpy(ctx->scope, target, REG_PATH_MAX - 1);
+      } else {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Path not found: '%s'", target);
+        val_free(&vr.ret_val);
+        return err_result(msg);
+      }
       val_free(&vr.ret_val);
     }
     ctx->scope[REG_PATH_MAX - 1] = '\0';

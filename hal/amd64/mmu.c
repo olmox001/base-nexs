@@ -18,6 +18,7 @@
 #include "../include/nexs_hal.h"
 #include "../../registry/include/nexs_registry.h"
 #include "../../core/include/nexs_value.h"
+#include "../../core/include/nexs_alloc.h"
 #include <stdint.h>
 #include <string.h>
 
@@ -220,6 +221,8 @@ int mm_alloc_page(uint32_t pid, vaddr_t virt, uint32_t flags) {
 }
 
 int mm_free_page(uint32_t pid, vaddr_t virt) {
+    paddr_t phys = mmu_virt_to_phys(virt);
+
     char path[128];
     snprintf(path, sizeof(path), "/mem/virt/%u/0x%llx/phys",
              pid, (unsigned long long)virt);
@@ -227,7 +230,12 @@ int mm_free_page(uint32_t pid, vaddr_t virt) {
     snprintf(path, sizeof(path), "/mem/virt/%u/0x%llx/flags",
              pid, (unsigned long long)virt);
     reg_delete(path);
-    return mmu_unmap_page(pid, virt);
+
+    int res = mmu_unmap_page(pid, virt);
+    if (phys != (paddr_t)-1) {
+        page_free((void *)phys, 1);
+    }
+    return res;
 }
 
 int mm_map_range(uint32_t pid, vaddr_t virt, paddr_t phys,

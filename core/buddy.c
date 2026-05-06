@@ -25,6 +25,24 @@ uint8_t memory_pool[POOL_SIZE];
 uint8_t buddy_tree[TREE_NODES];
 
 /* =========================================================
+   HARDEN MEMORY SAFETY (C11 Static Assertions)
+   ========================================================= */
+
+/* Verifica che POOL_SIZE sia potenza di 2 */
+_Static_assert((POOL_SIZE & (POOL_SIZE - 1)) == 0, "Buddy Allocator: POOL_SIZE must be a power of 2");
+
+/* Verifica che MIN_BLOCK sia potenza di 2 */
+_Static_assert((MIN_BLOCK & (MIN_BLOCK - 1)) == 0, "Buddy Allocator: MIN_BLOCK must be a power of 2");
+
+/* Verifica che il numero di foglie sia potenza di 2 per un albero bilanciato */
+_Static_assert(((POOL_SIZE / MIN_BLOCK) & ((POOL_SIZE / MIN_BLOCK) - 1)) == 0, 
+               "Buddy Allocator: POOL_SIZE / MIN_BLOCK must be a power of 2");
+
+/* Validazione dimensione albero */
+_Static_assert(TREE_NODES == (2 * (POOL_SIZE / MIN_BLOCK) - 1), 
+               "Buddy Allocator: TREE_NODES mismatch with POOL/MIN_BLOCK formula");
+
+/* =========================================================
    BUDDY ALLOCATOR
    ========================================================= */
 

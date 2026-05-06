@@ -185,6 +185,8 @@ void sysproc_register_builtins(void) {
     SIG("exec(path str)") "nil");
   fn_register_builtin_sig("exits",  bi_exits,
     SIG("exits(status str)") "nil");
+  fn_register_builtin_sig("exit",   bi_exits,
+    SIG("exit(status str)") "nil");
 
 #ifndef NEXS_BAREMETAL
   fn_register_builtin_sig("sleep",  bi_sleep,
@@ -203,10 +205,11 @@ void sysproc_register_builtins(void) {
   /* Store actual fn_table indices in /sys/<name> */
   {
     static const char *names[] = {
-      "sleep","exec","exits","alarm","rfork","await","getpid","getwd"
+      "sleep","exec","exits","exit","alarm","rfork","await","getpid","getwd"
     };
     char path[REG_PATH_MAX];
-    for (int _i = 0; _i < 8; _i++) {
+    int num_names = (sizeof(names) / sizeof(names[0]));
+    for (int _i = 0; _i < num_names; _i++) {
       NexsFnDef *def = fn_lookup(names[_i]);
       if (def) {
         int idx = (int)(def - g_fn_table);
@@ -218,9 +221,10 @@ void sysproc_register_builtins(void) {
 #else
   /* Only register baremetal builtins */
   {
-    static const char *names[] = { "exec", "exits" };
+    static const char *names[] = { "exec", "exits", "exit" };
     char path[REG_PATH_MAX];
-    for (int _i = 0; _i < 2; _i++) {
+    int num_names = (sizeof(names) / sizeof(names[0]));
+    for (int _i = 0; _i < num_names; _i++) {
       NexsFnDef *def = fn_lookup(names[_i]);
       if (def) {
         int idx = (int)(def - g_fn_table);

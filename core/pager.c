@@ -81,36 +81,73 @@ void page_free(void *ptr, size_t n_pages) {
 #else /* NEXS_BAREMETAL */
 static uint8_t large_pool[LARGE_POOL_PAGES * NEXS_PAGE_SIZE]
     __attribute__((aligned(NEXS_PAGE_SIZE)));
-static size_t large_brk = 0;
+
+/* Bitmap for page tracking: 1 bit per page */
+static uint32_t page_bitmap[LARGE_POOL_PAGES / 32];
+
+static void bitmap_set(uint32_t bit) {
+    page_bitmap[bit / 32] |= (1U << (bit % 32));
+}
+static void bitmap_clear(uint32_t bit) {
+    page_bitmap[bit / 32] &= ~(1U << (bit % 32));
+}
+static int bitmap_test(uint32_t bit) {
+    return page_bitmap[bit / 32] & (1U << (bit % 32));
+}
 
 void *page_alloc(size_t n_pages) {
-  if (n_pages == 0)
-    return NULL;
-  size_t bytes = n_pages * NEXS_PAGE_SIZE;
-  if (large_brk + bytes > sizeof(large_pool))
-    return NULL; /* OOM */
-
-  int slot = page_slot_find_free();
-  if (slot < 0)
+  if (n_pages == 0 || n_pages > LARGE_POOL_PAGES)
     return NULL;
 
-  void *p = large_pool + large_brk;
-  large_brk += bytes;
-  memset(p, 0, bytes);
-  page_table[slot].base  = p;
-  page_table[slot].pages = n_pages;
-  page_table[slot].used  = 1;
-  return p;
+  /* Search for n_pages contiguous free bits */
+  for (uint32_t i = 0; i <= LARGE_POOL_PAGES - n_pages; i++) {
+    int found = 1;
+    for (uint32_t j = 0; j < n_pages; j++) {
+      if (bitmap_test(i + j)) {
+        found = 0;
+        i += j; /* skip ahead */
+        break;
+      }
+    }
+    if (found) {
+      int slot = page_slot_find_free();
+      if (slot < 0) return NULL;
+
+      void *p = large_pool + (i * NEXS_PAGE_SIZE);
+      for (uint32_t j = 0; j < n_pages; j++) bitmap_set(i + j);
+      
+      memset(p, 0, n_pages * NEXS_PAGE_SIZE);
+      page_table[slot].base  = p;
+      page_table[slot].pages = n_pages;
+      page_table[slot].used  = 1;
+      return p;
+    }
+  }
+  return NULL; /* OOM */
 }
 
 void page_free(void *ptr, size_t n_pages) {
-  /* Bare-metal bump allocator: cannot reclaim individual pages */
-  (void)ptr;
-  (void)n_pages;
-  /* Mark slot as free so the region is no longer tracked */
+  if (!ptr || n_pages == 0) return;
+
+  /* Verify pointer belongs to large_pool */
+  if ((uint8_t *)ptr < large_pool || 
+      (uint8_t *)ptr >= large_pool + (LARGE_POOL_PAGES * NEXS_PAGE_SIZE)) {
+    return;
+  }
+
+  uint32_t start_bit = ((uint8_t *)ptr - large_pool) / NEXS_PAGE_SIZE;
+  for (uint32_t j = 0; j < n_pages; j++) {
+    if (start_bit + j < LARGE_POOL_PAGES) {
+      bitmap_clear(start_bit + j);
+    }
+  }
+
+  /* Mark slot as free */
   for (int i = 0; i < MAX_PAGE_ALLOCS; i++) {
     if (page_table[i].used && page_table[i].base == ptr) {
       page_table[i].used = 0;
+      page_table[i].base = NULL;
+      page_table[i].pages = 0;
       break;
     }
   }

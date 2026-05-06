@@ -289,7 +289,7 @@ Token lexer_next(Lexer *lex) {
     break;
   }
   snprintf(buf, sizeof(buf), "unknown character '%c'", c);
-  return make_tok(TK_EOF, buf, line);
+  return make_tok(TK_ERROR, buf, line);
 }
 
 /* =========================================================
@@ -310,6 +310,8 @@ Token lexer_peek(Lexer *lex) {
 
 const char *token_kind_name(TokenKind k) {
   switch (k) {
+  case TK_ERROR:
+    return "ERROR";
   case TK_EOF:
     return "EOF";
   case TK_INT:
