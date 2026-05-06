@@ -16,8 +16,8 @@
  *   nexs_codegen(src, out_c)             — backwards-compat wrapper (no_dep=0).
  */
 
-#include "include/nexs_compiler.h"
 #include "../core/include/nexs_common.h"
+#include "include/nexs_compiler.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,10 +30,14 @@
 /* Read entire file into a malloc'd buffer (caller frees) */
 static char *read_file(const char *path, size_t *out_len) {
   FILE *f = fopen(path, "r");
-  if (!f) return NULL;
+  if (!f)
+    return NULL;
   fseek(f, 0, SEEK_END);
   long sz = ftell(f);
-  if (sz < 0) { fclose(f); return NULL; }
+  if (sz < 0) {
+    fclose(f);
+    return NULL;
+  }
   if (sz == 0) {
     fclose(f);
     *out_len = 0;
@@ -43,7 +47,10 @@ static char *read_file(const char *path, size_t *out_len) {
   }
   fseek(f, 0, SEEK_SET);
   char *buf = malloc((size_t)sz + 1);
-  if (!buf) { fclose(f); return NULL; }
+  if (!buf) {
+    fclose(f);
+    return NULL;
+  }
   size_t rd = fread(buf, 1, (size_t)sz, f);
   buf[rd] = '\0';
   fclose(f);
@@ -57,12 +64,24 @@ static void write_c_string(FILE *out, const char *s, size_t len) {
   for (size_t i = 0; i < len; i++) {
     unsigned char c = (unsigned char)s[i];
     switch (c) {
-    case '"':  fputs("\\\"", out); break;
-    case '\\': fputs("\\\\", out); break;
-    case '\n': fputs("\\n",  out); break;
-    case '\r': fputs("\\r",  out); break;
-    case '\t': fputs("\\t",  out); break;
-    case '\0': fputs("\\0",  out); break;
+    case '"':
+      fputs("\\\"", out);
+      break;
+    case '\\':
+      fputs("\\\\", out);
+      break;
+    case '\n':
+      fputs("\\n", out);
+      break;
+    case '\r':
+      fputs("\\r", out);
+      break;
+    case '\t':
+      fputs("\\t", out);
+      break;
+    case '\0':
+      fputs("\\0", out);
+      break;
     default:
       if (c < 32 || c > 126)
         fprintf(out, "\\x%02x", (unsigned int)c);
@@ -119,7 +138,8 @@ static void emit_forward_decls(FILE *out) {
           "\n"
           "void       eval_ctx_init(EvalCtx *ctx);\n"
           "EvalResult eval_str(EvalCtx *ctx, const char *src);\n"
-          "EvalResult eval_str_lib(EvalCtx *ctx, const char *src, const char *lib_name);\n"
+          "EvalResult eval_str_lib(EvalCtx *ctx, const char *src, const char "
+          "*lib_name);\n"
           "void       val_print(const Value *v, void *out);\n"
           "void       val_free(Value *v);\n"
           "\n");
@@ -153,26 +173,26 @@ static void emit_dep_table(FILE *out, NexsDepEntry *deps, int n_deps) {
   }
 
   /* Emit the table struct (must match the extern in sysproc.c) */
-  fprintf(out,
-          "/* Embedded dependency table — used by nexs_exec() at runtime */\n"
-          "typedef struct { const char *path; const char *src; } NexsEmbedDep;\n"
-          "const NexsEmbedDep nexs_embed_deps_table[] = {\n");
+  fprintf(
+      out,
+      "/* Embedded dependency table — used by nexs_exec() at runtime */\n"
+      "typedef struct { const char *path; const char *src; } NexsEmbedDep;\n"
+      "const NexsEmbedDep nexs_embed_deps_table[] = {\n");
   for (int i = 0; i < n_deps; i++) {
     fprintf(out, "  { \"%s\", nexs_dep_%d_src },\n", deps[i].path, i);
   }
   fprintf(out, "  { (void*)0, (void*)0 }  /* sentinel */\n};\n\n");
 
-  fprintf(out,
-          "int nexs_embed_dep_count = %d;\n\n", n_deps);
+  fprintf(out, "int nexs_embed_dep_count = %d;\n\n", n_deps);
 }
 
 static void emit_embedded_lookup_impl(FILE *out) {
   /*
-    * The nexs_embedded_lookup function is what nexs_exec() calls when it
-    * can't find a file on disk. It checks this generated table.
-    * Declared as a weak symbol so that the non-standalone interpreter build
-    * (which provides its own empty version in sysproc.c) links cleanly.
-    */
+   * The nexs_embedded_lookup function is what nexs_exec() calls when it
+   * can't find a file on disk. It checks this generated table.
+   * Declared as a weak symbol so that the non-standalone interpreter build
+   * (which provides its own empty version in sysproc.c) links cleanly.
+   */
   fprintf(
       out,
       "/* Lookup helper — returns embedded source for path, or NULL */\n"
@@ -193,11 +213,13 @@ static void emit_embedded_lookup_impl(FILE *out) {
       "    const char *src = nexs_embed_deps_table[i].src;\n"
       "    if (!src) continue;\n"
       "    const char *p = src;\n"
-      "    while (*p && (*p == ' ' || *p == '\\t' || *p == '\\n' || *p == '\\r' || *p == '#')) {\n"
+      "    while (*p && (*p == ' ' || *p == '\\t' || *p == '\\n' || *p == "
+      "'\\r' || *p == '#')) {\n"
       "      if (*p == '#') { while (*p && *p != '\\n') p++; } else p++;\n"
       "    }\n"
       "    if (strncmp(p, \"library\", 7) == 0) {\n"
-      "      eval_str(ctx, src);\n"
+      "      EvalResult r = eval_str(ctx, src);\n"
+      "      val_free(&r.ret_val);\n"
       "    }\n"
       "  }\n"
       "}\n\n");
@@ -207,7 +229,8 @@ static void emit_embedded_lookup_impl(FILE *out) {
    nexs_codegen_ex
    ========================================================= */
 
-int nexs_codegen_ex(const char *src_path, const char *out_c_path, int no_dep, int is_baremetal) {
+int nexs_codegen_ex(const char *src_path, const char *out_c_path, int no_dep,
+                    int is_baremetal) {
   size_t src_len = 0;
   char *src = read_file(src_path, &src_len);
   if (!src) {
@@ -237,7 +260,8 @@ int nexs_codegen_ex(const char *src_path, const char *out_c_path, int no_dep, in
       /* 1. Explicit dependencies from source */
       n_deps = nexs_scan_deps(src_path, deps, NEXS_MAX_DEPS);
 
-      /* 2. Auto-include standard modules and services for batteries-included standalone */
+      /* 2. Auto-include standard modules and services for batteries-included
+       * standalone */
       n_deps = nexs_scan_directory("modules", deps, n_deps, NEXS_MAX_DEPS);
       n_deps = nexs_scan_directory("services", deps, n_deps, NEXS_MAX_DEPS);
 
@@ -327,7 +351,8 @@ int nexs_codegen_ex(const char *src_path, const char *out_c_path, int no_dep, in
    ========================================================= */
 
 int nexs_codegen(const char *src_path, const char *out_c_path) {
-  return nexs_codegen_ex(src_path, out_c_path, 0 /* bundle deps */, 0 /* is_baremetal */);
+  return nexs_codegen_ex(src_path, out_c_path, 0 /* bundle deps */,
+                         0 /* is_baremetal */);
 }
 
 /* =========================================================
@@ -337,13 +362,15 @@ int nexs_codegen(const char *src_path, const char *out_c_path) {
 #include "targets.h"
 
 const char *target_name(CompileTarget target) {
-  if (target < 0 || target >= TARGET_COUNT) return "unknown";
+  if (target < 0 || target >= TARGET_COUNT)
+    return "unknown";
   return nexs_targets[target].name;
 }
 
 const char *target_gcc_flags(CompileTarget target) {
   static char buf[512];
-  if (target < 0 || target >= TARGET_COUNT) return "";
+  if (target < 0 || target >= TARGET_COUNT)
+    return "";
   const TargetConfig *tc = &nexs_targets[target];
   snprintf(buf, sizeof(buf), "%s %s", tc->arch_flags, tc->os_flags);
   return buf;
