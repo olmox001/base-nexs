@@ -175,7 +175,6 @@ extern "C" {
    REGISTRY
    ========================================================= */
 
-#define REG_CHILDREN 16
 #define REG_ROOT "/"
 #define REG_MAX_STACK_DEPTH 1024 /* For iterative DFS on heap */
 
