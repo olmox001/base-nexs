@@ -261,7 +261,7 @@ __attribute__((weak)) void nexs_main_baremetal(void) {
   extern const char nexs_script_src[] __attribute__((weak));
   if (nexs_script_src && nexs_script_src[0]) {
     EvalResult r = eval_str(&ctx, nexs_script_src);
-    val_free(&r.ret_val);
+    (void)r;
   } else {
     nexs_repl();
   }

@@ -78,10 +78,7 @@ static EvalResult eval_block(EvalCtx *ctx, ASTNode *block) {
   Value last = val_nil();
   while (s) {
     EvalResult r = eval_node(ctx, s);
-    if (r.sig != CTRL_NONE) {
-      val_free(&last);
-      return r;
-    }
+    if (r.sig != CTRL_NONE) return r;
     val_free(&last);
     last = val_clone(&r.ret_val);
     val_free(&r.ret_val);

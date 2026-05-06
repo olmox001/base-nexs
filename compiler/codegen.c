@@ -197,8 +197,7 @@ static void emit_embedded_lookup_impl(FILE *out) {
       "      if (*p == '#') { while (*p && *p != '\\n') p++; } else p++;\n"
       "    }\n"
       "    if (strncmp(p, \"library\", 7) == 0) {\n"
-      "      EvalResult r = eval_str(ctx, src);\n"
-      "      val_free(&r.ret_val);\n"
+      "      eval_str(ctx, src);\n"
       "    }\n"
       "  }\n"
       "}\n\n");
