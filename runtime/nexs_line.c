@@ -24,6 +24,7 @@
 #else
 #include "../../hal/include/nexs_hal.h"
 #include "../../hal/include/nexs_timer.h"
+#include "../../hal/include/nexs_mmu.h"
 #define STDIN_FILENO 0
 #define STDOUT_FILENO 1
 #define isatty(fd) (1)
@@ -93,6 +94,7 @@ void nexs_line_raw_off(void) {}
 static int read_byte(void) {
   int c = -1;
   while (c == -1) {
+    mmu_worker_sync();
     c = nexs_hal_getc();
   }
   return c;
@@ -100,6 +102,7 @@ static int read_byte(void) {
 
 static int read_byte_timeout(void) {
   for (int i = 0; i < 100; i++) {
+    mmu_worker_sync();
     int c = nexs_hal_getc();
     if (c != -1)
       return c;

@@ -56,24 +56,24 @@ extern "C" {
 #define NEXS_VERSION_MAJOR 0
 #define NEXS_VERSION_MINOR 2
 #define NEXS_VERSION_PATCH 0
-#define NEXS_VERSION_STR "0.1.7"
+#define NEXS_VERSION_STR "0.1.8"
 
 /* =========================================================
    BUDDY ALLOCATOR & DYNAMIC LIMITS
    ========================================================= */
 
-# if defined(POOL_64MB)
-# define POOL_SIZE (64 * 1024 * 1024)
-# define LARGE_POOL_PAGES 16384 /* 64MB */
-# define MIN_BLOCK 128
-# define MAX_STR_LEN 8192
-# define MAX_TOKENS 32768
-# define REG_PATH_MAX 512
-# define MAX_ARRAYS 2048
-# define NAME_LEN 64
-# define MAX_PARAMS 16
-# define MAX_FN_DEFS 2048
-# elif defined(POOL_16MB)
+#if defined(POOL_64MB)
+#define POOL_SIZE (64 * 1024 * 1024)
+#define LARGE_POOL_PAGES 16384 /* 64MB */
+#define MIN_BLOCK 128
+#define MAX_STR_LEN 8192
+#define MAX_TOKENS 32768
+#define REG_PATH_MAX 512
+#define MAX_ARRAYS 2048
+#define NAME_LEN 64
+#define MAX_PARAMS 16
+#define MAX_FN_DEFS 2048
+#elif defined(POOL_16MB)
 #define POOL_SIZE (16 * 1024 * 1024)
 #define LARGE_POOL_PAGES 4096 /* 16MB */
 #define MIN_BLOCK 128
@@ -140,17 +140,17 @@ extern "C" {
 #define MAX_PARAMS 4
 #define MAX_FN_DEFS 16
 #else
-/* Default (16MB) - Optimized for stability */
-#define POOL_SIZE (16 * 1024 * 1024)
-#define LARGE_POOL_PAGES 4096
+/* Default (64MB) - High Stability & Performance */
+#define POOL_SIZE (64 * 1024 * 1024)
+#define LARGE_POOL_PAGES 16384
 #define MIN_BLOCK 128
 #define MAX_STR_LEN 8192
-#define MAX_TOKENS 16384
+#define MAX_TOKENS 32768
 #define REG_PATH_MAX 512
-#define MAX_ARRAYS 1024
+#define MAX_ARRAYS 2048
 #define NAME_LEN 64
 #define MAX_PARAMS 16
-#define MAX_FN_DEFS 1024
+#define MAX_FN_DEFS 2048
 #endif
 
 #define NUM_LEAVES (POOL_SIZE / MIN_BLOCK)
@@ -177,6 +177,7 @@ extern "C" {
 
 #define REG_CHILDREN 16
 #define REG_ROOT "/"
+#define REG_MAX_STACK_DEPTH 1024 /* For iterative DFS on heap */
 
 /* Registry access rights (capability style) */
 #define RK_READ (1 << 0)

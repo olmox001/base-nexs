@@ -32,6 +32,36 @@
 #define PHYS_ALLOC_START   0x10000ULL
 static uint64_t s_phys_bump = PHYS_ALLOC_START;
 
+/* ── MMU Event Buffer (SPSC Lock-Free) ────────────────────── */
+#define MMU_EV_ALLOC  1
+#define MMU_EV_FREE   2
+#define MMU_EV_FAULT  3
+#define MMU_EV_BUF_SZ 256
+
+typedef struct {
+    uint32_t pid;
+    uint32_t type;
+    uint64_t virt;
+    uint64_t data; /* phys addr or error code */
+} MmuEvent;
+
+static MmuEvent mmu_ev_buffer[MMU_EV_BUF_SZ];
+static volatile uint32_t mmu_ev_head = 0;
+static uint32_t mmu_ev_tail = 0;
+
+static void mmu_push_event(uint32_t pid, uint32_t type, uint64_t virt, uint64_t data) {
+    uint32_t next = (mmu_ev_head + 1) % MMU_EV_BUF_SZ;
+    if (next == mmu_ev_tail) return; /* Buffer full, drop event (safety first) */
+    
+    mmu_ev_buffer[mmu_ev_head].pid  = pid;
+    mmu_ev_buffer[mmu_ev_head].type = type;
+    mmu_ev_buffer[mmu_ev_head].virt = virt;
+    mmu_ev_buffer[mmu_ev_head].data = data;
+    
+    __asm__ volatile("" ::: "memory"); /* Memory barrier */
+    mmu_ev_head = next;
+}
+
 /* ── Page table entry flags ───────────────────────────────── */
 #define PTE_P    (1ULL << 0)   /* present */
 #define PTE_W    (1ULL << 1)   /* writable */
@@ -189,12 +219,8 @@ void pf_isr(IsrFrame *f) {
     uint64_t cr2;
     __asm__ volatile("mov %%cr2, %0" : "=r"(cr2));
 
-    /* Publish fault info to registry */
-    char buf[64];
-    snprintf(buf, sizeof(buf), "0x%llx", (unsigned long long)cr2);
-    reg_set("/hal/mmu/last_fault_addr", val_str(buf), RK_READ);
-    snprintf(buf, sizeof(buf), "0x%llx", (unsigned long long)f->err);
-    reg_set("/hal/mmu/last_fault_err",  val_str(buf), RK_READ);
+    /* Queue fault event instead of direct registry write to avoid ISR deadlock */
+    mmu_push_event(0, MMU_EV_FAULT, cr2, f->err);
 
     /* For kernel faults: halt */
     if (!(f->err & (1ULL << 2))) {
@@ -209,27 +235,18 @@ void pf_isr(IsrFrame *f) {
 int mm_alloc_page(uint32_t pid, vaddr_t virt, uint32_t flags) {
     paddr_t phys = s_phys_bump;
     s_phys_bump += 4096;
-    /* Track in registry */
-    char path[128];
-    snprintf(path, sizeof(path), "/mem/virt/%u/0x%llx/phys",
-             pid, (unsigned long long)virt);
-    reg_set(path, val_int((int64_t)phys), RK_READ | RK_WRITE);
-    snprintf(path, sizeof(path), "/mem/virt/%u/0x%llx/flags",
-             pid, (unsigned long long)virt);
-    reg_set(path, val_int((int64_t)flags), RK_READ | RK_WRITE);
+    /* Queue allocation events */
+    mmu_push_event(pid, MMU_EV_ALLOC, virt, phys);
+    mmu_push_event(pid, MMU_EV_ALLOC | 0x80, virt, flags); /* encoded flags event */
+
     return mmu_map_page(pid, virt, phys, flags);
 }
 
 int mm_free_page(uint32_t pid, vaddr_t virt) {
     paddr_t phys = mmu_virt_to_phys(virt);
 
-    char path[128];
-    snprintf(path, sizeof(path), "/mem/virt/%u/0x%llx/phys",
-             pid, (unsigned long long)virt);
-    reg_delete(path);
-    snprintf(path, sizeof(path), "/mem/virt/%u/0x%llx/flags",
-             pid, (unsigned long long)virt);
-    reg_delete(path);
+    /* Queue free event */
+    mmu_push_event(pid, MMU_EV_FREE, virt, 0);
 
     int res = mmu_unmap_page(pid, virt);
     if (phys != (paddr_t)-1) {
@@ -245,4 +262,36 @@ int mm_map_range(uint32_t pid, vaddr_t virt, paddr_t phys,
             return -1;
     }
     return 0;
+}
+
+/* ── MMU Worker (Async Sync to Registry) ──────────────────── */
+void mmu_worker_sync(void) {
+    while (mmu_ev_tail != mmu_ev_head) {
+        MmuEvent ev = mmu_ev_buffer[mmu_ev_tail];
+        char path[128];
+        char val_buf[64];
+
+        if (ev.type == MMU_EV_FAULT) {
+            snprintf(val_buf, sizeof(val_buf), "0x%llx", (unsigned long long)ev.virt);
+            reg_set("/hal/mmu/last_fault_addr", val_str(val_buf), RK_READ);
+            snprintf(val_buf, sizeof(val_buf), "0x%llx", (unsigned long long)ev.data);
+            reg_set("/hal/mmu/last_fault_err",  val_str(val_buf), RK_READ);
+        }
+        else if (ev.type == MMU_EV_ALLOC) {
+            snprintf(path, sizeof(path), "/mem/virt/%u/0x%llx/phys", ev.pid, (unsigned long long)ev.virt);
+            reg_set(path, val_int((int64_t)ev.data), RK_READ | RK_WRITE);
+        }
+        else if (ev.type == (MMU_EV_ALLOC | 0x80)) {
+            snprintf(path, sizeof(path), "/mem/virt/%u/0x%llx/flags", ev.pid, (unsigned long long)ev.virt);
+            reg_set(path, val_int((int64_t)ev.data), RK_READ | RK_WRITE);
+        }
+        else if (ev.type == MMU_EV_FREE) {
+            snprintf(path, sizeof(path), "/mem/virt/%u/0x%llx/phys", ev.pid, (unsigned long long)ev.virt);
+            reg_delete(path);
+            snprintf(path, sizeof(path), "/mem/virt/%u/0x%llx/flags", ev.pid, (unsigned long long)ev.virt);
+            reg_delete(path);
+        }
+
+        mmu_ev_tail = (mmu_ev_tail + 1) % MMU_EV_BUF_SZ;
+    }
 }

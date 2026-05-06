@@ -271,8 +271,10 @@ static Value pipe_deserialize_value(int rfd) {
 /* Iteratively walk all RegKeys and upgrade queues to pipe transport */
 static void walk_and_enable_pipes(RegKey *root) {
   if (!root) return;
-#define PIPE_STACK_MAX 1024
-  RegKey *stack[PIPE_STACK_MAX];
+#define PIPE_STACK_MAX REG_MAX_STACK_DEPTH
+  RegKey **stack = xmalloc(sizeof(RegKey*) * PIPE_STACK_MAX);
+  if (!stack) return;
+
   int top = 0;
   stack[top++] = root;
   while (top > 0) {
@@ -296,9 +298,10 @@ static void walk_and_enable_pipes(RegKey *root) {
         q->count = 0;
       }
     }
-    if (node->next && top < PIPE_STACK_MAX) stack[top++] = node->next;
+    if (node->next && top < PIPE_STACK_MAX)     stack[top++] = node->next;
     if (node->children && top < PIPE_STACK_MAX) stack[top++] = node->children;
   }
+  xfree(stack);
 #undef PIPE_STACK_MAX
 }
 

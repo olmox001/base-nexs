@@ -96,9 +96,10 @@ static void regkey_detach_child(RegKey *parent, RegKey *child) {
 static void regkey_free_recursive(RegKey *root) {
   if (!root) return;
 
-  /* Explicit stack — max depth 1024 */
-#define FREE_STACK_MAX 1024
-  RegKey *stack[FREE_STACK_MAX];
+#define FREE_STACK_MAX REG_MAX_STACK_DEPTH
+  RegKey **stack = xmalloc(sizeof(RegKey*) * FREE_STACK_MAX);
+  if (!stack) return; /* Should not happen with xmalloc (dies on OOM) */
+
   int top = 0;
   stack[top++] = root;
 
@@ -137,6 +138,7 @@ static void regkey_free_recursive(RegKey *root) {
     if (g_registry.total_keys > 0)
       g_registry.total_keys--;
   }
+  xfree(stack);
 #undef FREE_STACK_MAX
 }
 
@@ -147,35 +149,44 @@ static void regkey_free_recursive(RegKey *root) {
 static void regkey_update_paths(RegKey *k, const char *new_parent_path) {
   if (!k) return;
 
-  /* Iterative BFS/DFS using a simple stack */
-#define UPD_STACK_MAX 1024
-  typedef struct { RegKey *node; char parent[REG_PATH_MAX]; } UpdEntry;
-  UpdEntry stack[UPD_STACK_MAX];
+  /* First, update the root of the move/update operation */
+  if (strcmp(new_parent_path, "/") == 0)
+    snprintf(k->path, REG_PATH_MAX, "/%s", k->name);
+  else
+    snprintf(k->path, REG_PATH_MAX, "%s/%s", new_parent_path, k->name);
+
+  /* Iterative DFS using a dynamic stack from heap */
+#define UPD_STACK_MAX REG_MAX_STACK_DEPTH
+  RegKey **stack = xmalloc(sizeof(RegKey*) * UPD_STACK_MAX);
+  if (!stack) return;
+
   int top = 0;
 
-  strncpy(stack[top].parent, new_parent_path, REG_PATH_MAX - 1);
-  stack[top].parent[REG_PATH_MAX - 1] = '\0';
-  stack[top].node = k;
-  top++;
+  /* Push children of the root */
+  for (RegKey *child = k->children; child; child = child->next) {
+    if (top < UPD_STACK_MAX) stack[top++] = child;
+  }
 
   while (top > 0) {
-    UpdEntry e = stack[--top];
-    RegKey *cur = e.node;
+    RegKey *cur = stack[--top];
 
-    if (strcmp(e.parent, "/") == 0)
-      snprintf(cur->path, REG_PATH_MAX, "/%s", cur->name);
-    else
-      snprintf(cur->path, REG_PATH_MAX, "%s/%s", e.parent, cur->name);
 
+    /* Update current node path using its already-updated parent */
+    if (cur->parent) {
+        if (strcmp(cur->parent->path, "/") == 0)
+            snprintf(cur->path, REG_PATH_MAX, "/%s", cur->name);
+        else
+            snprintf(cur->path, REG_PATH_MAX, "%s/%s", cur->parent->path, cur->name);
+    }
+
+    /* Push children */
     for (RegKey *child = cur->children; child; child = child->next) {
       if (top < UPD_STACK_MAX) {
-        stack[top].node = child;
-        strncpy(stack[top].parent, cur->path, REG_PATH_MAX - 1);
-        stack[top].parent[REG_PATH_MAX - 1] = '\0';
-        top++;
+        stack[top++] = child;
       }
     }
   }
+  xfree(stack);
 #undef UPD_STACK_MAX
 }
 

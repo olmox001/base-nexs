@@ -52,13 +52,14 @@ NEXS_API char  *buddy_strdup(const char *s);
 NEXS_API void   buddy_dump_stats(FILE *out);
 
 /* =========================================================
-   PAGE ALLOCATOR API
+   PAGE ALLOCATOR API (Bitmap-hardened)
    ========================================================= */
 
-/* Allocate n_pages * NEXS_PAGE_SIZE bytes (mmap on hosted, bump on baremetal) */
+/* Allocate n_pages * NEXS_PAGE_SIZE bytes using physical frame bitmap.
+ * Auto-tracks allocations in Registry (/mem/virt/). */
 NEXS_API void *page_alloc(size_t n_pages);
 
-/* Free memory allocated by page_alloc */
+/* Free memory and release physical frames to the bitmap. */
 NEXS_API void  page_free(void *ptr, size_t n_pages);
 
 /* Returns 1 if ptr was allocated by page_alloc, 0 otherwise */

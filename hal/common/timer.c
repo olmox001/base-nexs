@@ -4,6 +4,7 @@
  */
 
 #include "../include/nexs_timer.h"
+#include "../include/nexs_mmu.h"
 #include <stddef.h>
 
 /* Global monotonic tick counter (1 ms per tick) */
@@ -17,6 +18,7 @@ uint64_t hal_timer_ticks(void) {
 void hal_timer_sleep_ms(uint32_t ms) {
     uint64_t start = g_hal_ticks;
     while (g_hal_ticks - start < (uint64_t)ms) {
+        mmu_worker_sync();
         /* Busy wait or yield if we had a scheduler yield here */
 #if defined(__x86_64__)
         __asm__ volatile("pause");

@@ -11,6 +11,10 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
+#include "../../registry/include/nexs_registry.h"
+#include "../../core/include/nexs_value.h"
+#include "../hal/include/nexs_mmu.h"
 
 /* =========================================================
    PAGE SLOT TABLE (tracks allocated regions for is_page_ptr)
@@ -57,6 +61,14 @@ void *page_alloc(size_t n_pages) {
   page_table[slot].base  = p;
   page_table[slot].pages = n_pages;
   page_table[slot].used  = 1;
+
+  /* Track in registry for parity with baremetal */
+  char path[128];
+  snprintf(path, sizeof(path), "/mem/virt/0/0x%llx/phys", (unsigned long long)(uintptr_t)p);
+  reg_set(path, val_int((int64_t)(uintptr_t)p), RK_READ);
+  snprintf(path, sizeof(path), "/mem/virt/0/0x%llx/flags", (unsigned long long)(uintptr_t)p);
+  reg_set(path, val_int(MMU_PRESENT | MMU_WRITE), RK_READ);
+
   return p;
 }
 
@@ -64,6 +76,14 @@ void page_free(void *ptr, size_t n_pages) {
   if (!ptr || n_pages == 0)
     return;
   munmap(ptr, n_pages * NEXS_PAGE_SIZE);
+
+  /* Untrack in registry */
+  char path[128];
+  snprintf(path, sizeof(path), "/mem/virt/0/0x%llx/phys", (unsigned long long)(uintptr_t)ptr);
+  reg_delete(path);
+  snprintf(path, sizeof(path), "/mem/virt/0/0x%llx/flags", (unsigned long long)(uintptr_t)ptr);
+  reg_delete(path);
+
   for (int i = 0; i < MAX_PAGE_ALLOCS; i++) {
     if (page_table[i].used && page_table[i].base == ptr) {
       page_table[i].used = 0;

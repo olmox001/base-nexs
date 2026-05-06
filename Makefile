@@ -33,8 +33,8 @@ INCS = \
   -Icompiler/include \
   -Ihal/include
 
-# Production flags & Memory Pool Profiles (4KB, 16KB, 32KB, 512KB, 4MB, 16MB)
-POOL_PROFILE ?= 16MB
+# Production flags & Memory Pool Profiles (4KB, 16KB, 32KB, 512KB, 4MB, 16MB, 64MB)
+POOL_PROFILE ?= 64MB
 CFLAGS = -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
          -DPOOL_$(POOL_PROFILE) -DHOST_OS_$(HOST_PLATFORM) \
          -DLINUX_AMD64_CC_BIN='"$(LINUX_AMD64_CC)"' \
