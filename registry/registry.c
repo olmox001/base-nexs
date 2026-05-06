@@ -230,8 +230,8 @@ RegKey *reg_mkpath(const char *path, uint8_t rights) {
 
     RegKey *child = regkey_find_child(cur, seg);
     if (!child) {
-      if (g_nexs_debug)
-        nexs_fprintf(stderr, "[REG DEBUG] Creating key: %s\n", child_path);
+      /* if (g_nexs_debug)
+        nexs_fprintf(stderr, "[REG DEBUG] Creating key: %s\n", child_path); */
       child = regkey_alloc(seg, child_path, rights);
       regkey_add_child(cur, child);
     }
@@ -246,8 +246,8 @@ RegKey *reg_mkpath(const char *path, uint8_t rights) {
 RegKey *reg_lookup(const char *path) {
   if (!path || path[0] == '\0')
     return NULL;
-  if (g_nexs_debug)
-    nexs_fprintf(stderr, "[REG DEBUG] Lookup: %s\n", path);
+  /* if (g_nexs_debug)
+    nexs_fprintf(stderr, "[REG DEBUG] Lookup: %s\n", path); */
   if (strcmp(path, "/") == 0)
     return g_registry.root;
   if (path[0] != '/')

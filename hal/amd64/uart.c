@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "../../core/include/nexs_common.h"
 
 #define COM1_PORT 0x3F8
 
@@ -54,7 +55,10 @@ void nexs_hal_putc(char c) {
 }
 
 int nexs_hal_getc(void) {
-  if (!(inb(COM1_PORT + 5) & 0x01)) return -1;
+  /* Wait until character is available */
+  while (!(inb(COM1_PORT + 5) & 0x01)) {
+    __asm__ volatile("pause");
+  }
   return (int)inb(COM1_PORT);
 }
 
@@ -70,7 +74,8 @@ void nexs_hal_memory_map(NexsMemMap *map) {
   if (!map) return;
   map->entry_point = (uintptr_t)0x100000UL;  /* 1 MB (as per nexs.ld) */
   map->ram_base    = (uintptr_t)0x100000UL;
-  map->ram_size    = 4 * 1024 * 1024;         /* conservative 4 MB */
+  /* Use at least POOL_SIZE + 16MB for kernel code/data overhead */
+  map->ram_size    = POOL_SIZE + (16 * 1024 * 1024);
   map->uart_base   = (uintptr_t)COM1_PORT;
 }
 

@@ -48,16 +48,8 @@ int nexs_sleep(int msec) {
 
 int nexs_exec(EvalCtx *ctx, const char *path) {
   if (!ctx || !path) return -1;
-  EvalResult r;
-  /* Bug 2 fix: check embedded dep table before touching the filesystem.
-   * In standalone compiled binaries nexs_embedded_lookup() returns the
-   * inlined source; in the interpreter it is a weak no-op returning NULL. */
-  const char *embedded_src = nexs_embedded_lookup(path);
-  if (embedded_src) {
-    r = eval_str(ctx, embedded_src);
-  } else {
-    r = eval_file(ctx, path);
-  }
+  /* Rely on eval_file which is now VFS-aware (checks registry, then embedded, then disk) */
+  EvalResult r = eval_file(ctx, path);
   if (r.sig == CTRL_ERR) {
     val_print(&r.ret_val, ctx->err);
     fprintf(ctx->err, "\n");
@@ -129,9 +121,15 @@ static Value bi_exec(Value *args, int n) {
   if (n < 1) return val_err(4, "exec: requires a path");
   if (args[0].type != TYPE_STR || !args[0].data)
     return val_err(4, "exec: argument must be a string");
-  EvalCtx ctx;
-  eval_ctx_init(&ctx);
-  return val_int(nexs_exec(&ctx, (char *)args[0].data));
+
+  EvalCtx *ctx_to_use = nexs_g_eval_ctx;
+  EvalCtx inner_ctx;
+  if (!ctx_to_use) {
+    eval_ctx_init(&inner_ctx);
+    ctx_to_use = &inner_ctx;
+  }
+
+  return val_int(nexs_exec(ctx_to_use, (char *)args[0].data));
 }
 
 static Value bi_exits(Value *args, int n) {
@@ -183,6 +181,8 @@ static Value bi_getwd(Value *args, int n) {
 void sysproc_register_builtins(void) {
   fn_register_builtin_sig("exec",   bi_exec,
     SIG("exec(path str)") "nil");
+  fn_register_builtin_sig("load",   bi_exec,
+    SIG("load(path str)") "nil");
   fn_register_builtin_sig("exits",  bi_exits,
     SIG("exits(status str)") "nil");
   fn_register_builtin_sig("exit",   bi_exits,
@@ -221,7 +221,7 @@ void sysproc_register_builtins(void) {
 #else
   /* Only register baremetal builtins */
   {
-    static const char *names[] = { "exec", "exits", "exit" };
+    static const char *names[] = { "exec", "load", "exits", "exit" };
     char path[REG_PATH_MAX];
     int num_names = (sizeof(names) / sizeof(names[0]));
     for (int _i = 0; _i < num_names; _i++) {

@@ -23,6 +23,7 @@ exec("services/textbuf.nx")     # Text Buffer Library
 out "[INIT] Fase 2: Inizializzazione Sottosistemi..."
 hw_dt_init()
 p9_mnt_init()
+ui_init(80 24)
 
 out "[INIT] Fase 3: Popolamento Root FS..."
 # I mount standard sono già fatti da services/fs/init.nx

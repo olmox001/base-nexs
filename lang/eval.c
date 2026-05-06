@@ -26,6 +26,8 @@
 #include <stdio.h>
 #include <string.h>
 
+extern const char *nexs_embedded_lookup(const char *path);
+
 /* =========================================================
    CONTEXT INIT
    ========================================================= */
@@ -113,7 +115,7 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
   if (!ctx)
     return err_result("NULL EvalCtx in eval_node");
 
-  DEBUG_PRINT(ctx, "eval_node kind=%d", n->kind);
+  /* DEBUG_PRINT(ctx, "eval_node kind=%d", n->kind); */
 
   switch (n->kind) {
 
@@ -433,6 +435,10 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
 
   /* --- Function call --- */
   case AST_FN_CALL: {
+    /* if (g_nexs_debug) {
+      nexs_fprintf(NULL, "[TRACE] Call: %s\n", n->name);
+    } */
+
     /* Evaluate arguments */
     Value args[MAX_PARAMS];
     int n_args = n->n_args;
@@ -695,6 +701,65 @@ EvalResult eval_str_lib(EvalCtx *ctx, const char *src, const char *lib_name) {
 EvalResult eval_file(EvalCtx *ctx, const char *fpath) {
   if (!ctx || !fpath)
     return err_result("NULL ctx or fpath");
+
+  char normalized[REG_PATH_MAX];
+  const char *p = fpath;
+  /* Strip leading slash if present for VFS registry key lookup */
+  if (p[0] == '/') p++;
+  
+  /* 0. Resolve relative paths via VFS CWD if possible */
+  if (fpath[0] != '/') {
+    Value cwd_val = reg_get("/proc/1/vfs_cwd");
+    if (cwd_val.type == TYPE_STR && cwd_val.data && ((char*)cwd_val.data)[0] != '\0') {
+      snprintf(normalized, sizeof(normalized), "%s/%s", (char*)cwd_val.data, fpath);
+    } else {
+      strncpy(normalized, fpath, sizeof(normalized)-1);
+      normalized[sizeof(normalized)-1] = '\0';
+    }
+    val_free(&cwd_val);
+  } else {
+    strncpy(normalized, p, sizeof(normalized)-1);
+    normalized[sizeof(normalized)-1] = '\0';
+  }
+
+  /* 1. Check Registry VFS (/sys/vfs/files/) */
+  char reg_vfs_path[REG_PATH_MAX];
+  snprintf(reg_vfs_path, sizeof(reg_vfs_path), "/sys/vfs/files/%s", normalized);
+  Value vfs_val = reg_get(reg_vfs_path);
+  if (vfs_val.type == TYPE_STR && vfs_val.data) {
+    const char *vfs_content = (char *)vfs_val.data;
+    if (strncmp(vfs_content, "BUNDLED", 7) == 0) {
+      const char *lookup_path = normalized;
+      if (strncmp(vfs_content, "BUNDLED:", 8) == 0) {
+        lookup_path = vfs_content + 8;
+      }
+      const char *emb = nexs_embedded_lookup(lookup_path);
+      if (emb) {
+        EvalResult r = eval_str(ctx, emb);
+        val_free(&vfs_val);
+        return r;
+      }
+    } else {
+      /* Direct content from Registry */
+      EvalResult r = eval_str(ctx, vfs_content);
+      val_free(&vfs_val);
+      return r;
+    }
+  }
+  val_free(&vfs_val);
+
+  /* 2. Fallback to embedded table (AOT) using normalized path */
+  const char *emb = nexs_embedded_lookup(normalized);
+  if (emb) {
+    return eval_str(ctx, emb);
+  }
+  /* Also try original path in embedded table */
+  if (p != fpath) {
+    emb = nexs_embedded_lookup(p);
+    if (emb) return eval_str(ctx, emb);
+  }
+
+  /* 3. Fallback to hosted filesystem */
   FILE *f = fopen(fpath, "r");
   if (!f) {
     char msg[256];

@@ -191,6 +191,6 @@ void buddy_dump_stats(FILE *out) {
     else
       split_blocks++;
   }
-  nexs_fprintf(out, "[Buddy] free=%zu used=%zu split=%zu pool=%dKB\n",
-          free_blocks, used_blocks, split_blocks, POOL_SIZE / 1024);
+  nexs_fprintf(out, "[Buddy] free=%d used=%d split=%d pool=%dKB\n",
+          (int)free_blocks, (int)used_blocks, (int)split_blocks, (int)(POOL_SIZE / 1024));
 }

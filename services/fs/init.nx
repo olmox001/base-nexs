@@ -12,21 +12,18 @@ fn fs_mount(src dst fstype) {
   reg_set(p + "/src"    src)
   reg_set(p + "/dst"    dst)
   reg_set(p + "/fstype" fstype)
-  reg_set(p + "/state"  "mounted")
+  # reg_set(p + "/state"  "mounted")
   mount(src dst 0)
   reg /sys/fs/mount_count = n + 1
-  out "[fs] Mounted " + src + " -> " + dst + " (" + fstype + ")"
   ret n
 }
 
 fn fs_umount(dst) {
   unmount("" dst)
-  out "[fs] Unmounted " + dst
   ret 0
 }
 
 fn fs_sync() {
-  out "[fs] Syncing..."
   ret 0
 }
 
@@ -50,16 +47,11 @@ reg /sys/vfs/count = 0
 
 fn vfs_write(nome_file contenuto) {
   count = reg /sys/vfs/count
-  i = 0
-  loop {
-    if i >= count { break }
-    nome_chiave = "/sys/vfs/idx/" + str(i)
-    nome_esistente = reg_get(nome_chiave)
-    if nome_esistente == nome_file {
-      reg_set("/sys/vfs/files/" + nome_file, contenuto)
-      ret nil
-    }
-    i = i + 1
+  # Verifica rapida dell'esistenza per evitare loop costosi nel registro
+  esistente = reg_get("/sys/vfs/files/" + nome_file)
+  if type(esistente) != "err" {
+    reg_set("/sys/vfs/files/" + nome_file, contenuto)
+    ret nil
   }
   reg_set("/sys/vfs/files/" + nome_file, contenuto)
   reg_set("/sys/vfs/idx/" + str(count), nome_file)
@@ -68,9 +60,13 @@ fn vfs_write(nome_file contenuto) {
 
 fn vfs_read(nome_file) {
   val = reg_get("/sys/vfs/files/" + nome_file)
-  if type(val) == "err" {
+  if type(val) == "err" || startswith(val "BUNDLED") {
     # Fallback: check embedded bundle
-    val = sys_embedded_read(nome_file)
+    orig_path = nome_file
+    if startswith(val "BUNDLED:") {
+       orig_path = substr(val 8 len(val) - 8)
+    }
+    val = sys_embedded_read(orig_path)
     if type(val) == "err" {
        ret "ERR: File '" + nome_file + "' non trovato"
     }
@@ -252,4 +248,4 @@ fn vfs_ls(dir) {
 }
 
 reg /sys/fs/status = "ready"
-out "[fs] Filesystem service initialised."
+# out "[fs] Filesystem service initialised."

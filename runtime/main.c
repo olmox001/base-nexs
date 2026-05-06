@@ -274,6 +274,13 @@ __attribute__((weak)) void nexs_main_baremetal(void) {
   extern const char nexs_script_src[] __attribute__((weak));
   if (nexs_script_src && nexs_script_src[0]) {
     EvalResult r = eval_str(&ctx, nexs_script_src);
+    if (r.sig == CTRL_ERR) {
+      nexs_hal_print("\033[1;31m[NEXS FATAL ERROR]\033[0m\n");
+      if (r.ret_val.type == TYPE_ERR && r.ret_val.err_msg) {
+        nexs_hal_print(r.ret_val.err_msg);
+        nexs_hal_print("\n");
+      }
+    }
     val_free(&r.ret_val);
   } else {
     nexs_repl();
