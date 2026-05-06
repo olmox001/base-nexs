@@ -82,8 +82,8 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
   }
 
   /* --- Step 1: Detect memory footprint via Host dry-runs --- */
-  const char *profiles[] = {"POOL_4KB",   "POOL_16KB", "POOL_32KB",
-                            "POOL_512KB", "POOL_4MB",  "POOL_16MB"};
+  const char *profiles[] = {"POOL_4KB", "POOL_16KB", "POOL_32KB", "POOL_512KB",
+                            "POOL_4MB", "POOL_16MB", "POOL_64MB"};
   const int profile_count = 6;
   int best_profile_idx = profile_count - 1; /* Default to 16MB */
 
@@ -94,8 +94,8 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
             src_path);
     return -1;
   }
-  /* Run host profiling for all targets (including baremetal) to detect footprint.
-   * The 1-second alarm prevents infinite loops. */
+  /* Run host profiling for all targets (including baremetal) to detect
+   * footprint. The 1-second alarm prevents infinite loops. */
   for (int i = 0; i < profile_count; i++) {
     char test_bin[256], build_cmd[1024], run_cmd[1024];
     snprintf(test_bin, sizeof(test_bin), "/tmp/nexs_prof_test_%d.bin",
@@ -189,8 +189,9 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
     pos +=
         snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " kernel/libc_stub.c");
   } else {
-    pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
-                   " hal/common/console.c hal/common/timer.c hal/hal_hosted.c");
+    pos +=
+        snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
+                 " hal/common/console.c hal/common/timer.c hal/hal_hosted.c");
   }
 
   /* Bare-metal extras */

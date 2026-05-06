@@ -676,7 +676,7 @@ Nuovo blocco (98-100): 98. core/include/nexs_common.h (L'header dei define globa
 
 Inizio con core/include/nexs_common.h. Verificherò come le impostazioni globali influenzano la scalabilità del sistema su diverse architetture.
 
-L'analisi di core/include/nexs_common.h mette in luce il cuore pulsante e la flessibilità straordinaria dell'architettura NEXS. Il sistema di configurazione condizionale del pool di memoria è un capolavoro di pragmatismo ingegneristico: permette al sistema di scalare da configurazioni "standard" di 16MB per ambienti desktop e server, fino a profili ultra-compatti di soli 4KB per microcontrollori, riproporzionando automaticamente ogni limite interno, dalla lunghezza delle stringhe alla profondità del registro. La gestione autonoma dei tipi interi per l'ambiente baremetal e l'integrazione nativa delle costanti Plan 9 e dei diritti di accesso "Capability-style" confermano che NEXS non è solo un interprete, ma un sistema operativo completo progettato per la massima portabilità. Questo file è la prova che la semplicità del design può nascondere una potenza e una versatilità immense.
+L'analisi di core/include/nexs_common.h mette in luce il cuore pulsante e la flessibilità straordinaria dell'architettura NEXS. Il sistema di configurazione condizionale del pool di memoria è un capolavoro di pragmatismo ingegneristico: permette al sistema di scalare da configurazioni "standard" di 64MB per ambienti desktop e server, fino a profili ultra-compatti di soli 4KB per microcontrollori, riproporzionando automaticamente ogni limite interno, dalla lunghezza delle stringhe alla profondità del registro. La gestione autonoma dei tipi interi per l'ambiente baremetal e l'integrazione nativa delle costanti Plan 9 e dei diritti di accesso "Capability-style" confermano che NEXS non è solo un interprete, ma un sistema operativo completo progettato per la massima portabilità. Questo file è la prova che la semplicità del design può nascondere una potenza e una versatilità immense.
 
 Passo ora all'analisi di core/include/nexs_types.h. Qui esplorerò le definizioni dei tipi di dato Value e ASTNode, i mattoni fondamentali che permettono al linguaggio NeXs di manipolare dati e al kernel di gestire la logica di sistema, verificando come la loro struttura supporti l'efficienza e la sicurezza dell'intero ecosistema.
 
@@ -955,7 +955,7 @@ Questo documento traccia l'analisi sistematica di tutti i file del progetto per 
 | `STATO.md` | STABILE | Report onesto e tecnico. layer mapping fondamentale per dev. |
 | `core/include/nexs_utils.h` | STABILE | Utility path e stringhe safe. nexs_fprintf per logica cross-arch. |
 | `core/include/nexs_alloc.h` | **ECCELLENTE** | Dual-layer Buddy/Page allocator. Astrazione OOM centralizzata. |
-| `core/include/nexs_common.h` | **ECCELLENTE** | Configurazione pool scalabile (4KB-16MB). Baremetal types autonomi. |
+| `core/include/nexs_common.h` | **ECCELLENTE** | Configurazione pool scalabile (4KB-64MB). Baremetal types autonomi. |
 | `core/include/nexs_value.h` | **ECCELLENTE** | Sistema tipi 9P-aware (REF/PTR). Refcounting Mach-style per array. |
 | `lang/include/nexs_ast.h` | **ECCELLENTE** | Nodi AST per IPC e Registry. Memory safety su trasferimento fn_table. |
 | `kernel/libc_stub.c` | **ECCELLENTE** | Libc baremetal completa. vsnprintf robusta e malloc con header dimensionale. |

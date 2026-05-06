@@ -107,7 +107,7 @@ Questo documento traccia l'analisi sistematica di tutti i file del progetto per 
 | `STATO.md` | STABILE | Report onesto e tecnico. layer mapping fondamentale per dev. |
 | `core/include/nexs_utils.h` | STABILE | Utility path e stringhe safe. nexs_fprintf per logica cross-arch. |
 | `core/include/nexs_alloc.h` | **ECCELLENTE** | Dual-layer Buddy/Page allocator. Astrazione OOM centralizzata. |
-| `core/include/nexs_common.h` | **ECCELLENTE** | Configurazione pool scalabile (4KB-16MB). Baremetal types autonomi. |
+| `core/include/nexs_common.h` | **ECCELLENTE** | Configurazione pool scalabile (4KB-64MB). Baremetal types autonomi. |
 | `core/include/nexs_value.h` | **ECCELLENTE** | Sistema tipi 9P-aware (REF/PTR). Refcounting Mach-style per array. |
 | `lang/include/nexs_ast.h` | **ECCELLENTE** | Nodi AST per IPC e Registry. Memory safety su trasferimento fn_table. |
 | `kernel/libc_stub.c` | **ECCELLENTE** | Libc baremetal completa. vsnprintf robusta e malloc con header dimensionale. |
