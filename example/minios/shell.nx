@@ -25,6 +25,7 @@ fn shell_help() {
   out "  errlog        - Mostra ultimo errore kernel"
   out "  nxed [file]   - Editor di testo"
   out "  termimg file  - Visualizza immagine .nxtimg"
+  out "  druglords     - Avvia Drug Lords Deluxe"
   out "  exit          - Arresta il sistema"
   out ""
   out "  Espressioni NEXS native: digita qualsiasi espressione valida."
@@ -203,6 +204,11 @@ fn shell_loop() {
     if cmd == "termimg" {
       if arg == "" { out "termimg: manca il file .nxtimg" }
       else { ui_draw_image(vfs_resolve(arg shell_cwd()) -1 -1) }
+      handled = 1
+    }
+
+    if cmd == "druglords" {
+      druglords_start()
       handled = 1
     }
 

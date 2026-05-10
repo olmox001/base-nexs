@@ -19,6 +19,12 @@ fn load_logos() {
     loaded = loaded + 1
   }
 
+  n3 = vfs_import("example/minios/logos/druglords.nxtimg" "sd02/logos/druglords.nxtimg")
+  if n3 > 0 {
+    kout("  [OK] druglords.nxtimg (" + str(n3) + " bytes)")
+    loaded = loaded + 1
+  }
+
   reg_set("/sys/logos/count" str(loaded))
   ret loaded
 }

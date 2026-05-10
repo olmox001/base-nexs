@@ -41,6 +41,7 @@ out ""
 
 # Avvio dei demoni di sistema
 exec("example/minios/nxed_editor.nx")
+exec("example/minios/druglords.nx")
 exec("example/minios/shell.nx")
 
 out "==================================================="
