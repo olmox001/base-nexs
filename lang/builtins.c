@@ -509,31 +509,6 @@ static Value builtin_reg_del(Value *args, int n) {
    ARRAY/STRING BUILT-INS (arr_join, arr_ins, arr_del)
    ========================================================= */
 
-static Value builtin_term_size(Value *args, int n) {
-  int cols = 80, rows = 24;
-#ifndef NEXS_BAREMETAL
-  struct winsize w;
-  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != -1) {
-    cols = w.ws_col;
-    rows = w.ws_row;
-  }
-#endif
-  DynArray *arr = arr_create_anon();
-
-  arr_ensure_cap(arr, 2);
-  arr_set(arr, 0, val_int(cols));
-  arr_set(arr, 1, val_int(rows));
-
-  Value v;
-  v.type = TYPE_ARR;
-  v.data = arr;
-  v.ival = 0;
-  v.fval = 0;
-  v.err_code = 0;
-  v.err_msg = NULL;
-  return v;
-}
-
 static Value builtin_arr_create_anon(Value *args, int n) {
   (void)args;
   (void)n;
@@ -1003,9 +978,6 @@ void builtins_register_all(void) {
 
   register_builtin_sig("sleep", builtin_sleep, SIG("sleep(ms int)") "nil");
 
-  /* Term Size */
-  register_builtin_sig("term_size", builtin_term_size,
-                       SIG("term_size()") "arr");
   register_builtin_sig("sys_debug", builtin_sys_debug,
                        SIG("sys_debug(on bool)") "bool");
   register_builtin_sig("sys_bundled", builtin_sys_bundled,

@@ -329,9 +329,13 @@ static int nexs_read_byte(void) {
     s_key_lookahead = -1;
     return c;
   }
+#ifdef NEXS_BAREMETAL
+  return nexs_hal_getc();
+#else
   unsigned char c;
   if (read(STDIN_FILENO, &c, 1) <= 0) return -1;
   return (int)c;
+#endif
 }
 
 /* =========================================================
@@ -486,8 +490,30 @@ static Value bi_unmount(Value *args, int n) {
 static struct termios s_orig_term;
 static int            s_raw_active = 0;
 
+static int s_fg_pid = -1;
+
+static int nexs_is_fg(void) {
+#ifdef NEXS_BAREMETAL
+  return 1;
+#else
+  if (s_fg_pid < 0) return 1;
+  static pid_t s_own_pid;
+  if (!s_own_pid) s_own_pid = getpid();
+  return ((int)s_own_pid == s_fg_pid);
+#endif
+}
+
+static Value bi_set_fg_pid(Value *args, int n) {
+  if (n < 1) return val_nil();
+  s_fg_pid = (int)val_to_int(&args[0]);
+  return val_nil();
+}
+
 static Value bi_rawon(Value *args, int n) {
   (void)args; (void)n;
+#ifdef NEXS_BAREMETAL
+  return val_nil();
+#endif
   if (s_raw_active) return val_int(0);
   if (!isatty(STDIN_FILENO)) return val_int(-1);
   if (tcgetattr(STDIN_FILENO, &s_orig_term) != 0) return val_int(-1);
@@ -503,6 +529,9 @@ static Value bi_rawon(Value *args, int n) {
 
 static Value bi_rawoff(Value *args, int n) {
   (void)args; (void)n;
+#ifdef NEXS_BAREMETAL
+  return val_nil();
+#endif
   if (!s_raw_active) return val_int(0);
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &s_orig_term);
   s_raw_active = 0;
@@ -605,6 +634,7 @@ static Value bi_readkey_nb(Value *args, int n) {
 }
 
 static Value bi_term_at(Value *args, int n) {
+    if (!nexs_is_fg()) return val_nil();
     if (n < 3) return val_err(4, "term_at: requires y, x, str");
     int y = (int)val_to_int(&args[0]);
     int x = (int)val_to_int(&args[1]);
@@ -618,6 +648,7 @@ static Value bi_term_at(Value *args, int n) {
 
 static Value bi_term_cls(Value *args, int n) {
     (void)args; (void)n;
+    if (!nexs_is_fg()) return val_nil();
     nexs_hal_print("\033[2J\033[H");
     return val_nil();
 }
@@ -647,10 +678,28 @@ static Value bi_term_cursor_show(Value *args, int n) {
 
 static Value bi_term_flush(Value *args, int n) {
     (void)args; (void)n;
+    if (!nexs_is_fg()) return val_nil();
 #ifndef NEXS_BAREMETAL
     fflush(stdout);
 #endif
     return val_nil();
+}
+
+#define NEXS_TERM_SIZE_FALLBACK "80x24"
+
+static Value bi_term_size(Value *args, int n) {
+  (void)args; (void)n;
+#ifdef NEXS_BAREMETAL
+  return val_str(NEXS_TERM_SIZE_FALLBACK);
+#else
+  struct winsize ws;
+  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%dx%d", (int)ws.ws_col, (int)ws.ws_row);
+    return val_str(buf);
+  }
+  return val_str(NEXS_TERM_SIZE_FALLBACK);
+#endif
 }
 
 static Value bi_readbyte(Value *args, int n) {
@@ -743,6 +792,10 @@ void sysio_register_builtins(void) {
     SIG("term_cursor_show(bool)") "nil");
   fn_register_builtin_sig("term_flush", bi_term_flush,
     SIG("term_flush()") "nil");
+  fn_register_builtin_sig("term_size", bi_term_size,
+    SIG("term_size()") "str");
+  fn_register_builtin_sig("set_fg_pid", bi_set_fg_pid,
+    SIG("set_fg_pid(pid int)") "nil");
 
   /* Store actual fn_table indices in /sys/<name> for val_print and eval resolution */
   {
@@ -758,7 +811,8 @@ void sysio_register_builtins(void) {
       {"readkey_nb",bi_readkey_nb},{"term_at",bi_term_at},
       {"term_cls",bi_term_cls},{"term_cursor_move",bi_term_cursor_move},
       {"term_erase_eol",bi_term_erase_eol},{"term_cursor_show",bi_term_cursor_show},
-      {"term_flush",bi_term_flush},
+      {"term_flush",bi_term_flush},{"term_size",bi_term_size},
+      {"set_fg_pid",bi_set_fg_pid},
     };
     char path[REG_PATH_MAX];
     for (int _i = 0; _i < (int)(sizeof(t)/sizeof(t[0])); _i++) {

@@ -16,6 +16,8 @@ exec("services/pm/init.nx")     # PM
 exec("services/auth/init.nx")   # Auth & capabilities
 exec("services/tty/init.nx")    # TTY
 exec("services/ui/init.nx")     # UI framebuffer
+exec("services/logos/init.nx") # Logo registry
+exec("example/minios/logo.nx") # Import logos into VFS
 exec("services/fs/p9_mnt.nx")   # 9P
 exec("services/hw_dt.nx")       # HW Device Tree
 exec("services/textbuf.nx")     # Text Buffer Library
@@ -23,7 +25,7 @@ exec("services/textbuf.nx")     # Text Buffer Library
 out "[INIT] Fase 2: Inizializzazione Sottosistemi..."
 hw_dt_init()
 p9_mnt_init()
-ui_init(80 24)
+ui_init()
 
 out "[INIT] Fase 3: Popolamento Root FS..."
 # I mount standard sono già fatti da services/fs/init.nx

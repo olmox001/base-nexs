@@ -11,3 +11,4 @@ test_out.txt
 /build
 nexs
 /scratch
+*.venv

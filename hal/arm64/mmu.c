@@ -8,6 +8,7 @@
  * Enables the MMU via SCTLR_EL1.
  */
 
+#include "../include/nexs_mmu.h"
 #include <stdint.h>
 
 /* ── Page table constants ─────────────────────────────────── */
@@ -51,7 +52,7 @@ static void memzero(volatile uint64_t *p, int count) {
     for (int i = 0; i < count; i++) p[i] = 0;
 }
 
-void nexs_mmu_init(void) {
+void mmu_init(void) {
     volatile uint64_t *pgd = (volatile uint64_t *)PAGE_TABLE_BASE;
     volatile uint64_t *pud = (volatile uint64_t *)PUD_BASE;
     volatile uint64_t *pmd = (volatile uint64_t *)PMD_BASE;
@@ -94,4 +95,58 @@ void nexs_mmu_init(void) {
            | (1UL << 2)  /* C  — D-cache enable */
            | (1UL << 12) /* I  — I-cache enable */;
     __asm__ volatile("msr sctlr_el1, %0; isb" :: "r"(sctlr));
+}
+
+int mmu_map_page(uint32_t pid, vaddr_t virt, paddr_t phys, uint32_t flags) {
+    (void)pid; (void)virt; (void)phys; (void)flags;
+    return -1;
+}
+
+int mmu_unmap_page(uint32_t pid, vaddr_t virt) {
+    (void)pid; (void)virt;
+    return 0;
+}
+
+void mmu_flush_tlb(vaddr_t virt) {
+    (void)virt;
+    __asm__ volatile("dsb ish; isb" ::: "memory");
+}
+
+paddr_t mmu_virt_to_phys(vaddr_t virt) {
+    return (paddr_t)virt;
+}
+
+void mmu_page_fault(vaddr_t fault_addr, uint64_t err) {
+    (void)fault_addr; (void)err;
+}
+
+int mm_alloc_page(uint32_t pid, vaddr_t virt, uint32_t flags) {
+    (void)pid; (void)virt; (void)flags;
+    return 0;
+}
+
+int mm_free_page(uint32_t pid, vaddr_t virt) {
+    (void)pid; (void)virt;
+    return 0;
+}
+
+int mm_map_range(uint32_t pid, vaddr_t virt, paddr_t phys, uint32_t pages, uint32_t flags) {
+    (void)pid; (void)virt; (void)phys; (void)pages; (void)flags;
+    return 0;
+}
+
+void mmu_worker_sync(void) {}
+
+paddr_t mmu_create_address_space(uint32_t pid) {
+    (void)pid;
+    return 0;
+}
+
+int mmu_switch_address_space(uint32_t pid) {
+    (void)pid;
+    return 0;
+}
+
+void mmu_destroy_address_space(uint32_t pid) {
+    (void)pid;
 }

@@ -24,6 +24,7 @@ fn shell_help() {
   out "  source file   - Esegue script .nx dal VFS"
   out "  errlog        - Mostra ultimo errore kernel"
   out "  nxed [file]   - Editor di testo"
+  out "  termimg file  - Visualizza immagine .nxtimg"
   out "  exit          - Arresta il sistema"
   out ""
   out "  Espressioni NEXS native: digita qualsiasi espressione valida."
@@ -196,6 +197,12 @@ fn shell_loop() {
       } else {
         nxed_start(vfs_resolve(arg shell_cwd()))
       }
+      handled = 1
+    }
+
+    if cmd == "termimg" {
+      if arg == "" { out "termimg: manca il file .nxtimg" }
+      else { ui_draw_image(vfs_resolve(arg shell_cwd()) -1 -1) }
       handled = 1
     }
 

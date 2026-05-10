@@ -247,5 +247,35 @@ fn vfs_ls(dir) {
   }
 }
 
+fn vfs_exists(path) {
+  val = reg_get("/sys/vfs/files/" + path)
+  if type(val) != "err" { ret 1 }
+  val = sys_embedded_read(path)
+  if type(val) != "err" { ret 1 }
+  ret 0
+}
+
+fn vfs_import(host_path vfs_path) {
+  fd = open(host_path 0)
+  if type(fd) == "err" { ret 0 }
+  chunk_size = 4096
+  shard_idx = 0
+  total = 0
+  loop {
+    chunk = read(fd chunk_size)
+    if type(chunk) == "err" { break }
+    if len(chunk) == 0 { break }
+    reg_set("/sys/vfs/files/" + vfs_path + "@@" + str(shard_idx) chunk)
+    total = total + len(chunk)
+    shard_idx = shard_idx + 1
+    if len(chunk) < chunk_size { break }
+  }
+  close(fd)
+  if shard_idx > 0 {
+    reg_set("/sys/vfs/files/" + vfs_path + "@@n" str(shard_idx))
+  }
+  ret total
+}
+
 reg /sys/fs/status = "ready"
 # out "[fs] Filesystem service initialised."

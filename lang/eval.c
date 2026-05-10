@@ -778,11 +778,10 @@ EvalResult eval_file(EvalCtx *ctx, const char *fpath) {
   src[bytes_read] = '\0';
   fclose(f);
 
-  /* Auto-detect if this is a standard library file to trigger include guards */
+  /* Auto-inject include guard for modules/ files that lack a library statement.
+   * services/stdlib.nx uses its own library guard — no injection needed. */
   const char *lib_name = NULL;
-  if (strstr(fpath, "services/stdlib.nx"))
-    lib_name = "stdlib";
-  else if (strstr(fpath, "modules/")) {
+  if (strstr(fpath, "modules/")) {
     const char *last_slash = strrchr(fpath, '/');
     lib_name = last_slash ? last_slash + 1 : fpath;
   }

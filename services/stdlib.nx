@@ -80,3 +80,8 @@ fn exists(path) {
   }
   ret 1
 }
+
+# Stub replaced by full implementation in FASE 7 (branch stdlib)
+fn kout(msg) {
+  out msg
+}

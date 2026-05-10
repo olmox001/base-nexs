@@ -1,0 +1,37 @@
+# example/minios/logos_config.nx — Configurazione loghi e setup iniziale
+# =============================================================================
+# File di configurazione per il sistema di visualizzazione dei loghi
+# Permette di personalizzare il caricamento e l'aspetto dei loghi
+
+# Imposta il logo da visualizzare all'avvio (se applicabile)
+fn configure_logos() {
+  debug = reg_get("/sys/config/debug")
+  if (debug == 1) { out "[LOGO-CONFIG] Configurazione loghi..." }
+  
+  # Logo principale: logo1 è il default
+  main_logo = reg_get("/sys/logos/main")
+  if (debug == 1) { out "  Logo principale: " + str(main_logo) }
+  
+  # Crea alias per accesso rapido ai loghi
+  reg_set("/sys/logo_shortcuts/l0" "/System/Library/logos/logo.nxtimg")
+  reg_set("/sys/logo_shortcuts/l1" "/System/Library/logos/logo1.nxtimg")
+  reg_set("/sys/logo_shortcuts/l2" "/System/Library/logos/logo2.nxtimg")
+  reg_set("/sys/logo_shortcuts/main" main_logo)
+  
+  if (debug == 1) { out "[LOGO-CONFIG] Setup completato." }
+  ret 0
+}
+
+# Funzione rapida per visualizzare il logo principale
+fn show_main_logo() {
+  main = reg_get("/sys/logo_shortcuts/main")
+  if (type(main) == "err" || main == "") {
+    out "Nessun logo principale configurato."
+    ret -1
+  }
+  # Nota: questa funzione sarà callable dal shell
+  ret str(main)
+}
+
+# Esecuzione automatica
+configure_logos()
