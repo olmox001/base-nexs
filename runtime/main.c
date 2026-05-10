@@ -191,48 +191,44 @@ void nexs_repl(void) {
       continue;
     }
 
-    if (strncmp(line, ":ls", 3) == 0) {
-      const char *path = strlen(line) > 4 ? line + 4 : "";
-      char target[REG_PATH_MAX];
-      if (path[0] != '/') {
-        REG_PATH(target, ctx.scope, path);
-      } else {
-        strncpy(target, path, REG_PATH_MAX - 1);
-        target[REG_PATH_MAX - 1] = '\0';
+
+
+    if (strncmp(line, ":ls", 3) == 0 || strncmp(line, ":cd", 3) == 0) {
+      /* Mappa i comandi speciali direttamente al parser integrato */
+      EvalResult r = eval_str(&ctx, line + 1);
+      if (r.sig == CTRL_ERR) {
+        fprintf(stderr, "\033[1;31m[ERR]\033[0m ");
+        val_print(&r.ret_val, stderr);
+        fprintf(stderr, "\n");
+      } else if (r.sig == CTRL_NONE && r.ret_val.type != TYPE_NIL) {
+        fprintf(stdout, "= ");
+        val_print(&r.ret_val, stdout);
+        fprintf(stdout, "\n");
       }
-      reg_ls(target, stdout);
+      val_free(&r.ret_val);
       continue;
     }
 
     if (strncmp(line, ":reg", 4) == 0) {
+      /* Mappa :reg alla funzione built-in print_reg() che esegue il dump ricorsivo */
       const char *path = strlen(line) > 5 ? line + 5 : "";
-      char target[REG_PATH_MAX];
-      if (path[0] != '/') {
+      char cmd[REG_PATH_MAX + 32];
+      if (path[0] == '\0') {
+        snprintf(cmd, sizeof(cmd), "print_reg(\"/\")");
+      } else if (path[0] != '/') {
+        char target[REG_PATH_MAX];
         REG_PATH(target, ctx.scope, path);
+        snprintf(cmd, sizeof(cmd), "print_reg(\"%s\")", target);
       } else {
-        strncpy(target, path, REG_PATH_MAX - 1);
-        target[REG_PATH_MAX - 1] = '\0';
+        snprintf(cmd, sizeof(cmd), "print_reg(\"%s\")", path);
       }
-      reg_ls_recursive(target, stdout, 0);
-      continue;
-    }
-
-    if (strncmp(line, ":cd ", 4) == 0) {
-      const char *path = line + 4;
-      char target[REG_PATH_MAX];
-      if (path[0] != '/') {
-        REG_PATH(target, ctx.scope, path);
-      } else {
-        strncpy(target, path, REG_PATH_MAX - 1);
-        target[REG_PATH_MAX - 1] = '\0';
+      EvalResult r = eval_str(&ctx, cmd);
+      if (r.sig == CTRL_ERR) {
+        fprintf(stderr, "\033[1;31m[ERR]\033[0m ");
+        val_print(&r.ret_val, stderr);
+        fprintf(stderr, "\n");
       }
-      /* Check if path exists */
-      if (reg_lookup(target)) {
-        strncpy(ctx.scope, target, REG_PATH_MAX - 1);
-        ctx.scope[REG_PATH_MAX - 1] = '\0';
-      } else {
-        fprintf(stderr, "Path not found: %s\n", target);
-      }
+      val_free(&r.ret_val);
       continue;
     }
 

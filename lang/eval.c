@@ -37,7 +37,7 @@ EvalCtx *nexs_g_eval_ctx = NULL;
 void eval_ctx_init(EvalCtx *ctx) {
   if (!ctx)
     return;
-  strncpy(ctx->scope, "/", REG_PATH_MAX - 1);
+  strncpy(ctx->scope, REG_ROOT, REG_PATH_MAX - 1);
   ctx->scope[REG_PATH_MAX - 1] = '\0';
   ctx->call_depth = 0;
   ctx->debug = 0;
@@ -705,21 +705,24 @@ EvalResult eval_file(EvalCtx *ctx, const char *fpath) {
   char normalized[REG_PATH_MAX];
   const char *p = fpath;
   /* Strip leading slash if present for VFS registry key lookup */
-  if (p[0] == '/') p++;
-  
+  if (p[0] == '/')
+    p++;
+
   /* 0. Resolve relative paths via VFS CWD if possible */
   if (fpath[0] != '/') {
     Value cwd_val = reg_get("/proc/1/vfs_cwd");
-    if (cwd_val.type == TYPE_STR && cwd_val.data && ((char*)cwd_val.data)[0] != '\0') {
-      snprintf(normalized, sizeof(normalized), "%s/%s", (char*)cwd_val.data, fpath);
+    if (cwd_val.type == TYPE_STR && cwd_val.data &&
+        ((char *)cwd_val.data)[0] != '\0') {
+      snprintf(normalized, sizeof(normalized), "%s/%s", (char *)cwd_val.data,
+               fpath);
     } else {
-      strncpy(normalized, fpath, sizeof(normalized)-1);
-      normalized[sizeof(normalized)-1] = '\0';
+      strncpy(normalized, fpath, sizeof(normalized) - 1);
+      normalized[sizeof(normalized) - 1] = '\0';
     }
     val_free(&cwd_val);
   } else {
-    strncpy(normalized, p, sizeof(normalized)-1);
-    normalized[sizeof(normalized)-1] = '\0';
+    strncpy(normalized, p, sizeof(normalized) - 1);
+    normalized[sizeof(normalized) - 1] = '\0';
   }
 
   /* 1. Check Registry VFS (/sys/vfs/files/) */
@@ -756,7 +759,8 @@ EvalResult eval_file(EvalCtx *ctx, const char *fpath) {
   /* Also try original path in embedded table */
   if (p != fpath) {
     emb = nexs_embedded_lookup(p);
-    if (emb) return eval_str(ctx, emb);
+    if (emb)
+      return eval_str(ctx, emb);
   }
 
   /* 3. Fallback to hosted filesystem */
