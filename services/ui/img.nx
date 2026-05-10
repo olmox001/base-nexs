@@ -42,8 +42,8 @@ fn ui_draw_image(path x y) {
 
 # Wrapper per caricamento loghi veloce
 fn ui_draw_logo(name x y) {
-  # Cerca in /user/logos/ (nuovo mount sd02)
-  ret ui_draw_image("/user/logos/" + name + ".nxtimg" x y)
+  # Cerca in sd02/logos/ (nuovo mount sd02)
+  ret ui_draw_image("sd02/logos/" + name + ".nxtimg" x y)
 }
 
 kout("[ui] Image rendering service loaded.")

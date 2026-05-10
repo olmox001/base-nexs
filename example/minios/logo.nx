@@ -2,18 +2,18 @@
 # =============================================================================
 
 fn load_logos() {
-  kout("[INIT] Seeding image assets into /user/logos/...")
+  kout("[INIT] Seeding image assets into sd02/logos/...")
 
   loaded = 0
 
-  n1 = vfs_import("example/minios/logos/logo1.nxtimg" "user/logos/logo1.nxtimg")
+  n1 = vfs_import("example/minios/logos/logo1.nxtimg" "sd02/logos/logo1.nxtimg")
   if n1 > 0 {
     kout("  [OK] logo1.nxtimg (" + str(n1) + " bytes)")
-    reg_set("/sys/logos/main" "user/logos/logo1.nxtimg")
+    reg_set("/sys/logos/main" "sd02/logos/logo1.nxtimg")
     loaded = loaded + 1
   }
 
-  n2 = vfs_import("example/minios/logos/logo2.nxtimg" "user/logos/logo2.nxtimg")
+  n2 = vfs_import("example/minios/logos/logo2.nxtimg" "sd02/logos/logo2.nxtimg")
   if n2 > 0 {
     kout("  [OK] logo2.nxtimg (" + str(n2) + " bytes)")
     loaded = loaded + 1

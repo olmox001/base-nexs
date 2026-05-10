@@ -29,15 +29,14 @@ ui_init()
 
 out "[INIT] Fase 3: Popolamento Root FS..."
 # Struttura VFS standard
-vfs_mkdir("user")
-vfs_mkdir("user/logos")
-vfs_mkdir("user/home")
-vfs_mkdir("user/apps")
-vfs_mkdir("sys")
-vfs_mkdir("sys/logs")
+vfs_mkdir("sd02/logos")
+vfs_mkdir("sd02/home")
+vfs_mkdir("sd02/apps")
+vfs_mkdir("sd01/sys")
+vfs_mkdir("sd01/sys/logs")
 
 # Mostra logo di boot
-ui_draw_image("user/logos/logo1.nxtimg" -1 -1)
+ui_draw_image("sd02/logos/logo1.nxtimg" -1 -1)
 out ""
 
 # Avvio dei demoni di sistema

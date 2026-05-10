@@ -475,7 +475,7 @@ grep -n "termimg\|nxed\|cmd ==" example/minios/shell.nx | head -20
 ```bash
 ./nexs example/minios/boot.nx
 # Dalla shell minios:
-# termimg /user/logos/logo1.nxtimg
+# termimg sd02/logos/logo1.nxtimg
 # Deve stampare l'immagine ANSI nel terminale
 ```
 
@@ -756,7 +756,7 @@ EOF
 
 ```bash
 ./nexs example/minios/boot.nx
-# Test manuali: ps, ls, cd /, pwd, nxed, termimg /user/logos/logo1.nxtimg
+# Test manuali: ps, ls, cd /, pwd, nxed, termimg sd02/logos/logo1.nxtimg
 ```
 
 ### 12.6 Test compiler

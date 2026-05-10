@@ -5,7 +5,7 @@ ti_filepath = ""
 
 fn termimg_usage() {
   out "Uso: termimg <file.nxtimg>"
-  out "Esempio: termimg /user/logos/logo1.nxtimg"
+  out "Esempio: termimg sd02/logos/logo1.nxtimg"
 }
 
 fn termimg_main() {
