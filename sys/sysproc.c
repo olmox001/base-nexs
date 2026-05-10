@@ -159,6 +159,11 @@ static Value bi_await(Value *args, int n) {
   return val_str(buf);
 }
 
+#endif
+
+/* getpid/getwd — available on both hosted and baremetal.
+ * In baremetal, getpid() is provided by kernel/libc_stub.c (returns 1)
+ * and getcwd() returns "/". */
 static Value bi_getpid(Value *args, int n) {
   (void)args; (void)n;
   return val_int((int64_t)getpid());
@@ -167,10 +172,9 @@ static Value bi_getpid(Value *args, int n) {
 static Value bi_getwd(Value *args, int n) {
   (void)args; (void)n;
   char buf[REG_PATH_MAX];
-  if (!getcwd(buf, sizeof(buf))) return val_err(4, "getwd: failed");
+  if (!getcwd(buf, sizeof(buf))) return val_str("/");
   return val_str(buf);
 }
-#endif
 
 /* =========================================================
    REGISTRATION
@@ -188,6 +192,12 @@ void sysproc_register_builtins(void) {
   fn_register_builtin_sig("exit",   bi_exits,
     SIG("exit(status str)") "nil");
 
+  /* getpid and getwd — always registered (baremetal stubs in libc_stub.c) */
+  fn_register_builtin_sig("getpid", bi_getpid,
+    SIG("getpid()") "int");
+  fn_register_builtin_sig("getwd",  bi_getwd,
+    SIG("getwd()") "str");
+
 #ifndef NEXS_BAREMETAL
   fn_register_builtin_sig("sleep",  bi_sleep,
     SIG("sleep(msec int)") "nil");
@@ -197,10 +207,6 @@ void sysproc_register_builtins(void) {
     SIG("rfork(flags int)") "pid int");
   fn_register_builtin_sig("await",  bi_await,
     SIG("await()") "str");
-  fn_register_builtin_sig("getpid", bi_getpid,
-    SIG("getpid()") "int");
-  fn_register_builtin_sig("getwd",  bi_getwd,
-    SIG("getwd()") "str");
 
   /* Store actual fn_table indices in /sys/<name> */
   {
@@ -219,9 +225,9 @@ void sysproc_register_builtins(void) {
     }
   }
 #else
-  /* Only register baremetal builtins */
+  /* Register baremetal builtins (getpid/getwd already registered above) */
   {
-    static const char *names[] = { "exec", "load", "exits", "exit" };
+    static const char *names[] = { "exec", "load", "exits", "exit", "getpid", "getwd" };
     char path[REG_PATH_MAX];
     int num_names = (sizeof(names) / sizeof(names[0]));
     for (int _i = 0; _i < num_names; _i++) {

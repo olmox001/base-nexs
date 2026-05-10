@@ -273,6 +273,9 @@ fn vfs_import(host_path vfs_path) {
   close(fd)
   if shard_idx > 0 {
     reg_set("/sys/vfs/files/" + vfs_path + "@@n" str(shard_idx))
+    count = reg /sys/vfs/count
+    reg_set("/sys/vfs/idx/" + str(count) vfs_path)
+    reg /sys/vfs/count = count + 1
   }
   ret total
 }

@@ -28,7 +28,17 @@ p9_mnt_init()
 ui_init()
 
 out "[INIT] Fase 3: Popolamento Root FS..."
-# I mount standard sono già fatti da services/fs/init.nx
+# Struttura VFS standard
+vfs_mkdir("user")
+vfs_mkdir("user/logos")
+vfs_mkdir("user/home")
+vfs_mkdir("user/apps")
+vfs_mkdir("sys")
+vfs_mkdir("sys/logs")
+
+# Mostra logo di boot
+ui_draw_image("user/logos/logo1.nxtimg" -1 -1)
+out ""
 
 # Avvio dei demoni di sistema
 exec("example/minios/nxed_editor.nx")

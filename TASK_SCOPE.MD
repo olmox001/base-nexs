@@ -1,5 +1,5 @@
 
-sh sh <reolmo01@gmail.com>
+
 21:55 (42 minuti fa)
 a me
 
