@@ -331,7 +331,7 @@ sel4-microkit: $(TARGET)
 		$(BAREMETAL_SRCS) $(KERNEL_SRCS) $$CTX_SRC \
 		kernel/msg.c kernel/syscall.c kernel/vfs.c kernel/blk.c kernel/journal.c \
 		build/sel4-microkit/nexs_embed.c \
-		hal/sel4/hal_sel4.c hal/common/timer.c $$SEL4_UART_SRC hal/sel4/sel4_main.c \
+		hal/sel4/hal_sel4.c hal/sel4/timer.c $$SEL4_UART_SRC hal/sel4/sel4_main.c \
 		-L$$BOARD_DIR/lib -lmicrokit -Tmicrokit.ld -o build/sel4-microkit/nexs.elf && \
 	echo "[sel4-microkit] Done -> build/sel4-microkit/nexs.elf"
 
@@ -398,14 +398,21 @@ sel4-multikernel: $(TARGET)
 	fi; \
 	OUT="build/sel4-multikernel"; \
 	mkdir -p $$OUT; \
+	VERIFY_FLAGS=""; \
+	VERIFY_SRC=""; \
+	if [ "$(VERIFY)" = "1" ]; then \
+		VERIFY_FLAGS="-DNEXS_SEL4_VERIFY"; \
+		VERIFY_SRC="hal/sel4/verify/verify.c"; \
+	fi; \
 	COMMON_FLAGS="-nostdlib -ffreestanding -O3 -Wall -Wno-unused-function \
 		-DNEXS_BAREMETAL -DNEXS_SEL4 -DNEXS_MULTI_PD \
 		-DPOOL_$(POOL_PROFILE) \
+		$$VERIFY_FLAGS \
 		$(INCS) -Ikernel/include -Ihal/include \
 		-I$$BOARD_DIR/include $$CFLAGS_ARCH"; \
 	COMMON_SRCS="$(BAREMETAL_SRCS) $(KERNEL_SRCS) $$CTX_SRC \
 		kernel/msg.c kernel/syscall.c kernel/vfs.c kernel/blk.c kernel/journal.c \
-		hal/sel4/sel4_ipc_bridge.c hal/common/timer.c"; \
+		hal/sel4/sel4_ipc_bridge.c hal/sel4/timer.c"; \
 	echo "[sel4-multikernel] Generating embed tables..."; \
 	./$(TARGET) --codegen services/init.nx    -o $$OUT/nexs_embed_root.c || exit 1; \
 	./$(TARGET) --codegen services/fs/init.nx -o $$OUT/nexs_embed_fs.c  2>/dev/null || \
@@ -416,7 +423,7 @@ sel4-multikernel: $(TARGET)
 		printf '/* no tty script */\n' > $$OUT/nexs_embed_tty.c; \
 	echo "[sel4-multikernel] Building nexs_root.elf ($$ARCH)..."; \
 	$$CC $$COMMON_FLAGS $$COMMON_SRCS $$SEL4_UART_SRC \
-		hal/sel4/hal_sel4.c hal/sel4/sel4_main.c \
+		hal/sel4/hal_sel4.c hal/sel4/sel4_main.c $$VERIFY_SRC \
 		$$OUT/nexs_embed_root.c \
 		-L$$BOARD_DIR/lib -lmicrokit -Tmicrokit.ld \
 		-o $$OUT/nexs_root.elf && echo "[sel4-multikernel] nexs_root.elf OK"; \
@@ -592,11 +599,11 @@ sel4-initializer:
 # run-nexs-* — build, package with microkit tool, and launch QEMU
 # Requires: MICROKIT_SDK=<path-to-sdk>
 # ─────────────────────────────────────────────────────────────────────────────
-run-nexs-aarch64: sel4-aarch64
+run-nexs-aarch64: sel4-multikernel-aarch64
 	@if [ -z "$(MICROKIT_SDK)" ]; then echo "Set MICROKIT_SDK=..."; exit 1; fi
 	@mkdir -p build_aarch64
 	$(MICROKIT_SDK)/bin/microkit hal/sel4/nexs_aarch64.system \
-		--search-path build/sel4-microkit \
+		--search-path build/sel4-multikernel \
 		--board qemu_virt_aarch64 \
 		--config debug \
 		-o build_aarch64/loader.img \
@@ -609,11 +616,11 @@ run-nexs-aarch64: sel4-aarch64
 		-device loader,file=build_aarch64/loader.img,addr=0x70000000,cpu-num=0 \
 		-m size=2G
 
-run-nexs-riscv64: sel4-riscv64
+run-nexs-riscv64: sel4-multikernel-riscv64
 	@if [ -z "$(MICROKIT_SDK)" ]; then echo "Set MICROKIT_SDK=..."; exit 1; fi
 	@mkdir -p build_riscv64
 	$(MICROKIT_SDK)/bin/microkit hal/sel4/nexs_riscv64.system \
-		--search-path build/sel4-microkit \
+		--search-path build/sel4-multikernel \
 		--board qemu_virt_riscv64 \
 		--config debug \
 		-o build_riscv64/loader.img \
@@ -625,11 +632,11 @@ run-nexs-riscv64: sel4-riscv64
 		-kernel build_riscv64/loader.img \
 		-m size=2G
 
-run-nexs-x86_64: sel4-x86_64
+run-nexs-x86_64: sel4-multikernel-x86_64
 	@if [ -z "$(MICROKIT_SDK)" ]; then echo "Set MICROKIT_SDK=..."; exit 1; fi
 	@mkdir -p build_x86_64
 	$(MICROKIT_SDK)/bin/microkit hal/sel4/nexs_x86_64.system \
-		--search-path build/sel4-microkit \
+		--search-path build/sel4-multikernel \
 		--board x86_64_generic \
 		--config debug \
 		-o build_x86_64/loader.img \
@@ -643,3 +650,17 @@ run-nexs-x86_64: sel4-x86_64
 		-initrd build_x86_64/loader.img
 
 run-nexs-amd64: run-nexs-x86_64
+
+# ─────────────────────────────────────────────────────
+# NEXS Verification Targets (VERIFY=1)
+# ─────────────────────────────────────────────────────
+verify-nexs-aarch64:
+	$(MAKE) run-nexs-aarch64 VERIFY=1
+
+verify-nexs-riscv64:
+	$(MAKE) run-nexs-riscv64 VERIFY=1
+
+verify-nexs-x86_64:
+	$(MAKE) run-nexs-x86_64 VERIFY=1
+
+verify-nexs-amd64: verify-nexs-x86_64

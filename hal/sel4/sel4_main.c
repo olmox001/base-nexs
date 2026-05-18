@@ -26,6 +26,11 @@
 #include <microkit.h>
 #include <string.h>
 
+#ifdef NEXS_SEL4_VERIFY
+#include "verify/verify.h"
+#endif
+
+
 /* nexs_embed_deps_table[], nexs_script_src, nexs_embedded_lookup(), and
  * nexs_embed_load_all() are provided by the codegen'd embed file generated
  * via: ./nexs --codegen services/init.nx -o build/sel4-microkit/nexs_embed.c
@@ -128,6 +133,10 @@ void init(void) {
     nexs_hal_init();
     nexs_runtime_init();
 
+#ifdef NEXS_SEL4_VERIFY
+    nexs_sel4_verify_all();
+#endif
+
     sched_init();
     vfs_init();
     reg_ipc_init_queue("/sys/kernel/inbox", 64);
@@ -168,7 +177,8 @@ void init(void) {
         nexs_repl();
     }
 
-    nexs_hal_print("[NEXS] Protection Domain initialization complete.\n");
+    nexs_hal_print("[NEXS] Protection Domain initialization complete. Halting system...\n");
+    nexs_hal_halt();
 }
 
 /* =========================================================

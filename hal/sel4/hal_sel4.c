@@ -38,6 +38,7 @@ void nexs_hal_irq_enable(void) {}
    ========================================================= */
 
 void nexs_hal_halt(void) {
+  seL4_DebugHalt();
   while (1) {
   }
 }

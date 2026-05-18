@@ -87,10 +87,10 @@
         <map mr="mr_pm_rep"  vaddr="0x30110000" perms="r"  cached="false" />
         <map mr="mr_tty_rep" vaddr="0x30210000" perms="r"  cached="false" />
 
-        <!-- Log MRs (r: service PDs write logs, daemon reads) -->
-        <map mr="mr_fs_log"  vaddr="0x30020000" perms="r"  cached="false" />
-        <map mr="mr_pm_log"  vaddr="0x30120000" perms="r"  cached="false" />
-        <map mr="mr_tty_log" vaddr="0x30220000" perms="r"  cached="false" />
+        <!-- Log MRs (rw: service PDs write logs, daemon reads and clears) -->
+        <map mr="mr_fs_log"  vaddr="0x30020000" perms="rw" cached="false" />
+        <map mr="mr_pm_log"  vaddr="0x30120000" perms="rw" cached="false" />
+        <map mr="mr_tty_log" vaddr="0x30220000" perms="rw" cached="false" />
     </protection_domain>
 
     <!-- ═══════════════════════════════════════════════════════
