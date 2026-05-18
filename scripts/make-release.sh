@@ -86,6 +86,20 @@ make > /dev/null
        --target "$CROSS_TARGET" \
        -o "$RELEASE_DIR/MINIOS-amd64-$CROSS_NAME" || echo "Warning: Cross AOT build failed, skipping"
 
+# 7. seL4 MiniOS targets (requires MICROKIT_SDK)
+if [ -n "${MICROKIT_SDK:-}" ]; then
+    for SEL4_ARCH in aarch64 riscv64 x86_64; do
+        echo "[*] Building NEXS-seL4-$SEL4_ARCH (MiniOS)..."
+        make "sel4-example-$SEL4_ARCH" MICROKIT_SDK="$MICROKIT_SDK" \
+             SEL4_ENTRY_NX=example/minios/boot.nx > /dev/null 2>&1 && \
+        cp "build/sel4-microkit/nexs.elf" \
+           "$RELEASE_DIR/NEXS-seL4-${SEL4_ARCH}-MiniOS.elf" 2>/dev/null || \
+        echo "Warning: seL4 $SEL4_ARCH build skipped (check MICROKIT_SDK)"
+    done
+else
+    echo "[*] Skipping seL4 builds (MICROKIT_SDK not set)"
+fi
+
 echo "-------------------------------------------"
 echo "[+] RELEASE COMPLETE: $VERSION"
 ls -lh "$RELEASE_DIR"

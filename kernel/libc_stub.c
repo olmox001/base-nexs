@@ -562,3 +562,4 @@ pid_t fork(void) { return -1; }
 pid_t getpid(void) { return 1; }
 char *getcwd(char *buf, size_t size) { (void)buf; (void)size; return NULL; }
 void (*signal(int signum, void (*handler)(int)))(int) { (void)signum; (void)handler; return SIG_IGN; }
+char *getenv(const char *name) { (void)name; return NULL; }

@@ -235,6 +235,9 @@ skip_profiling:;
                       " hal/amd64/boot.S hal/amd64/isr_stubs.S hal/amd64/uart.c"
                       " hal/amd64/gdt.c hal/amd64/idt.c hal/amd64/apic.c"
                       " hal/amd64/mmu.c hal/amd64/acpi.c kernel/ctx_amd64.S");
+    } else if (strcmp(tc->name, "sel4-microkit") == 0) {
+      pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
+                      " hal/hal_sel4.c");
     }
   }
 

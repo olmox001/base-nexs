@@ -99,8 +99,13 @@ void page_free(void *ptr, size_t n_pages) {
    ========================================================= */
 
 #else /* NEXS_BAREMETAL */
+
+#ifdef NEXS_SEL4
+static uint8_t *large_pool = (uint8_t *)0x44000000UL;
+#else
 static uint8_t large_pool[LARGE_POOL_PAGES * NEXS_PAGE_SIZE]
     __attribute__((aligned(NEXS_PAGE_SIZE)));
+#endif
 
 /* Bitmap for page tracking: 1 bit per page */
 static uint32_t page_bitmap[LARGE_POOL_PAGES / 32];

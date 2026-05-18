@@ -137,7 +137,23 @@ int nexs_create(const char *path, int mode, int perm) {
   default:          fmode = "w";
   }
   FILE *fp = fopen(path, fmode);
-  if (!fp) { set_errstr("create: cannot create file"); return -1; }
+  if (!fp) {
+      /* RAMFS fallback for freestanding environments (e.g. seL4) where real files are absent */
+      void *vbuf = xmalloc(4096);
+      if (!vbuf) { set_errstr("create: RAMFS out of memory"); return -1; }
+      memset(vbuf, 0, 4096);
+      g_fd_table[fd].fp = NULL;
+      g_fd_table[fd].emb_src = (const char *)vbuf;
+      g_fd_table[fd].emb_pos = 0;
+      strncpy(g_fd_table[fd].path, path, REG_PATH_MAX - 1);
+      g_fd_table[fd].path[REG_PATH_MAX - 1] = '\0';
+      g_fd_table[fd].in_use = 1;
+      g_fd_table[fd].flags  = mode | 0x8000; /* Special flag bit for dynamic RAMFS file */
+      char regpath[REG_PATH_MAX];
+      snprintf(regpath, sizeof(regpath), "/sys/fd/%d", fd);
+      reg_set(regpath, val_str(path), RK_READ);
+      return fd;
+  }
   g_fd_table[fd].fp = fp;
   g_fd_table[fd].emb_src = NULL;
   g_fd_table[fd].emb_pos = 0;
@@ -154,7 +170,14 @@ int nexs_create(const char *path, int mode, int perm) {
 int nexs_close(int fd) {
   if (fd < 0 || fd >= NEXS_MAX_FDS) { set_errstr("close: invalid fd"); return -1; }
   if (!g_fd_table[fd].in_use) { set_errstr("close: fd not open"); return -1; }
-  if (fd >= 3 && g_fd_table[fd].fp) fclose(g_fd_table[fd].fp);
+  if (g_fd_table[fd].flags & 0x8000) {
+      if (g_fd_table[fd].emb_src) {
+          xfree((void *)g_fd_table[fd].emb_src);
+      }
+      g_fd_table[fd].emb_src = NULL;
+  } else {
+      if (fd >= 3 && g_fd_table[fd].fp) fclose(g_fd_table[fd].fp);
+  }
   g_fd_table[fd].fp = NULL;
   g_fd_table[fd].path[0] = '\0';
   g_fd_table[fd].in_use = 0;
@@ -169,6 +192,20 @@ int nexs_pread(int fd, char *buf, int n, int64_t offset) {
   if (fd < 0 || fd >= NEXS_MAX_FDS || !g_fd_table[fd].in_use)
     { set_errstr("pread: invalid fd"); return -1; }
   if (!buf || n <= 0) { set_errstr("pread: invalid params"); return -1; }
+
+  if (g_fd_table[fd].flags & 0x8000) {
+      const char *mbuf = g_fd_table[fd].emb_src;
+      size_t pos = (offset >= 0) ? (size_t)offset : g_fd_table[fd].emb_pos;
+      size_t len = 0;
+      while (len < 4096 && mbuf[len] != '\0') len++;
+      if (len == 0) len = 4096; /* If newly created, allow reading uninitialized space */
+      if (pos >= len) return 0;
+      size_t to_read = len - pos;
+      if (to_read > (size_t)n) to_read = (size_t)n;
+      memcpy(buf, mbuf + pos, to_read);
+      if (offset < 0) g_fd_table[fd].emb_pos += to_read;
+      return (int)to_read;
+  }
 
   if (g_fd_table[fd].emb_src) {
       size_t len = strlen(g_fd_table[fd].emb_src);
@@ -192,6 +229,17 @@ int nexs_pwrite(int fd, const char *buf, int n, int64_t offset) {
   if (fd < 0 || fd >= NEXS_MAX_FDS || !g_fd_table[fd].in_use)
     { set_errstr("pwrite: invalid fd"); return -1; }
   if (!buf || n <= 0) { set_errstr("pwrite: invalid params"); return -1; }
+
+  if (g_fd_table[fd].flags & 0x8000) {
+      char *mbuf = (char *)g_fd_table[fd].emb_src;
+      size_t pos = (offset >= 0) ? (size_t)offset : g_fd_table[fd].emb_pos;
+      if (pos + n > 4096) n = 4096 - pos;
+      if (n <= 0) return 0;
+      memcpy(mbuf + pos, buf, n);
+      if (offset < 0) g_fd_table[fd].emb_pos += n;
+      return n;
+  }
+
   FILE *fp = g_fd_table[fd].fp;
   if (!fp) { set_errstr("pwrite: NULL fp"); return -1; }
   if (offset >= 0 && fseek(fp, (long)offset, SEEK_SET) != 0)
@@ -206,7 +254,7 @@ int64_t nexs_seek(int fd, int64_t offset, int whence) {
     { set_errstr("seek: invalid fd"); return -1; }
 
   if (g_fd_table[fd].emb_src) {
-      size_t len = strlen(g_fd_table[fd].emb_src);
+      size_t len = (g_fd_table[fd].flags & 0x8000) ? 4096 : strlen(g_fd_table[fd].emb_src);
       int64_t newpos = 0;
       switch (whence) {
       case 0: newpos = offset; break;

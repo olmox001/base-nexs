@@ -12,3 +12,5 @@ test_out.txt
 nexs
 /scratch
 *.venv
+*.img
+/build_*

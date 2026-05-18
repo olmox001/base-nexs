@@ -30,7 +30,11 @@ extern "C" {
 
 typedef enum { BNODE_FREE = 0, BNODE_SPLIT = 1, BNODE_USED = 2 } BuddyNodeState;
 
+#ifdef NEXS_SEL4
+extern uint8_t *memory_pool;
+#else
 extern uint8_t memory_pool[POOL_SIZE];
+#endif
 extern uint8_t buddy_tree[TREE_NODES];
 
 /* =========================================================

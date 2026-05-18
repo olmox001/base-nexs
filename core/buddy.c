@@ -21,7 +21,11 @@
    GLOBAL STATE
    ========================================================= */
 
+#ifdef NEXS_SEL4
+uint8_t *memory_pool = (uint8_t *)0x40000000UL;
+#else
 uint8_t memory_pool[POOL_SIZE];
+#endif
 uint8_t buddy_tree[TREE_NODES];
 
 /* =========================================================

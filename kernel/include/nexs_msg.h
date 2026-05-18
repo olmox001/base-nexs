@@ -18,5 +18,6 @@ typedef struct {
 Value kmsg_encode(const KernelMsg *m);
 int   kmsg_decode(const Value *v, KernelMsg *out);
 void  kmsg_dispatch_loop(void);
+Value kmsg_handle(const KernelMsg *m); /* defined in kernel/syscall.c */
 
 #endif

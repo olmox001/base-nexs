@@ -85,6 +85,13 @@ static const TargetConfig nexs_targets[TARGET_COUNT] = {
     "-DNEXS_BAREMETAL",
     1, "hal/amd64/nexs.ld"
   },
+  [TARGET_SEL4_MICROKIT]   = {
+    "sel4-microkit",
+    "clang",
+    "-march=armv8-a",
+    "-DNEXS_SEL4",
+    1, "microkit.ld"
+  },
 };
 
 #endif /* NEXS_TARGETS_H */

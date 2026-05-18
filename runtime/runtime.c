@@ -108,7 +108,7 @@ __attribute__((weak)) void nexs_embed_load_all(EvalCtx *ctx) { (void)ctx; }
 
 void nexs_runtime_init(void) {
   /* 1. Clear buddy pool and tree */
-  memset(memory_pool, 0, sizeof(memory_pool));
+  memset(memory_pool, 0, POOL_SIZE);
   memset(buddy_tree, 0, sizeof(buddy_tree));
   g_array_count = 0;
 
