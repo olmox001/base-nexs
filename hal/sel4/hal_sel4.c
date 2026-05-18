@@ -19,11 +19,12 @@
 /* Allocazione globale del driver (risolve l'errore del linker) */
 HalDriver *g_hal_driver = NULL;
 
-/* Dichiarazione delle funzioni architetturali implementate nei file uart.c */
-extern void nexs_hal_init(void);
-extern void nexs_hal_putc(char c);
-extern int nexs_hal_getc(void);
-extern void nexs_hal_memory_map(NexsMemMap *map);
+/* Implementazioni di default deboli (weak) — verranno sovrascritte dai driver
+   fisici uart.c in nexs_root, o dai log shim nei PD di servizio. */
+__attribute__((weak)) void nexs_hal_init(void) {}
+__attribute__((weak)) void nexs_hal_putc(char c) { (void)c; }
+__attribute__((weak)) int nexs_hal_getc(void) { return -1; }
+__attribute__((weak)) void nexs_hal_memory_map(NexsMemMap *map) { (void)map; }
 
 /* =========================================================
    IRQ — no-op under Microkit protection domain
@@ -45,7 +46,7 @@ void nexs_hal_halt(void) {
    Print — built on nexs_hal_putc from arch uart.c
    ========================================================= */
 
-void nexs_hal_print(const char *s) {
+__attribute__((weak)) void nexs_hal_print(const char *s) {
   if (!s)
     return;
   while (*s) {

@@ -1,13 +1,114 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  nexs_x86_64.system — Multi-PD seL4 Microkit system description (x86_64)
+  =========================================================================
+  Same topology as aarch64/riscv64.
+  x86_64 difference: UART is COM1 accessed via I/O port 0x3F8 (ioport cap),
+  NOT via MMIO memory region.  Only nexs_root gets the ioport capability.
+  A dummy_uart MR is retained for address-space alignment (not mapped in
+  service PDs).
+-->
 <system>
-    <!-- Segnaposto per coerenza sintattica ereditato dal setup precedente -->
-    <memory_region name="uart_dummy" phys_addr="0x10000000" size="0x1000" />
-    
-    <protection_domain name="nexs" stack_size="0x400000">
-        <program_image path="nexs.elf" />
-        <map mr="uart_dummy" vaddr="0x10000000" perms="rw" cached="false" />
-        
-        <!-- Autorizzazione esplicita Ring 3 per l'esecuzione di I/O (inb/outb) sulla porta COM1 -->
+
+    <!-- x86_64 has no MMIO UART; use a dummy placeholder for layout compat -->
+    <memory_region name="uart_dummy"  size="0x1000" />
+
+    <!-- ── 64MB Large Memory Pools (page_size = 2MB to reduce CapDL objects by 99%) ── -->
+    <memory_region name="pool_root" size="0x4000000" page_size="0x200000" />
+    <memory_region name="pool_fs"   size="0x4000000" page_size="0x200000" />
+    <memory_region name="pool_pm"   size="0x4000000" page_size="0x200000" />
+    <memory_region name="pool_tty"  size="0x4000000" page_size="0x200000" />
+
+    <!-- ── 64MB Large Pager Pools (page_size = 2MB to reduce CapDL objects by 99%) ── -->
+    <memory_region name="lpool_root" size="0x4000000" page_size="0x200000" />
+    <memory_region name="lpool_fs"   size="0x4000000" page_size="0x200000" />
+    <memory_region name="lpool_pm"   size="0x4000000" page_size="0x200000" />
+    <memory_region name="lpool_tty"  size="0x4000000" page_size="0x200000" />
+
+    <memory_region name="mr_fs_req"   size="0x1000" />
+    <memory_region name="mr_fs_rep"   size="0x1000" />
+    <memory_region name="mr_fs_log"   size="0x1000" />
+
+    <memory_region name="mr_pm_req"   size="0x1000" />
+    <memory_region name="mr_pm_rep"   size="0x1000" />
+    <memory_region name="mr_pm_log"   size="0x1000" />
+
+    <memory_region name="mr_tty_req"  size="0x1000" />
+    <memory_region name="mr_tty_rep"  size="0x1000" />
+    <memory_region name="mr_tty_log"  size="0x1000" />
+
+    <!-- nexs_root: UART via ioport (id=0 → COM1 0x3F8..0x3FF) -->
+    <protection_domain name="nexs_root" stack_size="0x400000" priority="100">
+        <program_image path="nexs_root.elf" />
+
+        <!-- 64MB Memory Pool -->
+        <map mr="pool_root"   vaddr="0x40000000" perms="rw" cached="true" />
+        <!-- 64MB Pager Pool -->
+        <map mr="lpool_root"  vaddr="0x44000000" perms="rw" cached="true" />
+
+        <map mr="uart_dummy"  vaddr="0x10000000" perms="rw" cached="false" />
+        <!-- COM1 I/O port — only root PD gets Ring-3 I/O access -->
         <ioport id="0" addr="0x3F8" size="8" />
+
+        <map mr="mr_fs_req"   vaddr="0x30000000" perms="rw" cached="false" />
+        <map mr="mr_pm_req"   vaddr="0x30100000" perms="rw" cached="false" />
+        <map mr="mr_tty_req"  vaddr="0x30200000" perms="rw" cached="false" />
+        <map mr="mr_fs_rep"   vaddr="0x30010000" perms="r"  cached="false" />
+        <map mr="mr_pm_rep"   vaddr="0x30110000" perms="r"  cached="false" />
+        <map mr="mr_tty_rep"  vaddr="0x30210000" perms="r"  cached="false" />
+        <map mr="mr_fs_log"   vaddr="0x30020000" perms="r"  cached="false" />
+        <map mr="mr_pm_log"   vaddr="0x30120000" perms="r"  cached="false" />
+        <map mr="mr_tty_log"  vaddr="0x30220000" perms="r"  cached="false" />
     </protection_domain>
+
+    <!-- Service PDs: no ioport, no uart_dummy -->
+    <protection_domain name="nexs_fs" stack_size="0x200000" priority="90">
+        <program_image path="nexs_fs.elf" />
+
+        <!-- 64MB Memory Pool -->
+        <map mr="pool_fs"     vaddr="0x40000000" perms="rw" cached="true" />
+        <!-- 64MB Pager Pool -->
+        <map mr="lpool_fs"    vaddr="0x44000000" perms="rw" cached="true" />
+
+        <map mr="mr_fs_req"   vaddr="0x30000000" perms="r"  cached="false" />
+        <map mr="mr_fs_rep"   vaddr="0x30010000" perms="rw" cached="false" />
+        <map mr="mr_fs_log"   vaddr="0x30020000" perms="rw" cached="false" />
+    </protection_domain>
+
+    <protection_domain name="nexs_pm" stack_size="0x200000" priority="90">
+        <program_image path="nexs_pm.elf" />
+
+        <!-- 64MB Memory Pool -->
+        <map mr="pool_pm"     vaddr="0x40000000" perms="rw" cached="true" />
+        <!-- 64MB Pager Pool -->
+        <map mr="lpool_pm"    vaddr="0x44000000" perms="rw" cached="true" />
+
+        <map mr="mr_pm_req"   vaddr="0x30100000" perms="r"  cached="false" />
+        <map mr="mr_pm_rep"   vaddr="0x30110000" perms="rw" cached="false" />
+        <map mr="mr_pm_log"   vaddr="0x30120000" perms="rw" cached="false" />
+    </protection_domain>
+
+    <protection_domain name="nexs_tty" stack_size="0x200000" priority="90">
+        <program_image path="nexs_tty.elf" />
+
+        <!-- 64MB Memory Pool -->
+        <map mr="pool_tty"    vaddr="0x40000000" perms="rw" cached="true" />
+        <!-- 64MB Pager Pool -->
+        <map mr="lpool_tty"   vaddr="0x44000000" perms="rw" cached="true" />
+
+        <map mr="mr_tty_req"  vaddr="0x30200000" perms="r"  cached="false" />
+        <map mr="mr_tty_rep"  vaddr="0x30210000" perms="rw" cached="false" />
+        <map mr="mr_tty_log"  vaddr="0x30220000" perms="rw" cached="false" />
+    </protection_domain>
+
+    <channel> <end pd="nexs_root" id="1" /> <end pd="nexs_fs"   id="1" /> </channel>
+    <channel> <end pd="nexs_root" id="2" /> <end pd="nexs_pm"   id="2" /> </channel>
+    <channel> <end pd="nexs_root" id="3" /> <end pd="nexs_tty"  id="3" /> </channel>
+    <channel> <end pd="nexs_fs"   id="4" /> <end pd="nexs_root" id="4" /> </channel>
+    <channel> <end pd="nexs_pm"   id="5" /> <end pd="nexs_root" id="5" /> </channel>
+    <channel> <end pd="nexs_tty"  id="6" /> <end pd="nexs_root" id="6" /> </channel>
+    <channel> <end pd="nexs_fs"   id="7" /> <end pd="nexs_root" id="7" /> </channel>
+    <channel> <end pd="nexs_pm"   id="8" /> <end pd="nexs_root" id="8" /> </channel>
+    <channel> <end pd="nexs_tty"  id="9" /> <end pd="nexs_root" id="9" /> </channel>
+
 </system>

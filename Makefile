@@ -129,7 +129,9 @@ EMBED_EXAMPLES ?= 0
         sel4-run-aarch64 sel4-run-riscv64 sel4-run-x86_64 \
         sel4-example-aarch64 sel4-example-riscv64 sel4-example-x86_64 \
         sel4-initializer \
-        run-nexs-aarch64 run-nexs-riscv64 run-nexs-x86_64 run-nexs-amd64
+        run-nexs-aarch64 run-nexs-riscv64 run-nexs-x86_64 run-nexs-amd64 \
+        sel4-multikernel sel4-multikernel-aarch64 sel4-multikernel-riscv64 \
+        sel4-multikernel-x86_64 sel4-multikernel-amd64
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Default target: hosted interpreter
@@ -324,7 +326,7 @@ sel4-microkit: $(TARGET)
 	./$(TARGET) --codegen $$ENTRY_NX -o build/sel4-microkit/nexs_embed.c || exit 1; \
 	echo "[sel4-microkit] Compiling nexs.elf for $$ARCH..."; \
 	$$CC -nostdlib -ffreestanding -O3 -Wall -Wno-unused-function \
-		-DNEXS_BAREMETAL -DPOOL_$(POOL_PROFILE) -DPOOL_64MB -DNEXS_SEL4 \
+		-DNEXS_BAREMETAL -DPOOL_$(POOL_PROFILE) -DNEXS_SEL4 \
 		$(INCS) -Ikernel/include -Ihal/include -I$$BOARD_DIR/include $$CFLAGS_ARCH \
 		$(BAREMETAL_SRCS) $(KERNEL_SRCS) $$CTX_SRC \
 		kernel/msg.c kernel/syscall.c kernel/vfs.c kernel/blk.c kernel/journal.c \
@@ -348,7 +350,117 @@ gen-embed: $(TARGET)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# sel4-multikernel — 4-PD isolated build (NEXS_MULTI_PD)
+# ─────────────────────────────────────────────────────────────────────────────
+# Produces 4 ELF binaries in build/sel4-multikernel/:
+#   nexs_root.elf  — root PD (UART owner + daemon + interpreter)
+#   nexs_fs.elf    — filesystem service PD
+#   nexs_pm.elf    — process manager service PD
+#   nexs_tty.elf   — TTY service PD
+#
+# The existing sel4-microkit (single-PD) target is completely unaffected.
+#
+# Usage:
+#   make sel4-multikernel MICROKIT_BOARD=qemu_virt_aarch64 \
+#                         MICROKIT_CONFIG=debug \
+#                         MICROKIT_SDK=/path/to/sdk
+# ─────────────────────────────────────────────────────────────────────────────
+sel4-multikernel: $(TARGET)
+	@if [ -z "$(MICROKIT_SDK)" ] || [ -z "$(MICROKIT_BOARD)" ] || [ -z "$(MICROKIT_CONFIG)" ]; then \
+		echo "MICROKIT_SDK, MICROKIT_BOARD, and MICROKIT_CONFIG must be specified"; \
+		exit 1; \
+	fi
+	@BOARD_DIR="$(MICROKIT_SDK)/board/$(MICROKIT_BOARD)/$(MICROKIT_CONFIG)"; \
+	ARCH=$$(grep 'CONFIG_SEL4_ARCH  ' $$BOARD_DIR/include/kernel/gen_config.h | cut -d' ' -f4); \
+	if [ "$$ARCH" = "aarch64" ]; then \
+		TARGET_TRIPLE="aarch64-none-elf"; \
+		CFLAGS_ARCH="-mstrict-align"; \
+		CC="clang -target $$TARGET_TRIPLE"; \
+		CTX_SRC="hal/arm64/ctx_arm64.S"; \
+		SEL4_UART_SRC="hal/sel4/arm64/uart.c"; \
+		SYSTEM_FILE="hal/sel4/nexs_aarch64.system"; \
+	elif [ "$$ARCH" = "riscv64" ]; then \
+		TARGET_TRIPLE="riscv64-unknown-elf"; \
+		CFLAGS_ARCH="-march=rv64imafdc_zicsr_zifencei -mabi=lp64d"; \
+		CC="clang -target $$TARGET_TRIPLE"; \
+		CTX_SRC="hal/riscv64/ctx_riscv64.S"; \
+		SEL4_UART_SRC="hal/sel4/riscv64/uart.c"; \
+		SYSTEM_FILE="hal/sel4/nexs_riscv64.system"; \
+	elif [ "$$ARCH" = "x86_64" ]; then \
+		TARGET_TRIPLE="x86_64-linux-gnu"; \
+		CFLAGS_ARCH="-march=x86-64 -mtune=generic"; \
+		CC="clang -target $$TARGET_TRIPLE"; \
+		CTX_SRC="hal/amd64/ctx_amd64.S"; \
+		SEL4_UART_SRC="hal/sel4/amd64/uart.c"; \
+		SYSTEM_FILE="hal/sel4/nexs_x86_64.system"; \
+	else \
+		echo "Unsupported ARCH: $$ARCH"; exit 1; \
+	fi; \
+	OUT="build/sel4-multikernel"; \
+	mkdir -p $$OUT; \
+	COMMON_FLAGS="-nostdlib -ffreestanding -O3 -Wall -Wno-unused-function \
+		-DNEXS_BAREMETAL -DNEXS_SEL4 -DNEXS_MULTI_PD \
+		-DPOOL_$(POOL_PROFILE) \
+		$(INCS) -Ikernel/include -Ihal/include \
+		-I$$BOARD_DIR/include $$CFLAGS_ARCH"; \
+	COMMON_SRCS="$(BAREMETAL_SRCS) $(KERNEL_SRCS) $$CTX_SRC \
+		kernel/msg.c kernel/syscall.c kernel/vfs.c kernel/blk.c kernel/journal.c \
+		hal/sel4/sel4_ipc_bridge.c hal/common/timer.c"; \
+	echo "[sel4-multikernel] Generating embed tables..."; \
+	./$(TARGET) --codegen services/init.nx    -o $$OUT/nexs_embed_root.c || exit 1; \
+	./$(TARGET) --codegen services/fs/init.nx -o $$OUT/nexs_embed_fs.c  2>/dev/null || \
+		printf '/* no fs script */\n' > $$OUT/nexs_embed_fs.c; \
+	./$(TARGET) --codegen services/pm/init.nx -o $$OUT/nexs_embed_pm.c  2>/dev/null || \
+		printf '/* no pm script */\n' > $$OUT/nexs_embed_pm.c; \
+	./$(TARGET) --codegen services/tty/init.nx -o $$OUT/nexs_embed_tty.c 2>/dev/null || \
+		printf '/* no tty script */\n' > $$OUT/nexs_embed_tty.c; \
+	echo "[sel4-multikernel] Building nexs_root.elf ($$ARCH)..."; \
+	$$CC $$COMMON_FLAGS $$COMMON_SRCS $$SEL4_UART_SRC \
+		hal/sel4/hal_sel4.c hal/sel4/sel4_main.c \
+		$$OUT/nexs_embed_root.c \
+		-L$$BOARD_DIR/lib -lmicrokit -Tmicrokit.ld \
+		-o $$OUT/nexs_root.elf && echo "[sel4-multikernel] nexs_root.elf OK"; \
+	echo "[sel4-multikernel] Building nexs_fs.elf ($$ARCH)..."; \
+	$$CC $$COMMON_FLAGS $$COMMON_SRCS \
+		hal/sel4/hal_sel4.c hal/sel4/sel4_pd_fs.c $$OUT/nexs_embed_fs.c \
+		-L$$BOARD_DIR/lib -lmicrokit -Tmicrokit.ld \
+		-o $$OUT/nexs_fs.elf  && echo "[sel4-multikernel] nexs_fs.elf OK"; \
+	echo "[sel4-multikernel] Building nexs_pm.elf ($$ARCH)..."; \
+	$$CC $$COMMON_FLAGS $$COMMON_SRCS \
+		hal/sel4/hal_sel4.c hal/sel4/sel4_pd_pm.c $$OUT/nexs_embed_pm.c \
+		-L$$BOARD_DIR/lib -lmicrokit -Tmicrokit.ld \
+		-o $$OUT/nexs_pm.elf  && echo "[sel4-multikernel] nexs_pm.elf OK"; \
+	echo "[sel4-multikernel] Building nexs_tty.elf ($$ARCH)..."; \
+	$$CC $$COMMON_FLAGS $$COMMON_SRCS \
+		hal/sel4/hal_sel4.c hal/sel4/sel4_pd_tty.c $$OUT/nexs_embed_tty.c \
+		-L$$BOARD_DIR/lib -lmicrokit -Tmicrokit.ld \
+		-o $$OUT/nexs_tty.elf && echo "[sel4-multikernel] nexs_tty.elf OK"; \
+	echo "[sel4-multikernel] Packaging with Microkit tool..."; \
+	$(MICROKIT_SDK)/bin/microkit $$SYSTEM_FILE \
+		--search-path $$OUT \
+		--board $(MICROKIT_BOARD) \
+		--config $(MICROKIT_CONFIG) \
+		-o $$OUT/loader.img \
+		-r $$OUT/report.txt && \
+	echo "[sel4-multikernel] Done -> $$OUT/loader.img"
+
+sel4-multikernel-aarch64:
+	@if [ -z "$(MICROKIT_SDK)" ]; then echo "Set MICROKIT_SDK=..."; exit 1; fi
+	$(MAKE) sel4-multikernel MICROKIT_BOARD=qemu_virt_aarch64 MICROKIT_CONFIG=debug MICROKIT_SDK=$(MICROKIT_SDK)
+
+sel4-multikernel-riscv64:
+	@if [ -z "$(MICROKIT_SDK)" ]; then echo "Set MICROKIT_SDK=..."; exit 1; fi
+	$(MAKE) sel4-multikernel MICROKIT_BOARD=qemu_virt_riscv64 MICROKIT_CONFIG=debug MICROKIT_SDK=$(MICROKIT_SDK)
+
+sel4-multikernel-x86_64:
+	@if [ -z "$(MICROKIT_SDK)" ]; then echo "Set MICROKIT_SDK=..."; exit 1; fi
+	$(MAKE) sel4-multikernel MICROKIT_BOARD=x86_64_generic MICROKIT_CONFIG=debug MICROKIT_SDK=$(MICROKIT_SDK)
+
+sel4-multikernel-amd64: sel4-multikernel-x86_64
+
+# ─────────────────────────────────────────────────────────────────────────────
 # ISO & Image Generation
+
 # ─────────────────────────────────────────────────────────────────────────────
 iso-amd64: baremetal-amd64
 	@echo "Generating Bootable ISO..."
