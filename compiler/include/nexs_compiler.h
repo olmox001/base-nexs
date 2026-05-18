@@ -28,7 +28,8 @@ typedef enum {
   TARGET_BAREMETAL_ARM64 = 5,
   TARGET_BAREMETAL_AMD64 = 6,
   TARGET_SEL4_MICROKIT   = 7,
-  TARGET_COUNT           = 8,
+  TARGET_WASM            = 8,
+  TARGET_COUNT           = 9,
 } CompileTarget;
 
 /* =========================================================

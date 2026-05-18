@@ -2,12 +2,13 @@
 # =============================================================================
 # scripts/test-release.sh — Quick Tester for NEXS Release Artifacts
 # =============================================================================
-# Usage: ./scripts/test-release.sh [1-9 | --full]
+# Usage: ./scripts/test-release.sh [1-10 | --full]
 #  1: MacOS Interpreter  2: MacOS MINIOS (AOT)
 #  3: Baremetal ELF      4: Baremetal ISO
 #  5: MiniOS ELF         6: MiniOS ISO
 #  7: Linux Interpreter  8: Linux MINIOS (AOT)
 #  9: seL4 aarch64 MiniOS (QEMU)
+#  10: WASM / Node.js (pipe eval + version)
 #  --full: Apre un terminale dedicato per ogni test compatibile col tuo OS
 # =============================================================================
 
@@ -65,7 +66,7 @@ read -p "Premi [INVIO] per chiudere questa finestra..."
 EOF
     chmod +x "$WRAPPER_SCRIPT"
 
-    for i in {1..9}; do
+    for i in {1..10}; do
         # Ottimizzazione: salta i test incompatibili col sistema host attuale
         if [ "$(uname)" = "Darwin" ] && [[ "$i" == "7" || "$i" == "8" ]]; then
             echo "Salto il test $i (Linux) perché siamo su macOS."
@@ -73,6 +74,14 @@ EOF
         fi
         if [ "$(uname)" = "Linux" ] && [[ "$i" == "1" || "$i" == "2" ]]; then
             echo "Salto il test $i (macOS) perché siamo su Linux."
+            continue
+        fi
+        if [ "$i" = "10" ] && ! command -v node >/dev/null 2>&1; then
+            echo "Salto il test 10 (WASM) perché node non è disponibile."
+            continue
+        fi
+        if [ "$i" = "10" ] && [ ! -f "$REL_DIR/wasm/nexs.js" ]; then
+            echo "Salto il test 10 (WASM) perché $REL_DIR/wasm/nexs.js non esiste."
             continue
         fi
 
@@ -164,17 +173,44 @@ case "$CHOICE" in
             echo "seL4 aarch64 artifact not found. Run make-release.sh with MICROKIT_SDK set."
         fi
         ;;
+    10|wasm)
+        WASM_JS="$REL_DIR/wasm/nexs.js"
+        if ! command -v node >/dev/null 2>&1; then
+            echo "Error: node not found. Install Node.js to test the WASM build."
+            exit 1
+        fi
+        if [ ! -f "$WASM_JS" ]; then
+            echo "Error: $WASM_JS not found. Run make-release.sh with emcc available."
+            exit 1
+        fi
+        echo "Testing NEXS-wasm (Node.js) — version..."
+        node -e "
+const M = require('$(cd "$(dirname "$WASM_JS")" && pwd)/$(basename "$WASM_JS")');
+M().then(function(mod) {
+    var ver = mod.ccall('nexs_wasm_version', 'string', [], []);
+    console.log('NEXS WASM version: ' + ver);
+    process.exit(0);
+});
+" 2>/dev/null || node "$WASM_JS" --version 2>/dev/null || true
+        echo ""
+        echo "Testing NEXS-wasm (Node.js) — eval 'out 1+2'..."
+        echo 'out 1+2' | node "$WASM_JS" 2>/dev/null || true
+        echo ""
+        echo "Testing NEXS-wasm (Node.js) — interactive REPL (type :exit to quit)..."
+        node "$WASM_JS"
+        ;;
     *)
-        echo "Usage: $0 [1-9 | --full]"
-        echo "  1: Nexs-amd64-MacOS (Host Interpreter)"
-        echo "  2: MINIOS-amd64-MacOS (Host AOT)"
-        echo "  3: Nexs-amd64-STANDALONE.elf (Baremetal ELF)"
-        echo "  4: Nexs-amd64-STANDALONE.iso (Baremetal ISO)"
-        echo "  5: MINIOS-amd64-STANDALONE.elf (MiniOS ELF)"
-        echo "  6: MINIOS-amd64-STANDALONE.iso (MiniOS ISO)"
-        echo "  7: Nexs-amd64-Linux (Linux Host Interpreter)"
-        echo "  8: MINIOS-amd64-Linux (Linux AOT)"
-        echo "  9: NEXS-seL4-aarch64-MiniOS (seL4 QEMU)"
+        echo "Usage: $0 [1-10 | --full]"
+        echo "  1:  Nexs-amd64-MacOS (Host Interpreter)"
+        echo "  2:  MINIOS-amd64-MacOS (Host AOT)"
+        echo "  3:  Nexs-amd64-STANDALONE.elf (Baremetal ELF)"
+        echo "  4:  Nexs-amd64-STANDALONE.iso (Baremetal ISO)"
+        echo "  5:  MINIOS-amd64-STANDALONE.elf (MiniOS ELF)"
+        echo "  6:  MINIOS-amd64-STANDALONE.iso (MiniOS ISO)"
+        echo "  7:  Nexs-amd64-Linux (Linux Host Interpreter)"
+        echo "  8:  MINIOS-amd64-Linux (Linux AOT)"
+        echo "  9:  NEXS-seL4-aarch64-MiniOS (seL4 QEMU)"
+        echo "  10: NEXS-wasm (Node.js REPL + pipe eval)"
         echo "  --full: Esegue tutti i test compatibili aprendo terminali separati"
         exit 1
         ;;

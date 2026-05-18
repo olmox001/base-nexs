@@ -73,6 +73,9 @@ SRCS = \
   hal/common/console.c \
   hal/common/timer.c
 
+# WASM: same as SRCS but swap hal_hosted.c for hal/wasm/hal_wasm.c
+WASM_SRCS = $(filter-out hal/hal_hosted.c,$(SRCS)) hal/wasm/hal_wasm.c
+
 # Baremetal doesn't use the hosted HAL, but it keeps the AOT compiler
 BAREMETAL_SRCS = \
   core/buddy.c \
@@ -131,7 +134,8 @@ EMBED_EXAMPLES ?= 0
         sel4-initializer \
         run-nexs-aarch64 run-nexs-riscv64 run-nexs-x86_64 run-nexs-amd64 \
         sel4-multikernel sel4-multikernel-aarch64 sel4-multikernel-riscv64 \
-        sel4-multikernel-x86_64 sel4-multikernel-amd64
+        sel4-multikernel-x86_64 sel4-multikernel-amd64 \
+        wasm
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Default target: hosted interpreter
@@ -217,6 +221,25 @@ macos-amd64: $(TARGET)
 		echo "Compiled -> build/macos-amd64/nexs"; \
 	else \
 		echo "$(MACOS_AMD64_CC) not found, skipping macos-amd64"; \
+	fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WebAssembly (Emscripten)
+# Requires: emcc on PATH  (https://emscripten.org/docs/getting_started/downloads.html)
+# ─────────────────────────────────────────────────────────────────────────────
+wasm:
+	@if command -v emcc >/dev/null 2>&1; then \
+		mkdir -p build/wasm && \
+		emcc -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter \
+			-DPOOL_$(POOL_PROFILE) -DNEXS_WASM -DNEXS_HOST_TOOL \
+			-s WASM=1 -s ALLOW_MEMORY_GROWTH=1 \
+			-s MODULARIZE=1 -s EXPORT_NAME=NEXS \
+			"-s EXPORTED_FUNCTIONS=_main,_nexs_wasm_init,_nexs_wasm_eval,_nexs_wasm_version" \
+			"-s EXPORTED_RUNTIME_METHODS=ccall,cwrap" \
+			$(INCS) $(WASM_SRCS) -o build/wasm/nexs.js && \
+		echo "WASM build -> build/wasm/nexs.js + build/wasm/nexs.wasm"; \
+	else \
+		echo "emcc not found — install Emscripten: https://emscripten.org/docs/getting_started/downloads.html"; \
 	fi
 
 # Kernel sources
@@ -491,7 +514,7 @@ clean:
 	rm -f $(TARGET) $(TARGET)_dbg $(OBJS)
 	rm -rf build/linux-amd64 build/linux-arm64 \
 	       build/baremetal-arm64 build/baremetal-amd64 build/baremetal-riscv64 \
-	       build/sel4-microkit \
+	       build/sel4-microkit build/wasm \
 	       build/iso_root build/nexs-amd64.iso \
 	       build_aarch64 build_riscv64 build_x86_64
 	@echo "Clean done"

@@ -86,7 +86,21 @@ make > /dev/null
        --target "$CROSS_TARGET" \
        -o "$RELEASE_DIR/MINIOS-amd64-$CROSS_NAME" || echo "Warning: Cross AOT build failed, skipping"
 
-# 7. seL4 MiniOS targets (requires MICROKIT_SDK)
+# 7. WASM build (requires emcc)
+if command -v emcc >/dev/null 2>&1; then
+    echo "[*] Building NEXS-wasm (WebAssembly)..."
+    make clean > /dev/null
+    make > /dev/null  # Need native nexs for codegen
+    make wasm POOL_PROFILE=16MB > /dev/null
+    mkdir -p "$RELEASE_DIR/wasm"
+    cp build/wasm/nexs.js   "$RELEASE_DIR/wasm/nexs.js"
+    cp build/wasm/nexs.wasm "$RELEASE_DIR/wasm/nexs.wasm"
+    echo "    -> $RELEASE_DIR/wasm/nexs.{js,wasm}"
+else
+    echo "[*] Skipping WASM build (emcc not found — install Emscripten)"
+fi
+
+# 8. seL4 MiniOS targets (requires MICROKIT_SDK)
 if [ -n "${MICROKIT_SDK:-}" ]; then
     for SEL4_ARCH in aarch64 riscv64 x86_64; do
         echo "[*] Building NEXS-seL4-$SEL4_ARCH (MiniOS)..."
@@ -108,3 +122,4 @@ echo "Test manuali consigliati:"
 echo "1. ./$RELEASE_DIR/Nexs-amd64-MacOS"
 echo "2. qemu-system-x86_64 -kernel $RELEASE_DIR/Nexs-amd64-STANDALONE.elf -nographic"
 echo "3. qemu-system-x86_64 -cdrom $RELEASE_DIR/MINIOS-amd64-STANDALONE.iso -nographic"
+echo "4. echo 'out 1+2' | node $RELEASE_DIR/wasm/nexs.js   (WASM / Node.js)"

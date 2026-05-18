@@ -92,6 +92,13 @@ static const TargetConfig nexs_targets[TARGET_COUNT] = {
     "-DNEXS_SEL4",
     1, "microkit.ld"
   },
+  [TARGET_WASM]            = {
+    "wasm",
+    "emcc",
+    "",
+    "-DNEXS_WASM -DNEXS_HOST_TOOL",
+    0, NULL
+  },
 };
 
 #endif /* NEXS_TARGETS_H */

@@ -107,6 +107,12 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
     }
   }
 
+  /* WASM output cannot execute on the host — skip profiling, default POOL_16MB */
+  if (target == TARGET_WASM) {
+    best_profile_idx = 5; /* POOL_16MB */
+    goto skip_profiling;
+  }
+
   char test_c[256];
   snprintf(test_c, sizeof(test_c), "/tmp/nexs_prof_test_%d.c", (int)getpid());
   if (nexs_codegen_ex(src_path, test_c, no_dep, 0 /* test on host */) != 0) {
@@ -210,6 +216,10 @@ skip_profiling:;
   if (tc->is_baremetal) {
     pos +=
         snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " kernel/libc_stub.c");
+  } else if (target == TARGET_WASM) {
+    pos +=
+        snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
+                 " hal/common/console.c hal/common/timer.c hal/wasm/hal_wasm.c");
   } else {
     pos +=
         snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
@@ -241,7 +251,33 @@ skip_profiling:;
     }
   }
 
-  pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -o '%s'", out_path);
+  /* WASM extras: Emscripten link flags */
+  if (target == TARGET_WASM) {
+    pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
+                    " -s WASM=1 -s ALLOW_MEMORY_GROWTH=1"
+                    " -s MODULARIZE=1 -s EXPORT_NAME=NEXS"
+                    " -s EXPORTED_FUNCTIONS=_main,_nexs_wasm_init,"
+                    "_nexs_wasm_eval,_nexs_wasm_version"
+                    " -s EXPORTED_RUNTIME_METHODS=ccall,cwrap");
+  }
+
+  /* For WASM, auto-append .js if the output path has no recognized extension */
+  char effective_out[512];
+  if (target == TARGET_WASM) {
+    const char *ext = strrchr(out_path, '.');
+    if (!ext || (strcmp(ext, ".js") != 0 && strcmp(ext, ".wasm") != 0 &&
+                 strcmp(ext, ".html") != 0)) {
+      snprintf(effective_out, sizeof(effective_out), "%s.js", out_path);
+    } else {
+      strncpy(effective_out, out_path, sizeof(effective_out) - 1);
+      effective_out[sizeof(effective_out) - 1] = '\0';
+    }
+  } else {
+    strncpy(effective_out, out_path, sizeof(effective_out) - 1);
+    effective_out[sizeof(effective_out) - 1] = '\0';
+  }
+
+  pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -o '%s'", effective_out);
 
   fprintf(stdout, "[compile] %s\n", cmd);
 
@@ -253,7 +289,7 @@ skip_profiling:;
 
   /* --- Step 5: Print bare-metal access point info --- */
   if (rc == 0 && tc->is_baremetal)
-    nexs_print_baremetal_info(out_path, tc);
+    nexs_print_baremetal_info(effective_out, tc);
 
   return (rc == 0) ? 0 : -1;
 }

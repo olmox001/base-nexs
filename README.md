@@ -95,6 +95,38 @@ make sel4-aarch64 SEL4_ENTRY_NX=example/minios/boot.nx MICROKIT_SDK=$MICROKIT_SD
 make sel4-aarch64 EMBED_EXAMPLES=1 MICROKIT_SDK=$MICROKIT_SDK
 ```
 
+### WebAssembly (Emscripten)
+
+Requires [Emscripten](https://emscripten.org/docs/getting_started/downloads.html) (`emcc` on PATH).
+
+```sh
+make wasm
+# Outputs: build/wasm/nexs.js + build/wasm/nexs.wasm
+```
+
+**Node.js embedding:**
+
+```js
+const NEXS = require('./build/wasm/nexs.js');
+NEXS().then(mod => {
+  mod.ccall('nexs_wasm_init', null, [], []);
+  mod.ccall('nexs_wasm_eval', 'number', ['string'], ['out 1 + 2\n']);
+  const ver = mod.ccall('nexs_wasm_version', 'string', [], []);
+  console.log('NEXS', ver);
+});
+```
+
+**AOT compile to WASM via the compiler:**
+
+```sh
+./nexs --compile program.nx --target wasm -o build/wasm/program
+# emits build/wasm/program.js + program.wasm
+```
+
+**Notes:**
+- The REPL (`nexs_repl`) reads from `stdin` via `fgetc`, which works in Node.js but blocks in a browser environment. Use `nexs_wasm_eval` for browser embedding instead.
+- The WASM HAL uses `POOL_16MB` by default; override with `NEXS_POOL_PROFILE=POOL_64MB make wasm`.
+
 ---
 
 ## Architecture
