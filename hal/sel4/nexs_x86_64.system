@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<system>
+    <!-- Segnaposto per coerenza sintattica ereditato dal setup precedente -->
+    <memory_region name="uart_dummy" phys_addr="0x10000000" size="0x1000" />
+    
+    <protection_domain name="nexs" stack_size="0x400000">
+        <program_image path="nexs.elf" />
+        <map mr="uart_dummy" vaddr="0x10000000" perms="rw" cached="false" />
+        
+        <!-- Autorizzazione esplicita Ring 3 per l'esecuzione di I/O (inb/outb) sulla porta COM1 -->
+        <ioport id="0" addr="0x3F8" size="8" />
+    </protection_domain>
+</system>

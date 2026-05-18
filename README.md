@@ -59,6 +59,40 @@ bash scripts/qemu-amd64.sh   # boots NEXS REPL via UART
 
 make baremetal-arm64
 bash scripts/qemu-arm64.sh
+
+make baremetal-riscv64        # riscv64-unknown-elf-gcc required
+```
+
+### seL4 + Microkit
+
+Requires a built Microkit SDK. Use `make sel4-initializer` to clone the SDK builder, then build for your arch:
+
+```sh
+# First time: get the SDK builder
+make sel4-initializer
+cd dependencies/nexs-kernel
+make build-sdk-aarch64
+export MICROKIT_SDK=<path-to-sdk>
+
+# Compile NEXS as a seL4 Protection Domain
+make run-nexs-aarch64 MICROKIT_SDK=$MICROKIT_SDK
+make run-nexs-riscv64 MICROKIT_SDK=$MICROKIT_SDK
+make run-nexs-x86_64  MICROKIT_SDK=$MICROKIT_SDK
+```
+
+Or compile only (without launching QEMU):
+
+```sh
+make sel4-aarch64 MICROKIT_SDK=$MICROKIT_SDK
+make sel4-riscv64 MICROKIT_SDK=$MICROKIT_SDK
+make sel4-x86_64  MICROKIT_SDK=$MICROKIT_SDK
+```
+
+To embed a custom entry script or the full example set:
+
+```sh
+make sel4-aarch64 SEL4_ENTRY_NX=example/minios/boot.nx MICROKIT_SDK=$MICROKIT_SDK
+make sel4-aarch64 EMBED_EXAMPLES=1 MICROKIT_SDK=$MICROKIT_SDK
 ```
 
 ---
@@ -91,8 +125,13 @@ bash scripts/qemu-arm64.sh
 | `sys/` | Plan 9 syscall wrappers (sysio, sysproc) |
 | `runtime/` | REPL, line editor, standalone init |
 | `compiler/` | Codegen + cross-compiler driver (7 targets) |
-| `hal/amd64/` | GDT, IDT, APIC, MMU, ACPI, UART |
-| `hal/arm64/` | EL setup, exception vectors, GIC, timer, FDT, UART |
+| `hal/amd64/` | GDT, IDT, APIC, MMU, ACPI, UART (baremetal) |
+| `hal/arm64/` | EL setup, exception vectors, GIC, timer, FDT, UART (baremetal) |
+| `hal/riscv64/` | Boot, NS16550 UART, timer, context switch (baremetal) |
+| `hal/sel4/` | seL4+Microkit HAL: `hal_sel4.c`, `sel4_main.c`, `.system` files, per-arch UART |
+| `hal/sel4/arm64/` | PL011 UART driver for seL4 aarch64 |
+| `hal/sel4/amd64/` | COM1 port-I/O UART driver for seL4 x86_64 |
+| `hal/sel4/riscv64/` | NS16550 UART driver for seL4 riscv64 |
 | `kernel/` | Process, scheduler, VFS, blk cache, WAL journal, syscall dispatch |
 | `fs/` | regfs (C binary format), FAT16, 9P server |
 | `services/` | NEXS-language system services (loaded at boot) |

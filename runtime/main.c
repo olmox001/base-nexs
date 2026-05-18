@@ -325,7 +325,45 @@ __attribute__((weak)) int main(int argc, char *argv[]) {
         "                                 (exec() calls will use fopen at "
         "runtime)\n"
         "    --dep-only                   List exec() dependencies and exit\n"
+        "  --codegen <file.nx> -o <out.c> Generate C embed file (table + script src)\n"
+        "    --no-dep                     Skip dependency bundling\n"
+        "    --hosted                     Emit main() instead of nexs_main_baremetal()\n"
         "  (no args)                      Start interactive REPL\n");
+    return 0;
+  }
+
+  /* --codegen <file.nx> -o <out.c> [--no-dep] [--hosted]
+   * Generates a C embed file (embed table + nexs_script_src) without invoking
+   * the full compiler.  Used by the sel4-microkit and baremetal Makefile targets
+   * to populate nexs_embed_deps_table[] the same way --compile does. */
+  if (strcmp(argv[1], "--codegen") == 0) {
+    if (argc < 3) {
+      fprintf(stderr, "nexs: --codegen requires a source file\n");
+      return 1;
+    }
+    const char *src_file = argv[2];
+    const char *out_file = NULL;
+    int no_dep   = 0;
+    int is_bare  = 1; /* emit nexs_main_baremetal(), not main() */
+    for (int i = 3; i < argc; i++) {
+      if (strcmp(argv[i], "-o") == 0 && i + 1 < argc)
+        out_file = argv[++i];
+      else if (strcmp(argv[i], "--no-dep") == 0)
+        no_dep = 1;
+      else if (strcmp(argv[i], "--hosted") == 0)
+        is_bare = 0;
+    }
+    if (!out_file) {
+      fprintf(stderr, "nexs: --codegen requires -o <output.c>\n");
+      return 1;
+    }
+    fprintf(stdout, "Generating embed C: %s -> %s\n", src_file, out_file);
+    int rc = nexs_codegen_ex(src_file, out_file, no_dep, is_bare);
+    if (rc != 0) {
+      fprintf(stderr, "nexs: codegen failed for '%s'\n", src_file);
+      return 1;
+    }
+    fprintf(stdout, "Done: %s\n", out_file);
     return 0;
   }
 

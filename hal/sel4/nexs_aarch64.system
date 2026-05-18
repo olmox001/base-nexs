@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<system>
+    <!-- Map the physical PL011 UART (0x09000000) for interactive shell input -->
+    <memory_region name="uart" phys_addr="0x09000000" size="0x1000" />
+    <protection_domain name="nexs" stack_size="0x400000">
+        <program_image path="nexs.elf" />
+        <map mr="uart" vaddr="0x09000000" perms="rw" cached="false" />
+    </protection_domain>
+</system>

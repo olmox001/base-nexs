@@ -2,11 +2,12 @@
 # =============================================================================
 # scripts/test-release.sh — Quick Tester for NEXS Release Artifacts
 # =============================================================================
-# Usage: ./scripts/test-release.sh [1-8 | --full]
+# Usage: ./scripts/test-release.sh [1-9 | --full]
 #  1: MacOS Interpreter  2: MacOS MINIOS (AOT)
 #  3: Baremetal ELF      4: Baremetal ISO
 #  5: MiniOS ELF         6: MiniOS ISO
 #  7: Linux Interpreter  8: Linux MINIOS (AOT)
+#  9: seL4 aarch64 MiniOS (QEMU)
 #  --full: Apre un terminale dedicato per ogni test compatibile col tuo OS
 # =============================================================================
 
@@ -64,7 +65,7 @@ read -p "Premi [INVIO] per chiudere questa finestra..."
 EOF
     chmod +x "$WRAPPER_SCRIPT"
 
-    for i in {1..8}; do
+    for i in {1..9}; do
         # Ottimizzazione: salta i test incompatibili col sistema host attuale
         if [ "$(uname)" = "Darwin" ] && [[ "$i" == "7" || "$i" == "8" ]]; then
             echo "Salto il test $i (Linux) perché siamo su macOS."
@@ -150,8 +151,21 @@ case "$CHOICE" in
             exit 1
         fi
         ;;
+    9|sel4-aarch64)
+        if [ -f "$REL_DIR/NEXS-seL4-aarch64-MiniOS.elf" ]; then
+            echo "Launching seL4/NEXS aarch64 MiniOS in QEMU..."
+            qemu-system-aarch64 \
+                -machine virt,virtualization=on \
+                -cpu cortex-a53 -nographic \
+                -serial mon:stdio \
+                -device loader,file="$REL_DIR/NEXS-seL4-aarch64-MiniOS.elf",addr=0x70000000,cpu-num=0 \
+                -m size=1G
+        else
+            echo "seL4 aarch64 artifact not found. Run make-release.sh with MICROKIT_SDK set."
+        fi
+        ;;
     *)
-        echo "Usage: $0 [1-8 | --full]"
+        echo "Usage: $0 [1-9 | --full]"
         echo "  1: Nexs-amd64-MacOS (Host Interpreter)"
         echo "  2: MINIOS-amd64-MacOS (Host AOT)"
         echo "  3: Nexs-amd64-STANDALONE.elf (Baremetal ELF)"
@@ -160,6 +174,7 @@ case "$CHOICE" in
         echo "  6: MINIOS-amd64-STANDALONE.iso (MiniOS ISO)"
         echo "  7: Nexs-amd64-Linux (Linux Host Interpreter)"
         echo "  8: MINIOS-amd64-Linux (Linux AOT)"
+        echo "  9: NEXS-seL4-aarch64-MiniOS (seL4 QEMU)"
         echo "  --full: Esegue tutti i test compatibili aprendo terminali separati"
         exit 1
         ;;
