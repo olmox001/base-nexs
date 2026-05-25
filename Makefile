@@ -453,15 +453,15 @@ sel4-multikernel: $(TARGET)
 
 sel4-multikernel-aarch64:
 	@if [ -z "$(MICROKIT_SDK)" ]; then echo "Set MICROKIT_SDK=..."; exit 1; fi
-	$(MAKE) sel4-multikernel MICROKIT_BOARD=qemu_virt_aarch64 MICROKIT_CONFIG=debug MICROKIT_SDK=$(MICROKIT_SDK)
+	$(MAKE) sel4-multikernel MICROKIT_BOARD=qemu_virt_aarch64 MICROKIT_CONFIG=smp-debug MICROKIT_SDK=$(MICROKIT_SDK)
 
 sel4-multikernel-riscv64:
 	@if [ -z "$(MICROKIT_SDK)" ]; then echo "Set MICROKIT_SDK=..."; exit 1; fi
-	$(MAKE) sel4-multikernel MICROKIT_BOARD=qemu_virt_riscv64 MICROKIT_CONFIG=debug MICROKIT_SDK=$(MICROKIT_SDK)
+	$(MAKE) sel4-multikernel MICROKIT_BOARD=qemu_virt_riscv64 MICROKIT_CONFIG=smp-debug MICROKIT_SDK=$(MICROKIT_SDK)
 
 sel4-multikernel-x86_64:
 	@if [ -z "$(MICROKIT_SDK)" ]; then echo "Set MICROKIT_SDK=..."; exit 1; fi
-	$(MAKE) sel4-multikernel MICROKIT_BOARD=x86_64_generic MICROKIT_CONFIG=debug MICROKIT_SDK=$(MICROKIT_SDK)
+	$(MAKE) sel4-multikernel MICROKIT_BOARD=x86_64_generic MICROKIT_CONFIG=smp-debug MICROKIT_SDK=$(MICROKIT_SDK)
 
 sel4-multikernel-amd64: sel4-multikernel-x86_64
 
@@ -605,7 +605,7 @@ run-nexs-aarch64: sel4-multikernel-aarch64
 	$(MICROKIT_SDK)/bin/microkit hal/sel4/nexs_aarch64.system \
 		--search-path build/sel4-multikernel \
 		--board qemu_virt_aarch64 \
-		--config debug \
+		--config smp-debug \
 		-o build_aarch64/loader.img \
 		-r build_aarch64/report.txt
 	qemu-system-aarch64 \
@@ -622,7 +622,7 @@ run-nexs-riscv64: sel4-multikernel-riscv64
 	$(MICROKIT_SDK)/bin/microkit hal/sel4/nexs_riscv64.system \
 		--search-path build/sel4-multikernel \
 		--board qemu_virt_riscv64 \
-		--config debug \
+		--config smp-debug \
 		-o build_riscv64/loader.img \
 		-r build_riscv64/report.txt
 	qemu-system-riscv64 \
@@ -638,7 +638,7 @@ run-nexs-x86_64: sel4-multikernel-x86_64
 	$(MICROKIT_SDK)/bin/microkit hal/sel4/nexs_x86_64.system \
 		--search-path build/sel4-multikernel \
 		--board x86_64_generic \
-		--config debug \
+		--config smp-debug \
 		-o build_x86_64/loader.img \
 		-r build_x86_64/report.txt
 	qemu-system-x86_64 \
