@@ -14,3 +14,5 @@ nexs
 *.venv
 *.img
 /build_*
+.venv/
+.elf
