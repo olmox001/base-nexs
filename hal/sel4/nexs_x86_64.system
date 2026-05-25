@@ -38,7 +38,7 @@
     <memory_region name="mr_tty_log"  size="0x1000" />
 
     <!-- nexs_root: UART via ioport (id=0 → COM1 0x3F8..0x3FF) -->
-    <protection_domain name="nexs_root" stack_size="0x400000" priority="100">
+    <protection_domain name="nexs_root" cpu="0" stack_size="0x400000" priority="100">
         <program_image path="nexs_root.elf" />
 
         <!-- 64MB Memory Pool -->
@@ -62,7 +62,7 @@
     </protection_domain>
 
     <!-- Service PDs: no ioport, no uart_dummy -->
-    <protection_domain name="nexs_fs" stack_size="0x200000" priority="90">
+    <protection_domain name="nexs_fs" cpu="1" stack_size="0x200000" priority="90">
         <program_image path="nexs_fs.elf" />
 
         <!-- 64MB Memory Pool -->
@@ -75,7 +75,7 @@
         <map mr="mr_fs_log"   vaddr="0x30020000" perms="rw" cached="false" />
     </protection_domain>
 
-    <protection_domain name="nexs_pm" stack_size="0x200000" priority="90">
+    <protection_domain name="nexs_pm" cpu="2" stack_size="0x200000" priority="90">
         <program_image path="nexs_pm.elf" />
 
         <!-- 64MB Memory Pool -->
@@ -88,7 +88,7 @@
         <map mr="mr_pm_log"   vaddr="0x30120000" perms="rw" cached="false" />
     </protection_domain>
 
-    <protection_domain name="nexs_tty" stack_size="0x200000" priority="90">
+    <protection_domain name="nexs_tty" cpu="3" stack_size="0x200000" priority="90">
         <program_image path="nexs_tty.elf" />
 
         <!-- 64MB Memory Pool -->
