@@ -1,3 +1,4 @@
 [submodule "reference"]
 	path = reference
 	url = https://github.com/olmox001/os1test-dev
+	branch = base-nexs-support
