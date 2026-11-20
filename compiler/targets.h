@@ -85,6 +85,27 @@ static const TargetConfig nexs_targets[TARGET_COUNT] = {
     "-DNEXS_BAREMETAL",
     1, "hal/amd64/nexs.ld"
   },
+  [TARGET_SEL4_MICROKIT]   = {
+    "sel4-microkit",
+    "clang",
+    "-march=armv8-a",
+    "-DNEXS_SEL4",
+    1, "microkit.ld"
+  },
+  [TARGET_OS1_AMD64] = {
+    "os1-amd64",
+    "x86_64-elf-gcc",
+    "-march=x86-64",
+    "-DNEXS_OS1",
+    0, NULL
+  },
+  [TARGET_OS1_ARM64] = {
+    "os1-arm64",
+    "aarch64-none-elf-gcc",
+    "-march=armv8-a",
+    "-DNEXS_OS1",
+    0, NULL
+  },
 };
 
 #endif /* NEXS_TARGETS_H */

@@ -27,7 +27,10 @@ typedef enum {
   TARGET_PLAN9_AMD64     = 4,
   TARGET_BAREMETAL_ARM64 = 5,
   TARGET_BAREMETAL_AMD64 = 6,
-  TARGET_COUNT           = 7,
+  TARGET_SEL4_MICROKIT   = 7,
+  TARGET_OS1_AMD64       = 8,
+  TARGET_OS1_ARM64       = 9,
+  TARGET_COUNT           = 10,
 } CompileTarget;
 
 /* =========================================================
@@ -78,6 +81,13 @@ NEXS_API int  nexs_scan_deps(const char *src_path,
  * nexs_free_deps — release .src buffers allocated by nexs_scan_deps.
  */
 NEXS_API void nexs_free_deps(NexsDepEntry *deps, int count);
+
+/*
+ * nexs_scan_directory — recursively index all .nx files in a directory.
+ * Used for bundling standard modules and services into standalone binaries.
+ */
+NEXS_API int nexs_scan_directory(const char *dir_path, NexsDepEntry *deps,
+                                 int count, int max_deps);
 
 /* =========================================================
    COMPILER API

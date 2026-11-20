@@ -4,7 +4,7 @@
 # =============================================================================
 set -e
 
-KERNEL="build/baremetal-amd64/nexs.elf"
+KERNEL="build/baremetal-amd64/nxscript.elf"
 OUT_IMG="build/nexs-amd64.img"
 IMG_SIZE=64 # MB
 
@@ -32,7 +32,7 @@ mformat -i "$OUT_IMG@@1M" -F -v "NEXS_BOOT"
 
 # 6. Copia Kernel e Limine Config
 mmd -i "$OUT_IMG@@1M" ::/limine
-mcopy -i "$OUT_IMG@@1M" "$KERNEL" ::/nexs.elf
+mcopy -i "$OUT_IMG@@1M" "$KERNEL" ::/nxscript.elf
 mcopy -i "$OUT_IMG@@1M" "$LIMINE_SHARE/limine-bios.sys" ::/limine/
 
 # Crea limine.conf
@@ -43,7 +43,7 @@ VERBOSE=yes
 
 :NEXS OS
     PROTOCOL=limine
-    KERNEL_PATH=boot:///nexs.elf
+    KERNEL_PATH=boot:///nxscript.elf
 EOF
 mcopy -i "$OUT_IMG@@1M" limine.conf.tmp ::/limine/limine.conf
 rm limine.conf.tmp

@@ -21,6 +21,8 @@
 
 #ifdef NEXS_BAREMETAL
 #  include "../hal/include/nexs_hal.h"
+#else
+#  include <time.h>
 #endif
 
 /*
@@ -41,23 +43,18 @@ __attribute__((weak)) const char *nexs_embedded_lookup(const char *path) {
 #ifndef NEXS_BAREMETAL
 int nexs_sleep(int msec) {
   if (msec <= 0) return 0;
-  usleep((useconds_t)msec * 1000);
-  return 0;
+  struct timespec duration = {
+      .tv_sec = msec / 1000,
+      .tv_nsec = (long)(msec % 1000) * 1000000L,
+  };
+  return nanosleep(&duration, NULL);
 }
 #endif
 
 int nexs_exec(EvalCtx *ctx, const char *path) {
   if (!ctx || !path) return -1;
-  EvalResult r;
-  /* Bug 2 fix: check embedded dep table before touching the filesystem.
-   * In standalone compiled binaries nexs_embedded_lookup() returns the
-   * inlined source; in the interpreter it is a weak no-op returning NULL. */
-  const char *embedded_src = nexs_embedded_lookup(path);
-  if (embedded_src) {
-    r = eval_str(ctx, embedded_src);
-  } else {
-    r = eval_file(ctx, path);
-  }
+  /* Rely on eval_file which is now VFS-aware (checks registry, then embedded, then disk) */
+  EvalResult r = eval_file(ctx, path);
   if (r.sig == CTRL_ERR) {
     val_print(&r.ret_val, ctx->err);
     fprintf(ctx->err, "\n");
@@ -129,9 +126,15 @@ static Value bi_exec(Value *args, int n) {
   if (n < 1) return val_err(4, "exec: requires a path");
   if (args[0].type != TYPE_STR || !args[0].data)
     return val_err(4, "exec: argument must be a string");
-  EvalCtx ctx;
-  eval_ctx_init(&ctx);
-  return val_int(nexs_exec(&ctx, (char *)args[0].data));
+
+  EvalCtx *ctx_to_use = nexs_g_eval_ctx;
+  EvalCtx inner_ctx;
+  if (!ctx_to_use) {
+    eval_ctx_init(&inner_ctx);
+    ctx_to_use = &inner_ctx;
+  }
+
+  return val_int(nexs_exec(ctx_to_use, (char *)args[0].data));
 }
 
 static Value bi_exits(Value *args, int n) {
@@ -161,6 +164,11 @@ static Value bi_await(Value *args, int n) {
   return val_str(buf);
 }
 
+#endif
+
+/* getpid/getwd — available on both hosted and baremetal.
+ * In baremetal, getpid() is provided by kernel/libc_stub.c (returns 1)
+ * and getcwd() returns "/". */
 static Value bi_getpid(Value *args, int n) {
   (void)args; (void)n;
   return val_int((int64_t)getpid());
@@ -169,10 +177,9 @@ static Value bi_getpid(Value *args, int n) {
 static Value bi_getwd(Value *args, int n) {
   (void)args; (void)n;
   char buf[REG_PATH_MAX];
-  if (!getcwd(buf, sizeof(buf))) return val_err(4, "getwd: failed");
+  if (!getcwd(buf, sizeof(buf))) return val_str("/");
   return val_str(buf);
 }
-#endif
 
 /* =========================================================
    REGISTRATION
@@ -183,8 +190,18 @@ static Value bi_getwd(Value *args, int n) {
 void sysproc_register_builtins(void) {
   fn_register_builtin_sig("exec",   bi_exec,
     SIG("exec(path str)") "nil");
+  fn_register_builtin_sig("load",   bi_exec,
+    SIG("load(path str)") "nil");
   fn_register_builtin_sig("exits",  bi_exits,
     SIG("exits(status str)") "nil");
+  fn_register_builtin_sig("exit",   bi_exits,
+    SIG("exit(status str)") "nil");
+
+  /* getpid and getwd — always registered (baremetal stubs in libc_stub.c) */
+  fn_register_builtin_sig("getpid", bi_getpid,
+    SIG("getpid()") "int");
+  fn_register_builtin_sig("getwd",  bi_getwd,
+    SIG("getwd()") "str");
 
 #ifndef NEXS_BAREMETAL
   fn_register_builtin_sig("sleep",  bi_sleep,
@@ -195,18 +212,15 @@ void sysproc_register_builtins(void) {
     SIG("rfork(flags int)") "pid int");
   fn_register_builtin_sig("await",  bi_await,
     SIG("await()") "str");
-  fn_register_builtin_sig("getpid", bi_getpid,
-    SIG("getpid()") "int");
-  fn_register_builtin_sig("getwd",  bi_getwd,
-    SIG("getwd()") "str");
 
   /* Store actual fn_table indices in /sys/<name> */
   {
     static const char *names[] = {
-      "sleep","exec","exits","alarm","rfork","await","getpid","getwd"
+      "sleep","exec","exits","exit","alarm","rfork","await","getpid","getwd"
     };
     char path[REG_PATH_MAX];
-    for (int _i = 0; _i < 8; _i++) {
+    int num_names = (sizeof(names) / sizeof(names[0]));
+    for (int _i = 0; _i < num_names; _i++) {
       NexsFnDef *def = fn_lookup(names[_i]);
       if (def) {
         int idx = (int)(def - g_fn_table);
@@ -216,11 +230,12 @@ void sysproc_register_builtins(void) {
     }
   }
 #else
-  /* Only register baremetal builtins */
+  /* Register baremetal builtins (getpid/getwd already registered above) */
   {
-    static const char *names[] = { "exec", "exits" };
+    static const char *names[] = { "exec", "load", "exits", "exit", "getpid", "getwd" };
     char path[REG_PATH_MAX];
-    for (int _i = 0; _i < 2; _i++) {
+    int num_names = (sizeof(names) / sizeof(names[0]));
+    for (int _i = 0; _i < num_names; _i++) {
       NexsFnDef *def = fn_lookup(names[_i]);
       if (def) {
         int idx = (int)(def - g_fn_table);

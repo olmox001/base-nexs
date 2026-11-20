@@ -2,7 +2,7 @@
 # ===================================================================
 # NXED v13 - VIM STYLE + CTRL-X MENU (Scope Monolitico)
 # ===================================================================
-exec("example/minios/vfs.nx")
+exec("services/fs/init.nx")
 
 fn get_ln(y) {
   l = reg_get("/sys/ed/buf/" + str(y))

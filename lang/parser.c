@@ -107,6 +107,10 @@ void ast_print(ASTNode *node, FILE *out, int depth) {
 
 static Token parser_advance(Parser *p) {
   p->cur = lexer_next(p->lex);
+  if (p->cur.kind == TK_ERROR) {
+    p->had_error = 1;
+    strncpy(p->error_msg, p->cur.text, sizeof(p->error_msg) - 1);
+  }
   p->peek = (Token){.kind = TK_EOF};
   return p->cur;
 }
@@ -478,6 +482,28 @@ ASTNode *parse_stmt(Parser *p) {
   parser_skip_newlines(p);
   Token t = p->cur;
 
+  /* library "name" */
+  if (t.kind == TK_KW_LIBRARY || t.kind == TK_KW_MODULE) {
+    parser_advance(p);
+    Token lib_tok = p->cur;
+    if (!parser_expect(p, TK_STRING))
+      return NULL;
+    ASTNode *n = ast_alloc(AST_LIBRARY, t);
+    strncpy(n->name, lib_tok.text, NAME_LEN - 1);
+    return n;
+  }
+
+  /* import "path" */
+  if (t.kind == TK_KW_IMPORT) {
+    parser_advance(p);
+    Token path_tok = p->cur;
+    if (!parser_expect(p, TK_STRING))
+      return NULL;
+    ASTNode *n = ast_alloc(AST_IMPORT, t);
+    strncpy(n->path, path_tok.text, REG_PATH_MAX - 1);
+    return n;
+  }
+
   /* fn name(params) { body } */
   if (t.kind == TK_KW_FN) {
     parser_advance(p);
@@ -614,7 +640,8 @@ ASTNode *parse_stmt(Parser *p) {
     }
     /* Fallback to built-in registry listing */
     ASTNode *n = ast_alloc(AST_REG_LS, t);
-    if (p->cur.kind == TK_REGPATH || p->cur.kind == TK_STRING || p->cur.kind == TK_IDENT) {
+    if (p->cur.kind == TK_REGPATH || p->cur.kind == TK_STRING || p->cur.kind == TK_IDENT ||
+        (p->cur.kind >= TK_KW_FN && p->cur.kind <= TK_KW_PENDING)) {
       strncpy(n->path, p->cur.text, REG_PATH_MAX - 1);
       n->path[REG_PATH_MAX - 1] = '\0';
       parser_advance(p);
@@ -628,7 +655,8 @@ ASTNode *parse_stmt(Parser *p) {
   if (t.kind == TK_KW_CD) {
     parser_advance(p);
     ASTNode *n = ast_alloc(AST_CD, t);
-    if (p->cur.kind == TK_REGPATH || p->cur.kind == TK_STRING || p->cur.kind == TK_IDENT) {
+    if (p->cur.kind == TK_REGPATH || p->cur.kind == TK_STRING || p->cur.kind == TK_IDENT || 
+        (p->cur.kind >= TK_KW_FN && p->cur.kind <= TK_KW_PENDING)) {
       strncpy(n->path, p->cur.text, REG_PATH_MAX - 1);
       n->path[REG_PATH_MAX - 1] = '\0';
       parser_advance(p);

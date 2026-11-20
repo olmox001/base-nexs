@@ -33,6 +33,14 @@ typedef struct {
    HAL API
    ========================================================= */
 
+/* Resolve source paths only through the selected platform's real VFS.
+ * Default hosted/baremetal behaviour is identity; the OS1 adapter maps
+ * catalogued relative service/example paths to its system image layout.
+ * NULL signals a rejected or overflowing path. No capability bypass.
+ */
+NEXS_API const char *nexs_platform_source_path(const char *path,
+                                                char *storage, size_t capacity);
+
 /* Initialise the HAL (UART, clocks, etc.) — called from boot.S */
 NEXS_API void nexs_hal_init(void);
 

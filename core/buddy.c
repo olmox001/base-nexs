@@ -21,8 +21,30 @@
    GLOBAL STATE
    ========================================================= */
 
+#ifdef NEXS_SEL4
+uint8_t *memory_pool = (uint8_t *)0x40000000UL;
+#else
 uint8_t memory_pool[POOL_SIZE];
+#endif
 uint8_t buddy_tree[TREE_NODES];
+
+/* =========================================================
+   HARDEN MEMORY SAFETY (C11 Static Assertions)
+   ========================================================= */
+
+/* Verifica che POOL_SIZE sia potenza di 2 */
+_Static_assert((POOL_SIZE & (POOL_SIZE - 1)) == 0, "Buddy Allocator: POOL_SIZE must be a power of 2");
+
+/* Verifica che MIN_BLOCK sia potenza di 2 */
+_Static_assert((MIN_BLOCK & (MIN_BLOCK - 1)) == 0, "Buddy Allocator: MIN_BLOCK must be a power of 2");
+
+/* Verifica che il numero di foglie sia potenza di 2 per un albero bilanciato */
+_Static_assert(((POOL_SIZE / MIN_BLOCK) & ((POOL_SIZE / MIN_BLOCK) - 1)) == 0, 
+               "Buddy Allocator: POOL_SIZE / MIN_BLOCK must be a power of 2");
+
+/* Validazione dimensione albero */
+_Static_assert(TREE_NODES == (2 * (POOL_SIZE / MIN_BLOCK) - 1), 
+               "Buddy Allocator: TREE_NODES mismatch with POOL/MIN_BLOCK formula");
 
 /* =========================================================
    BUDDY ALLOCATOR
@@ -173,6 +195,6 @@ void buddy_dump_stats(FILE *out) {
     else
       split_blocks++;
   }
-  nexs_fprintf(out, "[Buddy] free=%zu used=%zu split=%zu pool=%dKB\n",
-          free_blocks, used_blocks, split_blocks, POOL_SIZE / 1024);
+  nexs_fprintf(out, "[Buddy] free=%d used=%d split=%d pool=%dKB\n",
+          (int)free_blocks, (int)used_blocks, (int)split_blocks, (int)(POOL_SIZE / 1024));
 }

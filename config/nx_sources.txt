@@ -1,0 +1,35 @@
+# Reviewed NEXS language source catalog: services, libraries, examples.
+example/druglords/druglords.nx
+example/example_lib.nx
+example/exent_bus.nx
+example/lib.nx
+example/micro_os.nx
+example/minios/boot.nx
+example/minios/druglords.nx
+example/minios/logo.nx
+example/minios/logos_config.nx
+example/minios/nxed_editor.nx
+example/minios/shell.nx
+example/minios/termimg.nx
+example/minios/wasm_vm.nx
+example/nxed_editor copy.nx
+example/nxed_editor.nx
+example/test.nx
+example/test_builtins_all.nx
+example/test_input.nx
+example/test_parse_loop.nx
+example/test_syntax.nx
+modules/stdlib.nx
+services/auth/init.nx
+services/fs/init.nx
+services/fs/p9_mnt.nx
+services/fs/regfs.nx
+services/hw_dt.nx
+services/init.nx
+services/logos/init.nx
+services/pm/init.nx
+services/stdlib.nx
+services/textbuf.nx
+services/tty/init.nx
+services/ui/img.nx
+services/ui/init.nx

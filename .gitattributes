@@ -1,0 +1,3 @@
+# NEXS proprietary NXTIMG is a binary container, not a diffable script.
+# Preserve payload bytes and never normalize newlines/whitespace.
+*.nxtimg binary

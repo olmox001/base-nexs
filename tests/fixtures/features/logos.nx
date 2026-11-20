@@ -1,0 +1,10 @@
+# Confirm OS-private logo keys are resolved through the imported module.
+reg_set("/sys/logos/main" "test-logo")
+exec("example/minios/logos_config.nx")
+result = show_main_logo()
+shortcut = reg_get("/sys/logo_shortcuts/l1")
+if result == "test-logo" && shortcut == "/System/Library/logos/logo1.nxtimg" {
+  out "FEATURE_LOGO_CONFIG_PASS"
+} else {
+  out "FEATURE_LOGO_CONFIG_FAIL"
+}

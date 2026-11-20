@@ -1,0 +1,10 @@
+# Execute the real NEXS VM opcode stack: PUSH 20, PUSH 22, ADD, PRINT, HALT.
+exec("example/minios/wasm_vm.nx")
+code[0] = 0
+code[1] = 20
+code[2] = 0
+code[3] = 22
+code[4] = 1
+code[5] = 3
+code[6] = 4
+vm_run(code 7)

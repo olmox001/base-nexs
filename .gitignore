@@ -10,3 +10,15 @@ test_out.txt
 /RELEASE
 /build
 nexs
+/scratch
+*.venv
+*.img
+/build_*
+.venv/
+.elf
+/reference/
+/references/
+/nxscript
+/nxscript_dbg
+/nxscript_dbg.dSYM/
+*.pyc

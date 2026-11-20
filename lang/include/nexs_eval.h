@@ -59,6 +59,8 @@ typedef struct {
 NEXS_API void       eval_ctx_init(EvalCtx *ctx);
 NEXS_API EvalResult eval(EvalCtx *ctx, ASTNode *node);
 NEXS_API EvalResult eval_str(EvalCtx *ctx, const char *src);
+NEXS_API EvalResult eval_str_lib(EvalCtx *ctx, const char *src,
+                                 const char *lib_name);
 NEXS_API EvalResult eval_file(EvalCtx *ctx, const char *path);
 
 /* Global REPL context — set by main() before running repl.nx;

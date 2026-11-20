@@ -1,0 +1,32 @@
+# example/minios/logo.nx — Image Assets Seeding Utility
+# =============================================================================
+
+fn load_logos() {
+  kout("[INIT] Seeding image assets into sd02/logos/...")
+
+  loaded = 0
+
+  n1 = vfs_import("example/minios/logos/logo1.nxtimg" "sd02/logos/logo1.nxtimg")
+  if n1 > 0 {
+    kout("  [OK] logo1.nxtimg (" + str(n1) + " bytes)")
+    reg_set("/sys/logos/main" "sd02/logos/logo1.nxtimg")
+    loaded = loaded + 1
+  }
+
+  n2 = vfs_import("example/minios/logos/logo2.nxtimg" "sd02/logos/logo2.nxtimg")
+  if n2 > 0 {
+    kout("  [OK] logo2.nxtimg (" + str(n2) + " bytes)")
+    loaded = loaded + 1
+  }
+
+  n3 = vfs_import("example/minios/logos/druglords.nxtimg" "sd02/logos/druglords.nxtimg")
+  if n3 > 0 {
+    kout("  [OK] druglords.nxtimg (" + str(n3) + " bytes)")
+    loaded = loaded + 1
+  }
+
+  reg_set("/sys/logos/count" str(loaded))
+  ret loaded
+}
+
+load_logos()

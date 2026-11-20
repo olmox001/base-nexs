@@ -10,5 +10,6 @@ int system(const char *command);
 long long atoll(const char *nptr);
 double atof(const char *nptr);
 void exit(int status) __attribute__((noreturn));
+char *getenv(const char *name);
 #define EXIT_FAILURE 1
 #endif

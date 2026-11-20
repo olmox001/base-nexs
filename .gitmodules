@@ -1,4 +1,6 @@
-[submodule "reference"]
-	path = reference
-	url = https://github.com/olmox001/NexsOS1.git
-	branch = base-nexs-support
+[submodule "external/os1/nx-sdk"]
+	path = external/os1/nx-sdk
+	url = https://github.com/olmox001/NX-SDK.git
+	branch = SPERIMENTAL-LINUX
+	update = none
+	active = false

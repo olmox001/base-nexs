@@ -1,5 +1,6 @@
-# services/tty — TTY / console service
-# Manages /sys/tty/<n>/ registry entries.
+# services/tty — Terminal / Console service
+library "tty"
+# Manages /sys/tty/<n>/ Virtual TTY buffers and console output.
 # Mounted on sd01 as /mnt/sd01/services/tty/
 
 reg /sys/tty/count = 0

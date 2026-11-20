@@ -10,7 +10,7 @@
 # For real HW:   dd if=nexs-arm64.img of=/dev/sdX bs=1M status=progress
 set -e
 
-KERNEL="build/baremetal-arm64/nexs.elf"
+KERNEL="build/baremetal-arm64/nxscript.elf"
 OUT_IMG="build/nexs-arm64.img"
 MOUNT_TMP="build/sd_mount"
 

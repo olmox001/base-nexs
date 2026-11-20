@@ -16,6 +16,8 @@ exec("services/pm/init.nx")     # PM
 exec("services/auth/init.nx")   # Auth & capabilities
 exec("services/tty/init.nx")    # TTY
 exec("services/ui/init.nx")     # UI framebuffer
+exec("services/logos/init.nx") # Logo registry
+exec("example/minios/logo.nx") # Import logos into VFS
 exec("services/fs/p9_mnt.nx")   # 9P
 exec("services/hw_dt.nx")       # HW Device Tree
 exec("services/textbuf.nx")     # Text Buffer Library
@@ -23,12 +25,23 @@ exec("services/textbuf.nx")     # Text Buffer Library
 out "[INIT] Fase 2: Inizializzazione Sottosistemi..."
 hw_dt_init()
 p9_mnt_init()
+ui_init()
 
 out "[INIT] Fase 3: Popolamento Root FS..."
-# I mount standard sono già fatti da services/fs/init.nx
+# Struttura VFS standard
+vfs_mkdir("sd02/logos")
+vfs_mkdir("sd02/home")
+vfs_mkdir("sd02/apps")
+vfs_mkdir("sd01/sys")
+vfs_mkdir("sd01/sys/logs")
+
+# Mostra logo di boot
+ui_draw_image("sd02/logos/logo1.nxtimg" -1 -1)
+out ""
 
 # Avvio dei demoni di sistema
 exec("example/minios/nxed_editor.nx")
+exec("example/minios/druglords.nx")
 exec("example/minios/shell.nx")
 
 out "==================================================="

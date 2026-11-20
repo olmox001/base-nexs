@@ -64,7 +64,7 @@ static inline void ioapic_write(uint8_t reg, uint32_t val) {
 
 /* Route IOAPIC IRQ → LAPIC vector.
  * dest_apic_id=0 → CPU 0. Delivery=fixed. Active low, edge. */
-static __attribute__((unused)) void ioapic_route(uint8_t irq, uint8_t vec, uint8_t apic_id) {
+static void ioapic_route(uint8_t irq, uint8_t vec, uint8_t apic_id) {
     uint32_t lo = (uint32_t)vec;            /* fixed delivery, edge, active high */
     uint32_t hi = ((uint32_t)apic_id) << 24;
     ioapic_write((uint8_t)(IOAPIC_REDTBL(irq)),     lo);
@@ -172,9 +172,11 @@ void apic_init(void) {
     lapic_write(LAPIC_SPURIOUS, 0xFF | LAPIC_SPURIOUS_ENABLE);
     lapic_write(LAPIC_TPR, 0);
 
-    /* Route IOAPIC IRQ0 (PIT legacy) → vector 0x20, but we use LAPIC timer */
-    /* So we mask IRQ0 on IOAPIC */
+    /* Mask legacy PIT IRQ0 on IOAPIC (we use LAPIC timer instead) */
     ioapic_write((uint8_t)IOAPIC_REDTBL(0), (1U << 16));  /* masked */
+
+    /* Route IRQ1 (PS/2 keyboard) → vector 0x21, CPU 0 */
+    if (s_ioapic) ioapic_route(1, 0x21, 0);
 
     /* Register timer ISR */
     nexs_isr_register(LAPIC_TIMER_VECTOR, apic_timer_isr);

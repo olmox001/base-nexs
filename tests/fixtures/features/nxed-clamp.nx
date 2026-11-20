@@ -1,0 +1,10 @@
+# Verify editor cursor bounds, without entering interactive raw TTY.
+exec("example/minios/nxed_editor.nx")
+cx = 99
+cy = 14
+ed_clamp_cursor()
+if cx == 0 && cy == 0 {
+  out "FEATURE_NXED_CLAMP_PASS"
+} else {
+  out "FEATURE_NXED_CLAMP_FAIL"
+}

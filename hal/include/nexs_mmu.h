@@ -22,18 +22,23 @@ void    mmu_init(void);
 int     mmu_map_page(uint32_t pid, vaddr_t virt, paddr_t phys, uint32_t flags);
 int     mmu_unmap_page(uint32_t pid, vaddr_t virt);
 void    mmu_flush_tlb(vaddr_t virt);
+paddr_t mmu_create_address_space(uint32_t pid);
+int     mmu_switch_address_space(uint32_t pid);
+void    mmu_destroy_address_space(uint32_t pid);
+
 paddr_t mmu_virt_to_phys(vaddr_t virt);
 
 /* Page fault handler — called from IDT vector 14 */
 void    mmu_page_fault(vaddr_t fault_addr, uint64_t err);
 
-/* Memory block system */
-#define MEM_BLOCK_FAST_SIZE   (128ULL * 1024 * 1024)   /* 128 MB fast blocks */
-#define MEM_BLOCK_IO_SIZE     (256ULL * 1024 * 1024)   /* 256 MB I/O buffer  */
+/* Memory block system (scaled to POOL_SIZE) */
+#define MEM_BLOCK_FAST_SIZE   (POOL_SIZE / 4)   /* 25% of pool for fast blocks */
+#define MEM_BLOCK_IO_SIZE     (POOL_SIZE / 2)   /* 50% of pool for I/O buffer  */
 
 int     mm_alloc_page(uint32_t pid, vaddr_t virt, uint32_t flags);
 int     mm_free_page(uint32_t pid, vaddr_t virt);
 int     mm_map_range(uint32_t pid, vaddr_t virt, paddr_t phys,
                      uint32_t pages, uint32_t flags);
+void    mmu_worker_sync(void);
 
 #endif

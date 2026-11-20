@@ -54,6 +54,74 @@ static void nexs_print_baremetal_info(const char *out_path,
   fclose(f);
 }
 
+/* AOT target builds use the single Make source graph and real backend
+ * toolchains rather than maintaining a conflicting second list of HAL sources.
+ * Only bounded local paths can enter the existing system()-based launcher.
+ */
+static int os1_path_safe(const char *path) {
+  if (path == NULL || path[0] == '\0') return 0;
+  for (size_t i = 0; i < 1024U && path[i] != '\0'; ++i) {
+    const unsigned char c = (unsigned char)path[i];
+    const int alpha = (c >= 'a' && c <= 'z') ||
+                      (c >= 'A' && c <= 'Z');
+    const int digit = c >= '0' && c <= '9';
+    const int punctuation = c == '/' || c == '.' || c == '_' ||
+                            c == '-' || c == ' ' || c == ':';
+    if (!alpha && !digit && !punctuation) return 0;
+    if (i == 1023U) return 0;
+  }
+  return 1;
+}
+
+static int nexs_compile_native(const char *src_path,
+                               CompileTarget target, const char *out_path,
+                               int no_dep) {
+  if (!os1_path_safe(src_path) || !os1_path_safe(out_path)) {
+    fprintf(stderr, "nxscript: unsafe AOT build source/output path\n");
+    return -1;
+  }
+  const char *goal = NULL;
+  const char *input_var = NULL;
+  const char *output_var = NULL;
+  const char *deps_var = NULL;
+  int embed_deps = no_dep == 0;
+  switch (target) {
+  case TARGET_OS1_AMD64:
+    goal = "os1-aot-amd64";
+    break;
+  case TARGET_OS1_ARM64:
+    goal = "os1-aot-arm64";
+    break;
+  case TARGET_BAREMETAL_AMD64:
+    goal = "baremetal-amd64";
+    break;
+  case TARGET_BAREMETAL_ARM64:
+    goal = "baremetal-arm64";
+    break;
+  default:
+    return -1;
+  }
+  if (target == TARGET_OS1_AMD64 || target == TARGET_OS1_ARM64) {
+    input_var = "OS1_AOT_ENTRY_NX";
+    output_var = "OS1_AOT_OUTPUT";
+    deps_var = "OS1_AOT_NO_DEP";
+    embed_deps = no_dep != 0;
+  } else {
+    input_var = "BAREMETAL_ENTRY_NX";
+    output_var = "BAREMETAL_OUTPUT";
+    deps_var = "BAREMETAL_EMBED_DEPS";
+  }
+  char cmd[2300];
+  const int size = snprintf(cmd, sizeof(cmd),
+      "make --no-print-directory %s='%s' %s='%s' %s=%d %s",
+      input_var, src_path, output_var, out_path, deps_var, embed_deps, goal);
+  if (size < 0 || (size_t)size >= sizeof(cmd)) {
+    fprintf(stderr, "nxscript: AOT command exceeds capacity\n");
+    return -1;
+  }
+  return system(cmd) == 0 ? 0 : -1;
+}
+
 /* =========================================================
    nexs_compile_file_ex
    ========================================================= */
@@ -66,6 +134,9 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
     return -1;
 
   const TargetConfig *tc = &nexs_targets[target];
+  if (target == TARGET_OS1_AMD64 || target == TARGET_OS1_ARM64 ||
+      target == TARGET_BAREMETAL_AMD64 || target == TARGET_BAREMETAL_ARM64)
+    return nexs_compile_native(src_path, target, out_path, no_dep);
 
   /* --- Step 0: Create output directory if needed --- */
   {
@@ -82,10 +153,30 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
   }
 
   /* --- Step 1: Detect memory footprint via Host dry-runs --- */
-  const char *profiles[] = {"POOL_4KB",   "POOL_16KB", "POOL_32KB",
-                            "POOL_512KB", "POOL_4MB",  "POOL_16MB"};
-  const int profile_count = 6;
-  int best_profile_idx = profile_count - 1; /* Default to 16MB */
+  const char *profiles[] = {"POOL_4KB", "POOL_16KB", "POOL_32KB", "POOL_512KB",
+                            "POOL_4MB", "POOL_16MB", "POOL_64MB"};
+  const int profile_count = 7;
+  int best_profile_idx = profile_count - 1; /* Default to 64MB */
+
+  /* Check for environment override */
+  const char *env_pool = getenv("NEXS_POOL_PROFILE");
+  if (env_pool) {
+    for (int i = 0; i < profile_count; i++) {
+      if (strcmp(profiles[i], env_pool) == 0) {
+        best_profile_idx = i;
+        goto skip_profiling;
+      }
+    }
+    /* If profile name matches without POOL_ prefix */
+    char buf[64];
+    snprintf(buf, sizeof(buf), "POOL_%s", env_pool);
+    for (int i = 0; i < profile_count; i++) {
+      if (strcmp(profiles[i], buf) == 0) {
+        best_profile_idx = i;
+        goto skip_profiling;
+      }
+    }
+  }
 
   char test_c[256];
   snprintf(test_c, sizeof(test_c), "/tmp/nexs_prof_test_%d.c", (int)getpid());
@@ -94,8 +185,8 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
             src_path);
     return -1;
   }
-  /* Run host profiling for all targets (including baremetal) to detect footprint.
-   * The 1-second alarm prevents infinite loops. */
+  /* Run host profiling for all targets (including baremetal) to detect
+   * footprint. The 1-second alarm prevents infinite loops. */
   for (int i = 0; i < profile_count; i++) {
     char test_bin[256], build_cmd[1024], run_cmd[1024];
     snprintf(test_bin, sizeof(test_bin), "/tmp/nexs_prof_test_%d.bin",
@@ -109,7 +200,9 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
         "core/utils.c registry/registry.c registry/reg_ipc.c lang/fn_table.c "
         "lang/lexer.c lang/parser.c lang/eval.c lang/builtins.c sys/sysio.c "
         "sys/sysproc.c runtime/runtime.c runtime/nexs_line.c "
-        "hal/bc/nexs_hal_bc.c hal/hal_hosted.c -o %s >/dev/null 2>&1",
+        "hal/bc/nexs_hal_bc.c hal/module/nexs_hal_module.c "
+        "hal/common/console.c hal/common/timer.c "
+        "hal/hal_hosted.c -o %s >/dev/null 2>&1",
         profiles[i], test_c, test_bin);
 
     if (system(build_cmd) != 0) {
@@ -147,6 +240,8 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
   }
   unlink(test_c);
 
+skip_profiling:;
+
   /* --- Step 2: Generate actual C wrapper file --- */
   char script_c[256];
   snprintf(script_c, sizeof(script_c), "/tmp/nexs_build_%d.c", (int)getpid());
@@ -179,7 +274,7 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
                   " lang/fn_table.c lang/lexer.c lang/parser.c"
                   " lang/eval.c lang/builtins.c"
                   " sys/sysio.c sys/sysproc.c"
-                  " runtime/runtime.c runtime/nexs_line.c"
+                  " runtime/runtime.c runtime/nexs_line.c runtime/main.c"
                   " hal/bc/nexs_hal_bc.c hal/module/nexs_hal_module.c",
                   script_c);
 
@@ -187,7 +282,9 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
     pos +=
         snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " kernel/libc_stub.c");
   } else {
-    pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " hal/hal_hosted.c");
+    pos +=
+        snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
+                 " hal/common/console.c hal/common/timer.c hal/hal_hosted.c");
   }
 
   /* Bare-metal extras */
@@ -196,8 +293,7 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
       pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -T '%s'",
                       tc->ld_script);
     pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
-                    " -nostdlib -nostartfiles -ffreestanding -Ikernel/include "
-                    "-Wl,--no-warn-rwx-segments");
+                    " -nostdlib -nostartfiles -ffreestanding -Ikernel/include");
 
     if (strcmp(tc->name, "baremetal-arm64") == 0) {
       pos += snprintf(
@@ -210,6 +306,9 @@ int nexs_compile_file_ex(const char *src_path, CompileTarget target,
                       " hal/amd64/boot.S hal/amd64/isr_stubs.S hal/amd64/uart.c"
                       " hal/amd64/gdt.c hal/amd64/idt.c hal/amd64/apic.c"
                       " hal/amd64/mmu.c hal/amd64/acpi.c kernel/ctx_amd64.S");
+    } else if (strcmp(tc->name, "sel4-microkit") == 0) {
+      pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
+                      " hal/hal_sel4.c");
     }
   }
 

@@ -15,44 +15,20 @@
  */
 
 #include "include/nexs_compiler.h"
+#include "../core/include/nexs_utils.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#ifndef NEXS_BAREMETAL
+#include <dirent.h>
+#include <sys/stat.h>
+#endif
 
 /* =========================================================
    INTERNAL HELPERS
    ========================================================= */
-
-/* Extract the directory part of path into buf (no trailing slash unless root) */
-static void path_dirname(const char *path, char *buf, size_t bufsz) {
-    strncpy(buf, path, bufsz - 1);
-    buf[bufsz - 1] = '\0';
-    char *slash = strrchr(buf, '/');
-    if (slash && slash != buf) {
-        *slash = '\0';
-    } else if (slash == buf) {
-        buf[1] = '\0'; /* root "/" */
-    } else {
-        strncpy(buf, ".", bufsz - 1); /* no slash → current dir */
-    }
-}
-
-/* Join dir + "/" + file into buf */
-static void path_join(const char *dir, const char *file, char *buf, size_t bufsz) {
-    if (file[0] == '/') {
-        /* Already absolute */
-        strncpy(buf, file, bufsz - 1);
-        buf[bufsz - 1] = '\0';
-        return;
-    }
-    if (strcmp(dir, ".") == 0) {
-        strncpy(buf, file, bufsz - 1);
-    } else {
-        snprintf(buf, bufsz, "%s/%s", dir, file);
-    }
-}
 
 /* Check whether path already exists in the dep list */
 static int dep_already_seen(NexsDepEntry *deps, int count, const char *path) {
@@ -95,7 +71,7 @@ static int scan_source(const char *src_path, const char *src,
     if (!src || !src_path) return count;
 
     char parent_dir[NEXS_DEP_PATH_MAX];
-    path_dirname(src_path, parent_dir, sizeof(parent_dir));
+    nexs_path_dirname(src_path, parent_dir, sizeof(parent_dir));
 
     const char *p = src;
     while (*p) {
@@ -106,18 +82,27 @@ static int scan_source(const char *src_path, const char *src,
         }
 
         /*
-         * Look for exec( without requiring whitespace.
-         * Both keyword form  exec("path")
-         * and fn-call form   exec("path")  are identical textually.
+         * Look for exec( or import( without requiring whitespace.
+         * Both keyword form  exec("path") / import("path")
+         * and fn-call form   exec("path") / import("path") are identical textually.
          */
-        if (strncmp(p, "exec", 4) == 0) {
-            const char *after_exec = p + 4;
-            /* Skip optional whitespace between exec and ( */
+        const char *keyword = NULL;
+        if (strncmp(p, "exec", 4) == 0) keyword = "exec";
+        else if (strncmp(p, "import", 6) == 0) keyword = "import";
+
+        if (keyword) {
+            size_t kw_len = strlen(keyword);
+            const char *after_exec = p + kw_len;
+            /* Skip optional whitespace between keyword and ( or " */
             while (*after_exec == ' ' || *after_exec == '\t') after_exec++;
-            if (*after_exec == '(') {
-                after_exec++; /* skip ( */
-                /* Skip whitespace */
-                while (*after_exec == ' ' || *after_exec == '\t') after_exec++;
+            
+            if (*after_exec == '(' || *after_exec == '"' || *after_exec == '\'') {
+                int has_paren = (*after_exec == '(');
+                if (has_paren) {
+                    after_exec++;
+                    while (*after_exec == ' ' || *after_exec == '\t') after_exec++;
+                }
+
                 /* Expect a string literal */
                 char quote = *after_exec;
                 if (quote == '"' || quote == '\'') {
@@ -151,14 +136,30 @@ static int scan_source(const char *src_path, const char *src,
                                 FILE *probe = fopen(abs_path, "r");
                                 if (!probe) {
                                     char alt[NEXS_DEP_PATH_MAX];
-                                    path_join(parent_dir, rel_path, alt, sizeof(alt));
-                                    FILE *probe2 = fopen(alt, "r");
-                                    if (probe2) {
-                                        fclose(probe2);
+
+                                    /* 1. Try parent-dir-relative */
+                                    nexs_path_join(alt, sizeof(alt), parent_dir, rel_path, NULL);
+                                    probe = fopen(alt, "r");
+                                    if (probe) {
                                         strncpy(abs_path, alt, NEXS_DEP_PATH_MAX - 1);
-                                        abs_path[NEXS_DEP_PATH_MAX - 1] = '\0';
+                                    } else {
+                                        /* 2. Try global paths */
+                                        const char *global_dirs[] = {
+                                            "services", "/usr/local/share/nexs/services",
+                                            "modules", "/usr/local/share/nexs/modules"
+                                        };
+                                        for (int i = 0; i < 4; i++) {
+                                            snprintf(alt, sizeof(alt), "%s/%s", global_dirs[i], rel_path);
+                                            probe = fopen(alt, "r");
+                                            if (probe) {
+                                                strncpy(abs_path, alt, NEXS_DEP_PATH_MAX - 1);
+                                                break;
+                                            }
+                                        }
                                     }
-                                } else {
+                                }
+
+                                if (probe) {
                                     fclose(probe);
                                 }
                             }
@@ -234,11 +235,56 @@ int nexs_scan_deps(const char *src_path,
  * nexs_free_deps — release the .src buffers allocated by nexs_scan_deps().
  */
 void nexs_free_deps(NexsDepEntry *deps, int count) {
-    if (!deps) return;
-    for (int i = 0; i < count; i++) {
-        if (deps[i].src) {
-            free(deps[i].src);
-            deps[i].src = NULL;
-        }
+  if (!deps)
+    return;
+  for (int i = 0; i < count; i++) {
+    if (deps[i].src) {
+      free(deps[i].src);
+      deps[i].src = NULL;
     }
+  }
 }
+
+/*
+ * nexs_scan_directory — recursively index all .nx files in a directory.
+ */
+#ifndef NEXS_BAREMETAL
+int nexs_scan_directory(const char *dir_path, NexsDepEntry *deps, int count, int max_deps) {
+  DIR *d = opendir(dir_path);
+  if (!d) return count;
+
+  struct dirent *ent;
+  while ((ent = readdir(d)) != NULL) {
+    if (ent->d_name[0] == '.') continue;
+
+    char path[NEXS_DEP_PATH_MAX];
+    snprintf(path, sizeof(path), "%s/%s", dir_path, ent->d_name);
+
+    struct stat st;
+    if (stat(path, &st) == 0) {
+      if (S_ISDIR(st.st_mode)) {
+        count = nexs_scan_directory(path, deps, count, max_deps);
+      } else {
+        size_t nlen = strlen(ent->d_name);
+        if (nlen > 3 && strcmp(ent->d_name + nlen - 3, ".nx") == 0) {
+          if (!dep_already_seen(deps, count, path)) {
+            if (count < max_deps) {
+              strncpy(deps[count].path, path, NEXS_DEP_PATH_MAX - 1);
+              deps[count].path[NEXS_DEP_PATH_MAX - 1] = '\0';
+              deps[count].src = dep_read_file(path);
+              count++;
+            }
+          }
+        }
+      }
+    }
+  }
+  closedir(d);
+  return count;
+}
+#else
+int nexs_scan_directory(const char *dir_path, NexsDepEntry *deps, int count, int max_deps) {
+  (void)dir_path; (void)deps; (void)max_deps;
+  return count;
+}
+#endif

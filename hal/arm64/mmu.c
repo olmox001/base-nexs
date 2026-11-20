@@ -8,12 +8,27 @@
  * Enables the MMU via SCTLR_EL1.
  */
 
+#include "../include/nexs_mmu.h"
 #include <stdint.h>
 
-/* ── Page table constants ─────────────────────────────────── */
-#define PAGE_TABLE_BASE   0x1000UL  /* PGD: 4KB at phys 0x1000 */
-#define PUD_BASE          0x2000UL  /* PUD: 4KB at phys 0x2000 */
-#define PMD_BASE          0x3000UL  /* PMD: 4KB at phys 0x3000 */
+/* QEMU virt boots RAM at 0x40000000 while UART/GIC occupy MMIO below
+ * 0x40000000. AArch64 with T0SZ=25 starts at L1 (1 GiB per entry):
+ * one L1 table and one L2 table for each populated GiB segment.
+ *
+ * All tables live in the kernel image, in real guest RAM. The legacy absolute
+ * physical addresses 0x1000/0x2000/0x3000 were outside QEMU virt RAM and
+ * caused an EL1 translation fault immediately after enabling the MMU.
+ */
+#define NEXS_ARM64_L2_BLOCK_BYTES (2UL * 1024UL * 1024UL)
+#define NEXS_ARM64_RAM_BASE       (1UL << 30)
+#define NEXS_ARM64_TABLE_ENTRIES  (512U)
+
+static uint64_t s_l1_root[NEXS_ARM64_TABLE_ENTRIES]
+    __attribute__((aligned(4096)));
+static uint64_t s_l2_mmio[NEXS_ARM64_TABLE_ENTRIES]
+    __attribute__((aligned(4096)));
+static uint64_t s_l2_ram[NEXS_ARM64_TABLE_ENTRIES]
+    __attribute__((aligned(4096)));
 
 /* Descriptor flags */
 #define PTE_VALID         (1UL << 0)
@@ -47,51 +62,98 @@
 #define TCR_IPS_1G  (1UL << 32)    /* IPS=1 → 36-bit PA */
 #define TCR_VAL     (TCR_T0SZ | TCR_IRGN0 | TCR_ORGN0 | TCR_SH0 | TCR_TG0_4K)
 
-static void memzero(volatile uint64_t *p, int count) {
-    for (int i = 0; i < count; i++) p[i] = 0;
+static void table_clear(uint64_t *table) {
+    for (uint32_t i = 0; i < NEXS_ARM64_TABLE_ENTRIES; ++i)
+        table[i] = 0;
 }
 
-void nexs_mmu_init(void) {
-    volatile uint64_t *pgd = (volatile uint64_t *)PAGE_TABLE_BASE;
-    volatile uint64_t *pud = (volatile uint64_t *)PUD_BASE;
-    volatile uint64_t *pmd = (volatile uint64_t *)PMD_BASE;
-
-    /* Zero tables */
-    memzero(pgd, 512);
-    memzero(pud, 512);
-    memzero(pmd, 512);
-
-    /* PGD[0] → PUD */
-    pgd[0] = PUD_BASE | PTE_VALID | PTE_TABLE;
-
-    /* PUD[0] → PMD */
-    pud[0] = PMD_BASE | PTE_VALID | PTE_TABLE;
-
-    /* PMD: 512 × 2MB block entries.
-     * First 8 entries (0–15 MB): Device memory (UART, GIC, etc.)
-     * Remaining: Normal memory. */
-    for (int i = 0; i < 512; i++) {
-        uint64_t phys = (uint64_t)i * (2UL * 1024 * 1024);
-        uint64_t attr = (i < 8) ? PTE_DEVICE : (PTE_NORMAL | PTE_SH_INNER);
-        pmd[i] = phys | PTE_VALID | PTE_BLOCK | PTE_AF | PTE_AP_RW_EL1 | attr;
+static void table_map_blocks(uint64_t *table, uint64_t phys_base,
+                             uint64_t attributes) {
+    for (uint32_t i = 0; i < NEXS_ARM64_TABLE_ENTRIES; ++i) {
+        uint64_t phys = phys_base + ((uint64_t)i * NEXS_ARM64_L2_BLOCK_BYTES);
+        table[i] = phys | PTE_VALID | PTE_BLOCK | PTE_AF |
+                   PTE_AP_RW_EL1 | attributes;
     }
+}
 
-    /* MAIR_EL1: index 0 = Normal WB, index 1 = Device */
-    uint64_t mair = MAIR_NORMAL_WB | (MAIR_DEVICE << 8);
+void mmu_init(void) {
+    table_clear(s_l1_root);
+    table_clear(s_l2_mmio);
+    table_clear(s_l2_ram);
+
+    /* [0, 1 GiB): peripheral/MMIO ranges, including PL011 and GIC. */
+    table_map_blocks(s_l2_mmio, 0, PTE_DEVICE);
+    /* [1 GiB, 2 GiB): QEMU virt DRAM, including the entire Base-NEXS image. */
+    table_map_blocks(s_l2_ram, NEXS_ARM64_RAM_BASE,
+                     PTE_NORMAL | PTE_SH_INNER);
+
+    s_l1_root[0] = (uintptr_t)s_l2_mmio | PTE_VALID | PTE_TABLE;
+    s_l1_root[1] = (uintptr_t)s_l2_ram | PTE_VALID | PTE_TABLE;
+
+    /* MAIR_EL1: index 0 normal write-back; index 1 device nGnRnE. */
+    const uint64_t mair = MAIR_NORMAL_WB | (MAIR_DEVICE << 8);
     __asm__ volatile("msr mair_el1, %0" :: "r"(mair));
-
-    /* TCR_EL1 */
     __asm__ volatile("msr tcr_el1, %0" :: "r"((uint64_t)TCR_VAL));
+    __asm__ volatile("msr ttbr0_el1, %0" ::
+                     "r"((uintptr_t)s_l1_root) : "memory");
+    __asm__ volatile("dsb sy; isb" ::: "memory");
 
-    /* TTBR0_EL1 → PGD */
-    __asm__ volatile("msr ttbr0_el1, %0" :: "r"((uint64_t)PAGE_TABLE_BASE));
-    __asm__ volatile("isb");
-
-    /* Enable MMU, I-cache, D-cache via SCTLR_EL1 */
     uint64_t sctlr;
     __asm__ volatile("mrs %0, sctlr_el1" : "=r"(sctlr));
-    sctlr |= (1UL << 0)  /* M  — MMU enable */
-           | (1UL << 2)  /* C  — D-cache enable */
-           | (1UL << 12) /* I  — I-cache enable */;
-    __asm__ volatile("msr sctlr_el1, %0; isb" :: "r"(sctlr));
+    sctlr |= (1UL << 0) | (1UL << 2) | (1UL << 12);
+    __asm__ volatile("msr sctlr_el1, %0; isb" :: "r"(sctlr) : "memory");
+}
+
+int mmu_map_page(uint32_t pid, vaddr_t virt, paddr_t phys, uint32_t flags) {
+    (void)pid; (void)virt; (void)phys; (void)flags;
+    return -1;
+}
+
+int mmu_unmap_page(uint32_t pid, vaddr_t virt) {
+    (void)pid; (void)virt;
+    return 0;
+}
+
+void mmu_flush_tlb(vaddr_t virt) {
+    (void)virt;
+    __asm__ volatile("dsb ish; isb" ::: "memory");
+}
+
+paddr_t mmu_virt_to_phys(vaddr_t virt) {
+    return (paddr_t)virt;
+}
+
+void mmu_page_fault(vaddr_t fault_addr, uint64_t err) {
+    (void)fault_addr; (void)err;
+}
+
+int mm_alloc_page(uint32_t pid, vaddr_t virt, uint32_t flags) {
+    (void)pid; (void)virt; (void)flags;
+    return 0;
+}
+
+int mm_free_page(uint32_t pid, vaddr_t virt) {
+    (void)pid; (void)virt;
+    return 0;
+}
+
+int mm_map_range(uint32_t pid, vaddr_t virt, paddr_t phys, uint32_t pages, uint32_t flags) {
+    (void)pid; (void)virt; (void)phys; (void)pages; (void)flags;
+    return 0;
+}
+
+void mmu_worker_sync(void) {}
+
+paddr_t mmu_create_address_space(uint32_t pid) {
+    (void)pid;
+    return 0;
+}
+
+int mmu_switch_address_space(uint32_t pid) {
+    (void)pid;
+    return 0;
+}
+
+void mmu_destroy_address_space(uint32_t pid) {
+    (void)pid;
 }

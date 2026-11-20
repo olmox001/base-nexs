@@ -107,8 +107,17 @@ int nexs_open(const char *path, int mode) {
       return fd;
   }
 
-  /* 2. Fallback al FS reale (in baremetal fallirà) */
-  FILE *fp = fopen(path, fmode);
+  /* Only catalogued source reads use the platform's source path mapping.
+   * All writes remain explicit user-specified VFS paths and process ACLs. */
+  char platform_path[REG_PATH_MAX];
+  const char *real_path = (base == NEXS_OREAD && !trunc)
+      ? nexs_platform_source_path(path, platform_path, sizeof(platform_path))
+      : path;
+  if (real_path == NULL) {
+    set_errstr("open: invalid source path");
+    return -1;
+  }
+  FILE *fp = fopen(real_path, fmode);
   if (!fp) { set_errstr("open: cannot open file"); return -1; }
   g_fd_table[fd].fp = fp;
   g_fd_table[fd].emb_src = NULL;
@@ -137,7 +146,23 @@ int nexs_create(const char *path, int mode, int perm) {
   default:          fmode = "w";
   }
   FILE *fp = fopen(path, fmode);
-  if (!fp) { set_errstr("create: cannot create file"); return -1; }
+  if (!fp) {
+      /* RAMFS fallback for freestanding environments (e.g. seL4) where real files are absent */
+      void *vbuf = xmalloc(4096);
+      if (!vbuf) { set_errstr("create: RAMFS out of memory"); return -1; }
+      memset(vbuf, 0, 4096);
+      g_fd_table[fd].fp = NULL;
+      g_fd_table[fd].emb_src = (const char *)vbuf;
+      g_fd_table[fd].emb_pos = 0;
+      strncpy(g_fd_table[fd].path, path, REG_PATH_MAX - 1);
+      g_fd_table[fd].path[REG_PATH_MAX - 1] = '\0';
+      g_fd_table[fd].in_use = 1;
+      g_fd_table[fd].flags  = mode | 0x8000; /* Special flag bit for dynamic RAMFS file */
+      char regpath[REG_PATH_MAX];
+      snprintf(regpath, sizeof(regpath), "/sys/fd/%d", fd);
+      reg_set(regpath, val_str(path), RK_READ);
+      return fd;
+  }
   g_fd_table[fd].fp = fp;
   g_fd_table[fd].emb_src = NULL;
   g_fd_table[fd].emb_pos = 0;
@@ -154,7 +179,14 @@ int nexs_create(const char *path, int mode, int perm) {
 int nexs_close(int fd) {
   if (fd < 0 || fd >= NEXS_MAX_FDS) { set_errstr("close: invalid fd"); return -1; }
   if (!g_fd_table[fd].in_use) { set_errstr("close: fd not open"); return -1; }
-  if (fd >= 3 && g_fd_table[fd].fp) fclose(g_fd_table[fd].fp);
+  if (g_fd_table[fd].flags & 0x8000) {
+      if (g_fd_table[fd].emb_src) {
+          xfree((void *)g_fd_table[fd].emb_src);
+      }
+      g_fd_table[fd].emb_src = NULL;
+  } else {
+      if (fd >= 3 && g_fd_table[fd].fp) fclose(g_fd_table[fd].fp);
+  }
   g_fd_table[fd].fp = NULL;
   g_fd_table[fd].path[0] = '\0';
   g_fd_table[fd].in_use = 0;
@@ -169,6 +201,20 @@ int nexs_pread(int fd, char *buf, int n, int64_t offset) {
   if (fd < 0 || fd >= NEXS_MAX_FDS || !g_fd_table[fd].in_use)
     { set_errstr("pread: invalid fd"); return -1; }
   if (!buf || n <= 0) { set_errstr("pread: invalid params"); return -1; }
+
+  if (g_fd_table[fd].flags & 0x8000) {
+      const char *mbuf = g_fd_table[fd].emb_src;
+      size_t pos = (offset >= 0) ? (size_t)offset : g_fd_table[fd].emb_pos;
+      size_t len = 0;
+      while (len < 4096 && mbuf[len] != '\0') len++;
+      if (len == 0) len = 4096; /* If newly created, allow reading uninitialized space */
+      if (pos >= len) return 0;
+      size_t to_read = len - pos;
+      if (to_read > (size_t)n) to_read = (size_t)n;
+      memcpy(buf, mbuf + pos, to_read);
+      if (offset < 0) g_fd_table[fd].emb_pos += to_read;
+      return (int)to_read;
+  }
 
   if (g_fd_table[fd].emb_src) {
       size_t len = strlen(g_fd_table[fd].emb_src);
@@ -192,6 +238,17 @@ int nexs_pwrite(int fd, const char *buf, int n, int64_t offset) {
   if (fd < 0 || fd >= NEXS_MAX_FDS || !g_fd_table[fd].in_use)
     { set_errstr("pwrite: invalid fd"); return -1; }
   if (!buf || n <= 0) { set_errstr("pwrite: invalid params"); return -1; }
+
+  if (g_fd_table[fd].flags & 0x8000) {
+      char *mbuf = (char *)g_fd_table[fd].emb_src;
+      size_t pos = (offset >= 0) ? (size_t)offset : g_fd_table[fd].emb_pos;
+      if (pos + n > 4096) n = 4096 - pos;
+      if (n <= 0) return 0;
+      memcpy(mbuf + pos, buf, n);
+      if (offset < 0) g_fd_table[fd].emb_pos += n;
+      return n;
+  }
+
   FILE *fp = g_fd_table[fd].fp;
   if (!fp) { set_errstr("pwrite: NULL fp"); return -1; }
   if (offset >= 0 && fseek(fp, (long)offset, SEEK_SET) != 0)
@@ -206,7 +263,7 @@ int64_t nexs_seek(int fd, int64_t offset, int whence) {
     { set_errstr("seek: invalid fd"); return -1; }
 
   if (g_fd_table[fd].emb_src) {
-      size_t len = strlen(g_fd_table[fd].emb_src);
+      size_t len = (g_fd_table[fd].flags & 0x8000) ? 4096 : strlen(g_fd_table[fd].emb_src);
       int64_t newpos = 0;
       switch (whence) {
       case 0: newpos = offset; break;
@@ -329,9 +386,13 @@ static int nexs_read_byte(void) {
     s_key_lookahead = -1;
     return c;
   }
-  unsigned char c;
+#ifdef NEXS_BAREMETAL
+  return nexs_hal_getc();
+#else
+  char c;
   if (read(STDIN_FILENO, &c, 1) <= 0) return -1;
-  return (int)c;
+  return (int)(unsigned char)c;
+#endif
 }
 
 /* =========================================================
@@ -486,8 +547,30 @@ static Value bi_unmount(Value *args, int n) {
 static struct termios s_orig_term;
 static int            s_raw_active = 0;
 
+static int s_fg_pid = -1;
+
+static int nexs_is_fg(void) {
+#ifdef NEXS_BAREMETAL
+  return 1;
+#else
+  if (s_fg_pid < 0) return 1;
+  static pid_t s_own_pid;
+  if (!s_own_pid) s_own_pid = getpid();
+  return ((int)s_own_pid == s_fg_pid);
+#endif
+}
+
+static Value bi_set_fg_pid(Value *args, int n) {
+  if (n < 1) return val_nil();
+  s_fg_pid = (int)val_to_int(&args[0]);
+  return val_nil();
+}
+
 static Value bi_rawon(Value *args, int n) {
   (void)args; (void)n;
+#ifdef NEXS_BAREMETAL
+  return val_nil();
+#endif
   if (s_raw_active) return val_int(0);
   if (!isatty(STDIN_FILENO)) return val_int(-1);
   if (tcgetattr(STDIN_FILENO, &s_orig_term) != 0) return val_int(-1);
@@ -503,6 +586,9 @@ static Value bi_rawon(Value *args, int n) {
 
 static Value bi_rawoff(Value *args, int n) {
   (void)args; (void)n;
+#ifdef NEXS_BAREMETAL
+  return val_nil();
+#endif
   if (!s_raw_active) return val_int(0);
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &s_orig_term);
   s_raw_active = 0;
@@ -605,6 +691,7 @@ static Value bi_readkey_nb(Value *args, int n) {
 }
 
 static Value bi_term_at(Value *args, int n) {
+    if (!nexs_is_fg()) return val_nil();
     if (n < 3) return val_err(4, "term_at: requires y, x, str");
     int y = (int)val_to_int(&args[0]);
     int x = (int)val_to_int(&args[1]);
@@ -618,6 +705,7 @@ static Value bi_term_at(Value *args, int n) {
 
 static Value bi_term_cls(Value *args, int n) {
     (void)args; (void)n;
+    if (!nexs_is_fg()) return val_nil();
     nexs_hal_print("\033[2J\033[H");
     return val_nil();
 }
@@ -647,18 +735,36 @@ static Value bi_term_cursor_show(Value *args, int n) {
 
 static Value bi_term_flush(Value *args, int n) {
     (void)args; (void)n;
+    if (!nexs_is_fg()) return val_nil();
 #ifndef NEXS_BAREMETAL
     fflush(stdout);
 #endif
     return val_nil();
 }
 
+#define NEXS_TERM_SIZE_FALLBACK "80x24"
+
+static Value bi_term_size(Value *args, int n) {
+  (void)args; (void)n;
+#ifdef NEXS_BAREMETAL
+  return val_str(NEXS_TERM_SIZE_FALLBACK);
+#else
+  struct winsize ws;
+  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%dx%d", (int)ws.ws_col, (int)ws.ws_row);
+    return val_str(buf);
+  }
+  return val_str(NEXS_TERM_SIZE_FALLBACK);
+#endif
+}
+
 static Value bi_readbyte(Value *args, int n) {
   (void)args; (void)n;
-  unsigned char c;
+  char c;
   ssize_t r = read(STDIN_FILENO, &c, 1);
   if (r <= 0) return val_int(-1);
-  return val_int((int64_t)c);
+  return val_int((int64_t)(unsigned char)c);
 }
 
 static Value bi_chr(Value *args, int n) {
@@ -743,6 +849,10 @@ void sysio_register_builtins(void) {
     SIG("term_cursor_show(bool)") "nil");
   fn_register_builtin_sig("term_flush", bi_term_flush,
     SIG("term_flush()") "nil");
+  fn_register_builtin_sig("term_size", bi_term_size,
+    SIG("term_size()") "str");
+  fn_register_builtin_sig("set_fg_pid", bi_set_fg_pid,
+    SIG("set_fg_pid(pid int)") "nil");
 
   /* Store actual fn_table indices in /sys/<name> for val_print and eval resolution */
   {
@@ -758,7 +868,8 @@ void sysio_register_builtins(void) {
       {"readkey_nb",bi_readkey_nb},{"term_at",bi_term_at},
       {"term_cls",bi_term_cls},{"term_cursor_move",bi_term_cursor_move},
       {"term_erase_eol",bi_term_erase_eol},{"term_cursor_show",bi_term_cursor_show},
-      {"term_flush",bi_term_flush},
+      {"term_flush",bi_term_flush},{"term_size",bi_term_size},
+      {"set_fg_pid",bi_set_fg_pid},
     };
     char path[REG_PATH_MAX];
     for (int _i = 0; _i < (int)(sizeof(t)/sizeof(t[0])); _i++) {

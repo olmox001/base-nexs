@@ -20,7 +20,7 @@
 
 Value kmsg_encode(const KernelMsg *m) {
     char buf[640];
-    snprintf(buf, sizeof(buf), "%s:%s:%s:%lld:%u",
+    snprintf(buf, sizeof(buf), "%s\x1f%s\x1f%s\x1f%lld\x1f%u",
              m->verb, m->arg0, m->arg1,
              (long long)m->n, (unsigned)m->sender_pid);
     return val_str(buf);
@@ -38,19 +38,19 @@ int kmsg_decode(const Value *v, KernelMsg *out) {
     char *p = tmp;
     char *tok;
 
-    tok = strtok(p, ":"); if (!tok) return -1;
+    tok = strtok(p, "\x1f"); if (!tok) return -1;
     strncpy(out->verb, tok, sizeof(out->verb) - 1);
 
-    tok = strtok(NULL, ":"); if (!tok) return -1;
+    tok = strtok(NULL, "\x1f"); if (!tok) return -1;
     strncpy(out->arg0, tok, sizeof(out->arg0) - 1);
 
-    tok = strtok(NULL, ":"); if (!tok) return -1;
+    tok = strtok(NULL, "\x1f"); if (!tok) return -1;
     strncpy(out->arg1, tok, sizeof(out->arg1) - 1);
 
-    tok = strtok(NULL, ":"); if (!tok) return -1;
+    tok = strtok(NULL, "\x1f"); if (!tok) return -1;
     out->n = (int64_t)atoll(tok);
 
-    tok = strtok(NULL, ":"); if (!tok) return -1;
+    tok = strtok(NULL, "\x1f"); if (!tok) return -1;
     out->sender_pid = (uint32_t)atoi(tok);
 
     return 0;

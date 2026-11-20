@@ -18,12 +18,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef NEXS_BAREMETAL
+#if defined(NEXS_OS1)
+#include "../hal/os1/include/nexs_os1_tty.h"
+#include <unistd.h>
+#elif !defined(NEXS_BAREMETAL)
 #include <termios.h>
 #include <unistd.h>
 #else
 #include "../../hal/include/nexs_hal.h"
 #include "../../hal/include/nexs_timer.h"
+#include "../../hal/include/nexs_mmu.h"
 #define STDIN_FILENO 0
 #define STDOUT_FILENO 1
 #define isatty(fd) (1)
@@ -35,7 +39,12 @@
    INTERNAL: TERMIOS STATE
    ========================================================= */
 
-#ifndef NEXS_BAREMETAL
+#if defined(NEXS_OS1)
+int nexs_line_raw_on(void) { return nexs_os1_tty_begin(); }
+void nexs_line_raw_off(void) { nexs_os1_tty_end(); }
+static int read_byte(void) { return nexs_os1_tty_read(-1); }
+static int read_byte_timeout(void) { return nexs_os1_tty_read(100); }
+#elif !defined(NEXS_BAREMETAL)
 static struct termios s_orig_termios;
 static int s_raw_active = 0;
 
@@ -68,11 +77,11 @@ void nexs_line_raw_off(void) {
 }
 
 static int read_byte(void) {
-  unsigned char c;
+  char c;
   ssize_t n = read(STDIN_FILENO, &c, 1);
   if (n <= 0)
     return -1;
-  return (int)c;
+  return (int)(unsigned char)c;
 }
 
 static int read_byte_timeout(void) {
@@ -93,6 +102,7 @@ void nexs_line_raw_off(void) {}
 static int read_byte(void) {
   int c = -1;
   while (c == -1) {
+    mmu_worker_sync();
     c = nexs_hal_getc();
   }
   return c;
@@ -100,6 +110,7 @@ static int read_byte(void) {
 
 static int read_byte_timeout(void) {
   for (int i = 0; i < 100; i++) {
+    mmu_worker_sync();
     int c = nexs_hal_getc();
     if (c != -1)
       return c;
@@ -139,7 +150,7 @@ static int utf8_col_width(uint32_t cp) {
 }
 
 /* Parse UTF-8 starting at buf[pos], return codepoint and advance pos */
-static uint32_t utf8_decode(const char *buf, int len, int *pos) {
+static uint32_t nexs_line_utf8_decode(const char *buf, int len, int *pos) {
   unsigned char c = (unsigned char)buf[*pos];
   int seqlen = utf8_seq_len(c);
   if (*pos + seqlen > len) {
@@ -171,7 +182,7 @@ static uint32_t utf8_decode(const char *buf, int len, int *pos) {
 static int visual_cols(const char *buf, int end) {
   int cols = 0, i = 0;
   while (i < end) {
-    uint32_t cp = utf8_decode(buf, end, &i);
+    uint32_t cp = nexs_line_utf8_decode(buf, end, &i);
     cols += utf8_col_width(cp);
   }
   return cols;
@@ -437,7 +448,7 @@ NxKey nexs_key_read(void) {
 
   /* decode codepoint */
   int pos = 0;
-  k.codepoint = utf8_decode(k.utf8, seqlen, &pos);
+  k.codepoint = nexs_line_utf8_decode(k.utf8, seqlen, &pos);
 
   return k;
 }

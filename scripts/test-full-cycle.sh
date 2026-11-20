@@ -39,8 +39,8 @@ run_cmd() {
 echo "=== Fase 1: Pulizia e build nativa ==="
 run_cmd make clean
 run_cmd make
-run_cmd ./nexs
-run_cmd ./nexs example/minios/boot.nx
+run_cmd ./nxscript
+run_cmd ./nxscript example/minios/boot.nx
 
 echo "=== Fase 2: Build baremetal-amd64 + QEMU ==="
 run_cmd make clean
@@ -54,9 +54,9 @@ run_cmd ./scripts/make-iso.sh
 run_cmd ./scripts/qemu-amd64.sh --iso
 
 echo "=== Fase 4: Compilazione diretta baremetal ==="
-run_cmd ./nexs --compile example/minios/boot.nx \
+run_cmd ./nxscript --compile example/minios/boot.nx \
                --target baremetal-amd64 \
-               -o build/baremetal-amd64/nexs.elf
+               -o build/baremetal-amd64/nxscript.elf
 
 run_cmd ./scripts/qemu-amd64.sh
 run_cmd ./scripts/make-iso.sh
@@ -64,7 +64,7 @@ run_cmd ./scripts/qemu-amd64.sh --iso
 
 echo "=== Fase 5: Compilazione e test target macOS ==="
 run_cmd make clean
-run_cmd ./nexs --compile example/minios/boot.nx \
+run_cmd ./nxscript --compile example/minios/boot.nx \
                --target macos-amd64 \
                -o test.out
 

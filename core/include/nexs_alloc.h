@@ -14,7 +14,11 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+#ifndef NEXS_BAREMETAL
 #include <stdio.h>
+#else
+typedef struct FILE FILE;
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,7 +30,11 @@ extern "C" {
 
 typedef enum { BNODE_FREE = 0, BNODE_SPLIT = 1, BNODE_USED = 2 } BuddyNodeState;
 
+#ifdef NEXS_SEL4
+extern uint8_t *memory_pool;
+#else
 extern uint8_t memory_pool[POOL_SIZE];
+#endif
 extern uint8_t buddy_tree[TREE_NODES];
 
 /* =========================================================
@@ -39,6 +47,8 @@ NEXS_API void   buddy_free(void *ptr);
 
 /* xmalloc: alloc + zero-fill; calls die() on OOM */
 NEXS_API void  *xmalloc(size_t size);
+/* xrealloc: buddy realloc; calls die() on OOM */
+NEXS_API void  *xrealloc(void *ptr, size_t size);
 /* xfree: alias of buddy_free */
 NEXS_API void   xfree(void *ptr);
 
@@ -46,13 +56,14 @@ NEXS_API char  *buddy_strdup(const char *s);
 NEXS_API void   buddy_dump_stats(FILE *out);
 
 /* =========================================================
-   PAGE ALLOCATOR API
+   PAGE ALLOCATOR API (Bitmap-hardened)
    ========================================================= */
 
-/* Allocate n_pages * NEXS_PAGE_SIZE bytes (mmap on hosted, bump on baremetal) */
+/* Allocate n_pages * NEXS_PAGE_SIZE bytes using physical frame bitmap.
+ * Auto-tracks allocations in Registry (/mem/virt/). */
 NEXS_API void *page_alloc(size_t n_pages);
 
-/* Free memory allocated by page_alloc */
+/* Free memory and release physical frames to the bitmap. */
 NEXS_API void  page_free(void *ptr, size_t n_pages);
 
 /* Returns 1 if ptr was allocated by page_alloc, 0 otherwise */

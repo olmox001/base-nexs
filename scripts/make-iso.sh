@@ -4,7 +4,7 @@
 # =============================================================================
 set -e
 
-KERNEL="build/baremetal-amd64/nexs.elf"
+KERNEL="build/baremetal-amd64/nxscript.elf"
 OUT_ISO="build/nexs-amd64.iso"
 ISO_ROOT="build/iso_stage"
 
@@ -22,7 +22,7 @@ rm -rf "$ISO_ROOT"
 mkdir -p "$ISO_ROOT/limine"
 
 # Copia file
-cp "$KERNEL" "$ISO_ROOT/nexs.elf"
+cp "$KERNEL" "$ISO_ROOT/nxscript.elf"
 cp "$LIMINE_SHARE/limine-bios.sys"    "$ISO_ROOT/"          # root
 cp "$LIMINE_SHARE/limine-bios.sys"    "$ISO_ROOT/limine/"
 cp "$LIMINE_SHARE/limine-bios-cd.bin" "$ISO_ROOT/limine/"
@@ -34,7 +34,7 @@ serial: yes
 
 /NEXS OS
     protocol: multiboot2
-    path: boot():/nexs.elf
+    path: boot():/nxscript.elf
 EOF
 
 echo "[*] Creazione ISO con xorriso..."

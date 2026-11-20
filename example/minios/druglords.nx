@@ -1,0 +1,986 @@
+# ================================================================
+# DRUG LORDS — NEXS Edition
+# Classic street-trading survival game, single-file .nx
+# Refactored for better UI and robust logic
+# ================================================================
+
+# Library for MiniOS integration
+# System libraries already loaded by boot.nx
+
+# Constants
+TRAVEL_COST    = 100
+BANK_FEE       = 50
+MAX_POCKETS    = 100
+BANK_INTEREST  = 0.05
+DEBT_INTEREST  = 0.10
+INFORMANT_FEE  = 300
+NEWS_COST      = 50
+JET_UNLOCK     = 50000
+HEAT_MAX       = 100
+SCORE_FILE     = "sd02/home/game/druglords/druglords.scores"
+VFS_SAVE_FILE  = "sd02/home/game/druglords/druglords.sav"
+
+# Colors (ANSI)
+C_RST = "\e[0m"
+C_RED = "\e[31m"
+C_GRN = "\e[32m"
+C_YEL = "\e[33m"
+C_BLU = "\e[34m"
+C_MAG = "\e[35m"
+C_CYN = "\e[36m"
+C_WHT = "\e[37m"
+C_GRY = "\e[90m"
+C_B_WHT = "\e[1;37m"
+
+# ================================================================
+
+# ---------------------------------------------------------------
+# RNG (small LCG: period 65537, bias-free for ranges < 65537)
+# ---------------------------------------------------------------
+
+fn mod(a b) {
+  d = int(a / b)
+  ret a - d * b
+}
+
+fn rng_next() {
+  s = reg_get("/rng/seed")
+  s = mod(s * 75 + 74, 65537)
+  reg_set("/rng/seed", s)
+  ret s
+}
+
+fn rnd(lo hi) {
+  r = rng_next()
+  range = hi - lo + 1
+  ret lo + mod(r, range)
+}
+
+fn get_int(prompt lo hi) {
+  loop {
+    s = lower(input(prompt))
+    if s == "" { ret -1 }
+    if s == "q" || s == "quit" || s == "exit" { ret -99 }
+    if s == "max" || s == "all" || s == "m" || s == "a" { ret hi }
+    
+    v = int(s)
+    # Check if v is actually a number
+    if str(v) != s && s != "-1" {
+      out C_RED + " Please enter a valid number, 'max' or 'q' to quit." + C_RST
+      continue
+    }
+    if v < lo || v > hi {
+      out C_RED + " Out of range (" + str(lo) + "-" + str(hi) + ")." + C_RST
+      continue
+    }
+    ret v
+  }
+}
+
+# ---------------------------------------------------------------
+# INITIALISE STATIC DATA
+# ---------------------------------------------------------------
+
+fn init_names() {
+reg_set("/g/city/0", "New York")
+reg_set("/g/city/1", "Los Angeles")
+reg_set("/g/city/2", "Miami")
+reg_set("/g/city/3", "Chicago")
+reg_set("/g/city/4", "Houston")
+reg_set("/g/city/5", "Seattle")
+
+reg_set("/g/drug/0/name", "Cocaine")
+reg_set("/g/drug/1/name", "Heroin")
+reg_set("/g/drug/2/name", "Weed")
+reg_set("/g/drug/3/name", "Speed")
+reg_set("/g/drug/4/name", "Ecstasy")
+reg_set("/g/drug/5/name", "Acid")
+
+reg_set("/g/drug/0/lo", 10000) reg_set("/g/drug/0/hi", 28000)
+reg_set("/g/drug/1/lo", 3000) reg_set("/g/drug/1/hi", 9000)
+reg_set("/g/drug/2/lo", 200) reg_set("/g/drug/2/hi", 800)
+reg_set("/g/drug/3/lo", 60) reg_set("/g/drug/3/hi", 250)
+reg_set("/g/drug/4/lo", 10) reg_set("/g/drug/4/hi", 60)
+reg_set("/g/drug/5/lo", 700) reg_set("/g/drug/5/hi", 4000)
+}
+
+fn city_name(i) { ret reg_get("/g/city/" + str(i)) }
+fn drug_name(d) { ret reg_get("/g/drug/" + str(d) + "/name") }
+
+# ---------------------------------------------------------------
+# PRICE MANAGEMENT
+# ---------------------------------------------------------------
+
+fn drug_price(d) {
+lo = reg_get("/g/drug/" + str(d) + "/lo")
+hi = reg_get("/g/drug/" + str(d) + "/hi")
+ret rnd(lo, hi)
+}
+
+fn gen_prices(c) {
+d = 0
+loop {
+if d >= 6 { break }
+reg_set("/g/prices/" + str(c) + "/" + str(d), drug_price(d))
+d = d + 1
+}
+}
+
+fn gen_all_prices() {
+c = 0
+loop {
+if c >= 6 { break }
+gen_prices(c)
+c = c + 1
+}
+}
+
+fn get_price(c d) {
+ret reg_get("/g/prices/" + str(c) + "/" + str(d))
+}
+
+fn spike_price(c d factor) {
+p = get_price(c, d)
+reg_set("/g/prices/" + str(c) + "/" + str(d), int(p * factor))
+}
+
+# ---------------------------------------------------------------
+# PLAYER STATE HELPERS
+# ---------------------------------------------------------------
+
+fn get_cash() { ret reg_get("/g/player/cash") }
+fn get_debt() { ret reg_get("/g/player/debt") }
+fn get_bank() { ret reg_get("/g/player/bank") }
+fn get_city() { ret reg_get("/g/player/city") }
+fn get_day() { ret reg_get("/g/player/day") }
+fn set_cash(v) { reg_set("/g/player/cash", v) }
+fn set_debt(v) { reg_set("/g/player/debt", v) }
+fn set_bank(v) { reg_set("/g/player/bank", v) }
+fn set_city(v) { reg_set("/g/player/city", v) }
+fn set_day(v) { reg_set("/g/player/day", v) }
+
+fn get_inv(d) { ret reg_get("/g/inv/" + str(d)) }
+fn set_inv(d q) { reg_set("/g/inv/" + str(d), q) }
+
+fn get_heat() { ret reg_get("/g/player/heat") }
+fn set_heat(v) { reg_set("/g/player/heat", clamp(v, 0, HEAT_MAX)) }
+fn add_heat(v) { set_heat(get_heat() + v) }
+
+fn has_jet() {
+  cash = get_cash()
+  bank = get_bank()
+  debt = get_debt()
+  if (cash + bank - debt) >= JET_UNLOCK { ret 1 }
+  ret 0
+}
+
+fn total_inv() {
+  t = 0
+  d = 0
+  loop {
+    if d >= 6 { break }
+    t = t + get_inv(d)
+    d = d + 1
+  }
+  ret t
+}
+
+# ---------------------------------------------------------------
+# DISPLAY HELPERS
+# ---------------------------------------------------------------
+
+fn hr() { out C_CYN + "═════════════════════════════════════════════════" + C_RST }
+fn sep() { out C_GRY + "─────────────────────────────────────────────────" + C_RST }
+fn nl() { out "" }
+
+fn show_header() {
+  term_cls()
+  hr()
+  out C_B_WHT + " DRUG LORDS — Day " + str(get_day()) + C_RST
+  sep()
+  out " City   : " + C_YEL + city_name(get_city()) + C_RST
+  out " Cash   : " + C_GRN + "$" + str(get_cash()) + C_RST
+  out " Bank   : " + C_BLU + "$" + str(get_bank()) + C_RST
+  out " Debt   : " + C_RED + "$" + str(get_debt()) + C_RST
+  out " Pockets: " + C_MAG + str(total_inv()) + " / " + str(MAX_POCKETS) + " units" + C_RST
+  
+  heat = get_heat()
+  h_color = C_GRN
+  if heat > 30 { h_color = C_YEL }
+  if heat > 60 { h_color = C_RED }
+  
+  jet_str = ""
+  if has_jet() { jet_str = C_CYN + " [PRIVATE JET]" + C_RST }
+  
+  out " Heat   : " + h_color + str(heat) + "%" + C_RST + jet_str
+  
+  # Persistent Inventory
+  inv_str = ""
+  di = 0
+  loop {
+    if di >= 6 { break }
+    qi = get_inv(di)
+    if qi > 0 {
+      if inv_str != "" { inv_str = inv_str + " | " }
+      inv_str = inv_str + drug_name(di) + ": " + str(qi)
+    }
+    di = di + 1
+  }
+  if inv_str != "" {
+    out " Inv    : " + C_CYN + inv_str + C_RST
+  }
+
+  hr()
+  nl()
+}
+
+fn show_market() {
+  c = get_city()
+  out C_B_WHT + " MARKET — " + city_name(c) + C_RST
+  sep()
+  d = 0
+  loop {
+    if d >= 6 { break }
+    p = get_price(c, d)
+    out " [" + C_YEL + str(d) + C_RST + "] " + drug_name(d) + C_GRN + " $" + str(p) + C_RST + " / unit"
+    d = d + 1
+  }
+  nl()
+}
+
+fn show_inv() {
+out " YOUR INVENTORY"
+sep()
+empty = 1
+d = 0
+loop {
+if d >= 6 { break }
+q = get_inv(d)
+if q > 0 {
+empty = 0
+c = get_city()
+val = q * get_price(c, d)
+out " [" + str(d) + "] " + drug_name(d) + " x" + str(q) + " (market value $" + str(val) + ")"
+}
+d = d + 1
+}
+if empty == 1 { out " (empty)" }
+nl()
+}
+
+fn show_cities() {
+out " DESTINATIONS"
+sep()
+c = 0
+loop {
+if c >= 6 { break }
+marker = " "
+if c == get_city() { marker = " *" }
+out marker + "[" + str(c) + "] " + city_name(c)
+c = c + 1
+}
+nl()
+}
+
+fn show_menu() {
+  sep()
+  out " [" + C_YEL + "1" + C_RST + "] Buy  [" + C_YEL + "2" + C_RST + "] Sell  [" + C_YEL + "3" + C_RST + "] Travel [" + C_YEL + "4" + C_RST + "] Debt"
+  out " [" + C_YEL + "5" + C_RST + "] Inv  [" + C_YEL + "6" + C_RST + "] Bank  [" + C_YEL + "7" + C_RST + "] Info   [" + C_YEL + "8" + C_RST + "] News"
+  out " [" + C_YEL + "E" + C_RST + "] Exp(H) [" + C_YEL + "I" + C_RST + "] Imp(H) [" + C_YEL + "V" + C_RST + "] Save(V) [" + C_YEL + "L" + C_RST + "] Load(V)"
+  out " [" + C_YEL + "S" + C_RST + "] Scores [" + C_YEL + "Q" + C_RST + "] Quit"
+  sep()
+}
+
+# Old get_input removed, using get_int and input()
+
+# ---------------------------------------------------------------
+# ACTION: BUY
+# ---------------------------------------------------------------
+
+fn do_buy() {
+  show_market()
+  d = get_int(" Drug # to buy (0-5) or -1 to cancel: " -1 5)
+  if d < 0 { ret nil }
+
+  c = get_city()
+  p = get_price(c, d)
+  cash = get_cash()
+  space = MAX_POCKETS - total_inv()
+
+  max_afford = int(cash / p)
+  avail = min(max_afford, space)
+
+  out ""
+  out " " + drug_name(d) + " — $" + str(p) + " each"
+  out " Max you can buy: " + str(avail) + " (cash limit: " + str(max_afford) + ", pocket space: " + str(space) + ")"
+  
+  qty = get_int(" Quantity (0 = cancel): " 0 avail)
+  if qty <= 0 { ret nil }
+
+  cost = qty * p
+  set_cash(cash - cost)
+  set_inv(d, get_inv(d) + qty)
+  add_heat(rnd(2, 6))
+  out ""
+  out C_GRN + " >>> Bought " + str(qty) + " x " + drug_name(d) + " for $" + str(cost) + "." + C_RST
+  input(" Press ENTER to continue...")
+}
+
+# ---------------------------------------------------------------
+# ACTION: SELL
+# ---------------------------------------------------------------
+
+fn do_sell() {
+  show_inv()
+  if total_inv() == 0 {
+    out C_RED + " You have nothing to sell!" + C_RST
+    input(" Press ENTER to continue...")
+    ret nil
+  }
+
+  d = get_int(" Drug # to sell (0-5) or -1 to cancel: " -1 5)
+  if d < 0 { ret nil }
+
+  held = get_inv(d)
+  if held == 0 { out C_RED + " You have none of that." + C_RST ret nil }
+
+  c = get_city()
+  p = get_price(c, d)
+  out ""
+  out " " + drug_name(d) + " — selling at $" + str(p) + " You have: " + str(held)
+  
+  qty = get_int(" Quantity to sell (0 = cancel): " 0 held)
+  if qty <= 0 { ret nil }
+
+  income = qty * p
+  set_cash(get_cash() + income)
+  set_inv(d, held - qty)
+  add_heat(rnd(3, 8))
+  out ""
+  out C_GRN + " >>> Sold " + str(qty) + " x " + drug_name(d) + " for $" + str(income) + "." + C_RST
+  input(" Press ENTER to continue...")
+}
+
+# ---------------------------------------------------------------
+# ACTION: TRAVEL (advances the day, accrues debt interest)
+# ---------------------------------------------------------------
+
+fn accrue_debt() {
+  debt = get_debt()
+  if debt <= 0 { ret nil }
+  interest = int(debt * DEBT_INTEREST)
+  if interest < 1 { interest = 1 }
+  set_debt(debt + interest)
+  out " Loan shark: " + str(int(DEBT_INTEREST * 100)) + "% interest added — $" + str(interest) + " (new debt: $" + str(get_debt()) + ")"
+}
+
+fn do_travel() {
+  show_cities()
+  cur = get_city()
+  cost = TRAVEL_COST
+  if has_jet() { cost = 0 }
+  
+  out " Travel cost: $" + str(cost)
+  dest = get_int(" City # to travel to or -1 to cancel: " -1 5)
+
+  if dest < 0 { ret nil }
+  if dest == cur { out C_RED + " You are already in " + city_name(cur) + "." + C_RST ret nil }
+
+  cash = get_cash()
+  if cash < cost {
+    out C_RED + " You don't have enough cash to travel!" + C_RST
+    input(" Press ENTER to continue...")
+    ret nil
+  }
+  set_cash(cash - cost)
+  add_heat(0 - rnd(15, 30))
+
+  set_city(dest)
+  gen_prices(dest)
+
+  day = get_day() + 1
+  set_day(day)
+
+  # Bank interest
+  bank = get_bank()
+  if bank > 0 {
+    int_bank = int(bank * BANK_INTEREST)
+    set_bank(bank + int_bank)
+  }
+
+  out ""
+  out C_B_WHT + " >>> Arrived in " + city_name(dest) + ". (Day " + str(get_day()) + ")" + C_RST
+  accrue_debt()
+  nl()
+
+  # Random event happens on travel
+  do_event()
+  input(" Press ENTER to continue...")
+}
+
+# ---------------------------------------------------------------
+# ACTION: PAY DEBT
+# ---------------------------------------------------------------
+
+fn do_pay() {
+  debt = get_debt()
+  cash = get_cash()
+
+  if debt <= 0 {
+    out C_GRN + " You have no debt — you're free!" + C_RST
+    input(" Press ENTER to continue...")
+    ret nil
+  }
+
+  out " Debt: $" + str(debt) + " Cash available: $" + str(cash)
+  amt = get_int(" Amount to pay (0 = cancel): " 0 cash)
+
+  if amt <= 0 { ret nil }
+  if amt > debt { amt = debt }
+
+  set_cash(cash - amt)
+  set_debt(debt - amt)
+  out ""
+  out C_GRN + " >>> Paid $" + str(amt) + " toward debt." + C_RST
+  out " Remaining debt: $" + str(get_debt())
+  input(" Press ENTER to continue...")
+}
+
+# ---------------------------------------------------------------
+# ACTION: BANK
+# ---------------------------------------------------------------
+
+fn do_bank() {
+  cash = get_cash()
+  bank = get_bank()
+  
+  out C_B_WHT + " BANK OF NEXS" + C_RST
+  sep()
+  out " Cash in hand: $" + str(cash)
+  out " Bank Balance: $" + str(bank)
+  out " (Bank fee: $" + str(BANK_FEE) + " per transaction)"
+  out ""
+  out " [1] Deposit  [2] Withdraw  [0] Cancel"
+  
+  choice = get_int(" Choice: " 0 2)
+  if choice == 1 {
+    if get_city() != 0 {
+      out C_RED + " This branch is closed. Visit New York for banking." + C_RST
+      ret nil
+    }
+    if cash < BANK_FEE + 1 { out C_RED + " Not enough cash for fee." + C_RST ret nil }
+    amt = get_int(" Amount to deposit (max " + str(cash - BANK_FEE) + "): " 0 cash - BANK_FEE)
+    if amt > 0 {
+      set_cash(cash - amt - BANK_FEE)
+      set_bank(bank + amt)
+      out C_GRN + " >>> Deposited $" + str(amt) + "." + C_RST
+    }
+  } else if choice == 2 {
+    if bank == 0 { out C_RED + " Bank is empty." + C_RST ret nil }
+    if get_city() != 0 {
+      out C_RED + " This branch is closed. Visit New York for banking." + C_RST
+      ret nil
+    }
+    amt = get_int(" Amount to withdraw (max " + str(bank) + "): " 0 bank)
+    if amt > 0 {
+      if cash < BANK_FEE { out C_RED + " Not enough cash for fee." + C_RST ret nil }
+      set_cash(cash + amt - BANK_FEE)
+      set_bank(bank - amt)
+      out C_GRN + " >>> Withdrew $" + str(amt) + "." + C_RST
+    }
+  }
+  input(" Press ENTER to continue...")
+}
+
+# ---------------------------------------------------------------
+# ACTION: INFORMANT
+# ---------------------------------------------------------------
+
+fn do_informant() {
+  cash = get_cash()
+  if cash < INFORMANT_FEE {
+    out C_RED + " You need $" + str(INFORMANT_FEE) + " to talk to the informant." + C_RST
+    input(" Press ENTER to continue...")
+    ret nil
+  }
+  
+  out " Pay $" + str(INFORMANT_FEE) + " for market intelligence?"
+  ans = get_int(" [1] Yes [0] No: " 0 1)
+  if ans == 1 {
+    set_cash(cash - INFORMANT_FEE)
+    out ""
+    out C_YEL + " Informant whispers: " + C_RST
+    
+    # Reveal 2 random cities (excluding current)
+    cur = get_city()
+    i = 0
+    loop {
+      if i >= 2 { break }
+      rc = rnd(0, 5)
+      if rc == cur { continue }
+      rd = rnd(0, 5)
+      rp = get_price(rc, rd)
+      out " >>> " + drug_name(rd) + " in " + city_name(rc) + " is going for $" + str(rp)
+      i = i + 1
+    }
+  }
+  input(" Press ENTER to continue...")
+}
+
+fn do_news() {
+  cash = get_cash()
+  if cash < NEWS_COST {
+    out C_RED + " Not enough cash for the Street News ($50)." + C_RST
+    input(" Press ENTER to continue...")
+    ret nil
+  }
+  set_cash(cash - NEWS_COST)
+  
+  rc = rnd(0, 5)
+  rd = rnd(0, 5)
+  rp = get_price(rc, rd)
+  
+  out C_CYN + " STREET NEWS EXCLUSIVE:" + C_RST
+  out " Hearing rumors that " + drug_name(rd) + " in " + city_name(rc) + " is at $" + str(rp) + "!"
+  input(" Press ENTER to continue...")
+}
+
+fn do_scores() {
+  out C_B_WHT + " HALL OF FAME" + C_RST
+  sep()
+  data = vfs_read(SCORE_FILE)
+  if type(data) == "err" || data == "" {
+    out " No scores recorded yet. Be the first!"
+  } else {
+    out data
+  }
+  sep()
+  input(" Press ENTER to continue...")
+}
+
+fn save_score(score) {
+  name = input(" New High Score! Enter your initials: ")
+  if name == "" {
+    name = "XXX"
+  }
+  entry = name + " : $" + str(score) + "\n"
+  
+  old = vfs_read(SCORE_FILE)
+  if type(old) == "err" {
+    old = ""
+  }
+  vfs_write(SCORE_FILE, entry + old)
+}
+
+# ---------------------------------------------------------------
+# SAVE / LOAD (Host Export/Import)
+# ---------------------------------------------------------------
+
+fn do_vfs_save() {
+  out C_B_WHT + " SAVE TO VFS (sd02/home/game/druglords/druglords.sav)" + C_RST
+  data = "DL_V2 "
+  data = data + str(get_cash()) + " "
+  data = data + str(get_debt()) + " "
+  data = data + str(get_bank()) + " "
+  data = data + str(get_city()) + " "
+  data = data + str(get_day()) + " "
+  data = data + str(get_heat()) + " "
+  d = 0
+  loop {
+    if d >= 6 { break }
+    data = data + str(get_inv(d)) + " "
+    d = d + 1
+  }
+  c = 0
+  loop {
+    if c >= 6 { break }
+    d = 0
+    loop {
+      if d >= 6 { break }
+      data = data + str(get_price(c, d)) + " "
+      d = d + 1
+    }
+    c = c + 1
+  }
+  vfs_write(VFS_SAVE_FILE data)
+  out C_GRN + " >>> Game saved to VFS." + C_RST
+  input(" Press ENTER to continue...")
+}
+
+fn do_vfs_load() {
+  out C_B_WHT + " LOAD FROM VFS" + C_RST
+  content = vfs_read(VFS_SAVE_FILE)
+  if type(content) == "err" {
+    out C_RED + " ERROR: No save file found in VFS." + C_RST
+    input(" Press ENTER to continue...")
+    ret nil
+  }
+  
+  if substr(content 0 5) != "DL_V2" {
+    out C_RED + " ERROR: Invalid VFS save format." + C_RST
+    input(" Press ENTER to continue...")
+    ret nil
+  }
+  
+  pos = 6
+  vals = arr_create()
+  loop {
+    if pos >= len(content) { break }
+    word = ""
+    loop {
+      if pos >= len(content) { break }
+      char = substr(content pos 1)
+      if char == " " { pos = pos + 1 break }
+      word = word + char
+      pos = pos + 1
+    }
+    if word != "" { arr_push(vals int(word)) }
+  }
+  
+  if len(vals) < 48 {
+    out C_RED + " ERROR: Corrupt VFS save file." + C_RST
+    input(" Press ENTER to continue...")
+    ret nil
+  }
+  
+  set_cash(vals[0])
+  set_debt(vals[1])
+  set_bank(vals[2])
+  set_city(vals[3])
+  set_day(vals[4])
+  set_heat(vals[5])
+  d = 0
+  loop {
+    if d >= 6 { break }
+    set_inv(d vals[6 + d])
+    d = d + 1
+  }
+  idx = 12
+  c = 0
+  loop {
+    if c >= 6 { break }
+    d = 0
+    loop {
+      if d >= 6 { break }
+      reg_set("/g/prices/" + str(c) + "/" + str(d), vals[idx])
+      idx = idx + 1
+      d = d + 1
+    }
+    c = c + 1
+  }
+  out C_GRN + " >>> Game loaded from VFS!" + C_RST
+  input(" Press ENTER to continue...")
+}
+
+fn event_box(title color) {
+  out color + " ╔═════════════════════════════════════════════╗"
+  out " ║ " + title
+  out " ╚═════════════════════════════════════════════╝" + C_RST
+}
+
+fn event_police() {
+  heat = get_heat()
+  # Chance increases with heat
+  chance = rnd(0, 100)
+  if chance > (20 + heat) {
+     out " You avoided the police patrol."
+     ret nil
+  }
+
+  event_box(" *** POLICE RAID! *** " C_RED)
+  if has_jet() {
+    out " Using your " + C_CYN + "Private Jet" + C_RST + ", you outrun the patrol!"
+    ret nil
+  }
+  d = rnd(0, 5)
+  seized = get_inv(d)
+  if seized > 0 {
+    c = get_city()
+    fine = int(get_price(c, d) * seized / 3)
+    set_inv(d, 0)
+    cash = get_cash() - fine
+    if cash < 0 { cash = 0 }
+    set_cash(cash)
+    out " Cops seized ALL your " + C_YEL + drug_name(d) + C_RST + " (" + str(seized) + " units)"
+    out " and fined you " + C_RED + "$" + str(fine) + C_RST + "!"
+  } else {
+    out " Police searched you... but found nothing."
+    out " You're clean this time!"
+  }
+}
+
+fn event_mugger() {
+  event_box(" *** MUGGER ATTACK! *** " C_RED)
+  if has_jet() {
+    out " You fly safely above the dangerous streets."
+    ret nil
+  }
+  cash = get_cash()
+  stolen = int(cash / 4)
+  if stolen > 0 {
+    set_cash(cash - stolen)
+    out " A mugger stole " + C_RED + "$" + str(stolen) + C_RST + " from you!"
+    out " Cash remaining: $" + str(get_cash())
+  } else {
+    out " A mugger cornered you... but you're flat broke!"
+    out " He runs off empty-handed."
+  }
+}
+
+fn event_find_drugs() {
+  d = rnd(0, 5)
+  qty = rnd(5, 25)
+  space = MAX_POCKETS - total_inv()
+  if qty > space { qty = space }
+  if qty > 0 {
+    set_inv(d, get_inv(d) + qty)
+    event_box(" *** LUCKY FIND! *** " C_GRN)
+    out " You found " + C_YEL + str(qty) + " units of " + drug_name(d) + C_RST + " on the street!"
+  }
+}
+
+fn event_price_spike() {
+  d = rnd(0, 5)
+  c = get_city()
+  spike_price(c, d, 3)
+  event_box(" *** MARKET PANIC! *** " C_MAG)
+  out " " + C_YEL + drug_name(d) + C_RST + " prices in " + city_name(c) + C_RED + " TRIPLED!" + C_RST
+}
+
+fn event_cheap_drugs() {
+  d = rnd(0, 5)
+  c = get_city()
+  p = get_price(c, d)
+  new_p = int(p / 4)
+  if new_p < 1 { new_p = 1 }
+  reg_set("/g/prices/" + str(c) + "/" + str(d), new_p)
+  event_box(" *** PRICE CRASH! *** " C_CYN)
+  out " " + C_YEL + drug_name(d) + C_RST + " is " + C_GRN + "DIRT CHEAP" + C_RST + " in " + city_name(c) + "!"
+  out " New price: " + C_GRN + "$" + str(new_p) + C_RST + " per unit."
+}
+
+fn event_debt_collector() {
+  event_box(" *** LOAN SHARK VISIT! *** " C_RED)
+  debt = get_debt()
+  if debt > 0 {
+    extra = int(debt / 5)
+    set_debt(debt + extra)
+    out " The loan shark's enforcer stops by."
+    out " He adds an 'urgency fee' of " + C_RED + "$" + str(extra) + C_RST + " to your debt!"
+    out " Total debt now: $" + str(get_debt())
+  } else {
+    out " The loan shark's man comes by — but you're debt-free!"
+    out " He tips his hat and leaves."
+  }
+}
+
+fn do_event() {
+  # Jet travel is safer
+  roll_max = 11
+  if has_jet() { roll_max = 20 }
+  
+  roll = rnd(0, roll_max)
+  if roll == 0 { event_police() }
+  else if roll == 1 { event_mugger() }
+  else if roll == 2 { event_find_drugs() }
+  else if roll == 3 { event_price_spike() }
+  else if roll == 4 { event_cheap_drugs() }
+  else if roll == 5 { event_debt_collector() }
+}
+
+fn is_bankrupt() {
+  cash = get_cash()
+  bank = get_bank()
+  debt = get_debt()
+  inv_val = 0
+  c = get_city()
+  d = 0
+  loop {
+    if d >= 6 { break }
+    inv_val = inv_val + (get_inv(d) * get_price(c, d))
+    d = d + 1
+  }
+  
+  day = get_day()
+  ratio = 3
+  if day > 10 {
+    ratio = 2
+  }
+  if day > 20 {
+    ratio = 1.5
+  }
+  
+  if debt > (cash + bank + inv_val) * ratio and debt > 10000 {
+    ret 1
+  }
+  ret 0
+}
+
+# ---------------------------------------------------------------
+# FINAL SCORE
+# ---------------------------------------------------------------
+
+fn final_score() {
+  nl()
+  hr()
+  out C_B_WHT + " GAME OVER — 30 Days Complete" + C_RST
+  hr()
+  cash = get_cash()
+  bank = get_bank()
+  debt = get_debt()
+  
+  # Calculate inventory value
+  inv_val = 0
+  c = get_city()
+  d = 0
+  loop {
+    if d >= 6 { break }
+    inv_val = inv_val + (get_inv(d) * get_price(c, d))
+    d = d + 1
+  }
+
+  net = cash + bank + inv_val - debt
+  out " Cash   : $" + str(cash)
+  out " Bank   : $" + str(bank)
+  out " Inv Val: $" + str(inv_val)
+  out " Debt   : $" + str(debt)
+  sep()
+  out C_B_WHT + " NET  : $" + str(net) + C_RST
+  nl()
+  if net >= 0 {
+    save_score(net)
+  }
+  
+  if net >= 100000 {
+    out C_GRN + " LEGENDARY: You're a Drug Lord." + C_RST
+    out " The streets belong to you."
+  } else if net >= 50000 {
+    out C_CYN + " KINGPIN: Serious profit. The game respects you." + C_RST
+  } else if net >= 10000 {
+    out C_YEL + " DEALER: Decent hustle. You made it work." + C_RST
+  } else if net >= 0 {
+    out C_WHT + " SURVIVOR: You survived with pennies." + C_RST
+    out " The streets almost broke you."
+  } else {
+    out C_RED + " BANKRUPT: The loan shark owns you." + C_RST
+    out " Maybe next time, kid."
+  }
+  hr()
+  nl()
+}
+
+# ---------------------------------------------------------------
+# MAIN GAME LOOP
+# ---------------------------------------------------------------
+
+fn game_loop() {
+  running = 1
+  loop {
+    if running == 0 { break }
+    if is_bankrupt() == 1 {
+       event_box(" *** BANKRUPTCY! *** " C_RED)
+       out " The loan shark has lost patience."
+       out " You are broke and the debt is too high."
+       input(" Press ENTER for the bad news...")
+       break
+    }
+    
+    show_header()
+    show_market()
+    show_menu()
+    
+    choice_raw = input(" Choice (1-8, E, I, S, Q): ")
+    choice = -1
+    processed = 0
+    
+    if choice_raw == "s" or choice_raw == "S" {
+      do_scores()
+      processed = 1
+    }
+    if choice_raw == "e" or choice_raw == "E" {
+      do_export()
+      processed = 1
+    }
+    if choice_raw == "i" or choice_raw == "I" {
+      do_import()
+      processed = 1
+    }
+    if choice_raw == "v" or choice_raw == "V" {
+      do_vfs_save()
+      processed = 1
+    }
+    if choice_raw == "l" or choice_raw == "L" {
+      do_vfs_load()
+      processed = 1
+    }
+    if choice_raw == "q" or choice_raw == "Q" {
+      running = 0
+      processed = 1
+    }
+    
+    if processed == 0 {
+      choice = int(choice_raw)
+      # Check if choice is 0 vs error
+      if str(choice) != choice_raw && choice_raw != "0" {
+        choice = -1
+      }
+      nl()
+      if choice == 1 { do_buy() }
+      else if choice == 2 { do_sell() }
+      else if choice == 3 { do_travel() }
+      else if choice == 4 { do_pay() }
+      else if choice == 5 { show_inv() input(" Press ENTER to continue...") }
+      else if choice == 6 { do_bank() }
+      else if choice == 7 { do_informant() }
+      else if choice == 8 { do_news() }
+      else if choice == 0 { running = 0 }
+    }
+  }
+  final_score()
+}
+
+fn init_game() {
+  reg_set("/rng/seed", 6791)
+  init_names()
+  gen_all_prices()
+  reg_set("/g/player/cash", 2000)
+  reg_set("/g/player/debt", 5500)
+  reg_set("/g/player/bank", 0)
+  reg_set("/g/player/heat", 0)
+  reg_set("/g/player/city", 0)
+  reg_set("/g/player/day", 1)
+  d = 0
+  loop {
+    if d >= 6 { break }
+    set_inv(d, 0)
+    d = d + 1
+  }
+}
+
+fn druglords_start() {
+  term_cls()
+  # Use VFS logo path
+  ui_draw_image("sd02/logos/druglords.nxtimg" -1 -1)
+  hr()
+  out C_B_WHT + " DRUG LORDS — NEXS Edition" + C_RST
+  hr()
+  nl()
+  out " Your goal: Build a drug empire. No time limits."
+  out " Start : " + C_GRN + "$2,000 cash" + C_RST + " | " + C_RED + "$5,500 debt @ 10% interest/day" + C_RST
+  out " Pockets: " + str(MAX_POCKETS) + " units total"
+  nl()
+  out " Travel costs " + C_RED + "$" + str(TRAVEL_COST) + C_RST + " but generates new market prices."
+  out " Use the " + C_BLU + "Bank" + C_RST + " to protect your cash from muggers."
+  out " Pay off your debt before the loan shark bleeds you dry."
+  nl()
+  out " Press ENTER to start or 'q' to quit..."
+  ans = input("")
+  if ans == "q" || ans == "quit" {
+    ret 0
+  } else {
+    nl()
+  }
+
+  init_game()
+  game_loop()
+}

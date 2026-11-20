@@ -4,7 +4,7 @@
 # =============================================================================
 set -e
 
-ELF="build/baremetal-amd64/nexs.elf"
+ELF="build/baremetal-amd64/nxscript.elf"
 ISO="build/nexs-amd64.iso"
 
 if [ "$1" = "--iso" ]; then
@@ -16,7 +16,7 @@ if [ "$1" = "--iso" ]; then
     echo "Booting from ISO (CD-ROM)..."
     exec qemu-system-x86_64 \
         -machine pc,smm=off \
-        -m 256M \
+        -m "${NEXS_QEMU_RAM_MIB:-512}M" \
         -cdrom "$ISO" \
         -boot order=dc \
         -nographic \
@@ -34,7 +34,7 @@ elif [ "$1" = "--img" ]; then
     echo "Booting from Disk Image (Headless)..."
     exec qemu-system-x86_64 \
         -drive file="$IMG",format=raw,file.locking=off \
-        -m 256M \
+        -m "${NEXS_QEMU_RAM_MIB:-512}M" \
         -nographic \
         -no-reboot \
         "$@"
@@ -48,7 +48,7 @@ else
     echo "Booting from ELF (Default -kernel)..."
     exec qemu-system-x86_64 \
         -kernel "$ELF" \
-        -m 128M \
+        -m "${NEXS_QEMU_RAM_MIB:-512}M" \
         -nographic \
         -no-reboot \
         "$@"

@@ -1,0 +1,3 @@
+# Exercise the imported MiniOS command registry/help implementation.
+exec("example/minios/shell.nx")
+shell_help()

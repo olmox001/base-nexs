@@ -51,12 +51,13 @@
 static int pipe_write_all(int fd, const void *buf, size_t n) {
   const uint8_t *p = (const uint8_t *)buf;
   while (n > 0) {
-    ssize_t wr = write(fd, p, n);
+    ssize_t wr = write(fd, (const char *)p, n);
     if (wr < 0) {
       if (errno == EINTR) continue;
       return -1;
     }
-    p += wr;
+    if (wr == 0) return -1; /* No forward progress. */
+    p += (size_t)wr;
     n -= (size_t)wr;
   }
   return 0;
@@ -67,7 +68,7 @@ static int pipe_write_all(int fd, const void *buf, size_t n) {
 static int pipe_read_all(int fd, void *buf, size_t n) {
   uint8_t *p = (uint8_t *)buf;
   while (n > 0) {
-    ssize_t rd = read(fd, p, n);
+    ssize_t rd = read(fd, (char *)p, n);
     if (rd < 0) {
       if (errno == EINTR) continue;
       return -1;
@@ -268,31 +269,41 @@ static Value pipe_deserialize_value(int rfd) {
    QUEUE TREE WALKER — used by reg_ipc_enable_pipes
    ========================================================= */
 
-/* Recursively walk all RegKeys and upgrade queues to pipe transport */
-static void walk_and_enable_pipes(RegKey *node) {
-  if (!node) return;
-  if (node->queue && !node->queue->use_pipe) {
-    RegIpcQueue *q = node->queue;
-    if (pipe(q->pipe_fd) == 0) {
-      q->use_pipe = 1;
-      /* Drain the in-process queue into the pipe so we don't lose messages
-       * that were sent before fork(). */
-      MsgNode *m = q->head;
-      while (m) {
-        pipe_serialize_value(q->pipe_fd[1], &m->msg);
-        MsgNode *nx = m->next;
-        val_free(&m->msg);
-        xfree(m);
-        m = nx;
+/* Iteratively walk all RegKeys and upgrade queues to pipe transport */
+static void walk_and_enable_pipes(RegKey *root) {
+  if (!root) return;
+#define PIPE_STACK_MAX REG_MAX_STACK_DEPTH
+  RegKey **stack = xmalloc(sizeof(RegKey*) * PIPE_STACK_MAX);
+  if (!stack) return;
+
+  int top = 0;
+  stack[top++] = root;
+  while (top > 0) {
+    RegKey *node = stack[--top];
+    if (node->queue && !node->queue->use_pipe) {
+      RegIpcQueue *q = node->queue;
+      if (pipe(q->pipe_fd) == 0) {
+        q->use_pipe = 1;
+        /* Drain the in-process queue into the pipe so we don't lose messages
+         * that were sent before fork(). */
+        MsgNode *m = q->head;
+        while (m) {
+          pipe_serialize_value(q->pipe_fd[1], &m->msg);
+          MsgNode *nx = m->next;
+          val_free(&m->msg);
+          xfree(m);
+          m = nx;
+        }
+        q->head  = NULL;
+        q->tail  = NULL;
+        q->count = 0;
       }
-      q->head  = NULL;
-      q->tail  = NULL;
-      q->count = 0;
     }
+    if (node->next && top < PIPE_STACK_MAX)     stack[top++] = node->next;
+    if (node->children && top < PIPE_STACK_MAX) stack[top++] = node->children;
   }
-  /* Recurse siblings and children */
-  walk_and_enable_pipes(node->children);
-  walk_and_enable_pipes(node->next);
+  xfree(stack);
+#undef PIPE_STACK_MAX
 }
 
 /* =========================================================

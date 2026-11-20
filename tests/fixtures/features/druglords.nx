@@ -1,0 +1,5 @@
+# Verify actual druglords library arithmetic, no game loop.
+exec("example/minios/druglords.nx")
+value = mod(19 6)
+if value == 1 { out "FEATURE_DRUGLORDS_MOD_PASS" }
+else { out "FEATURE_DRUGLORDS_MOD_FAIL" }

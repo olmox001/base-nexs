@@ -52,6 +52,15 @@ _start:
 
 /* ── EL1 initialisation ───────────────────────────────────── */
 .Lel1_entry:
+    /* The C language runtime and parser use double/FP. CPACR_EL1 defaults to
+     * trapping SIMD/FP instructions on QEMU virt unless FPEN is enabled.
+     * Keep this in the physical-CPU HAL, never in the NexsOS1 user adapter.
+     */
+    mrs     x0, cpacr_el1
+    orr     x0, x0, #(3 << 20)
+    msr     cpacr_el1, x0
+    isb
+
     /* Install exception vectors */
     adr     x0, nexs_vectors
     msr     vbar_el1, x0
@@ -72,7 +81,7 @@ _start:
 .Lbss_done:
 
     /* MMU + cache init (identity map) */
-    bl      nexs_mmu_init
+    bl      mmu_init
 
     /* HAL init (UART, etc.) */
     bl      nexs_hal_init

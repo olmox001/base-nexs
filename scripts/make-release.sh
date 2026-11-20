@@ -15,6 +15,9 @@ echo "=== NEXS RELEASE PACKAGER ($VERSION) ==="
 echo "Artifacts will be saved in: $RELEASE_DIR"
 echo "-------------------------------------------"
 
+# Force 64MB pool for all AOT builds
+export NEXS_POOL_PROFILE=POOL_64MB
+
 # 1. Build Native Interpreter (Host)
 UNAME_S=$(uname -s)
 if [ "$UNAME_S" = "Darwin" ]; then
@@ -29,19 +32,20 @@ fi
 
 echo "[*] Building Nexs-amd64-$HOST_NAME (Native Interpreter)..."
 make clean > /dev/null
-make POOL_PROFILE=16MB > /dev/null
+make POOL_PROFILE=64MB > /dev/null
 cp nexs "$RELEASE_DIR/Nexs-amd64-$HOST_NAME"
 
 # 2. Build Native AOT (MINIOS)
 echo "[*] Building MINIOS-amd64-$HOST_NAME (AOT)..."
-./nexs --compile example/minios/boot.nx \
+./nxscript --compile example/minios/boot.nx \
        -o "$RELEASE_DIR/MINIOS-amd64-$HOST_NAME"
 
 # 3. Build Baremetal Interpreter (STANDALONE)
 echo "[*] Building Nexs-amd64-STANDALONE (Interpreter)..."
 make clean > /dev/null
-make baremetal-amd64 POOL_PROFILE=16MB > /dev/null
-cp build/baremetal-amd64/nexs.elf "$RELEASE_DIR/Nexs-amd64-STANDALONE.elf"
+make POOL_PROFILE=64MB > /dev/null  # Need native compiler
+./nxscript --compile /dev/null --target baremetal-amd64 -o build/baremetal-amd64/nxscript.elf
+cp build/baremetal-amd64/nxscript.elf "$RELEASE_DIR/Nexs-amd64-STANDALONE.elf"
 
 echo "[*] Generating Nexs-amd64-STANDALONE.iso..."
 ./scripts/make-iso.sh > /dev/null
@@ -53,11 +57,11 @@ echo "[*] Building MINIOS-amd64-STANDALONE.elf (MiniOS AOT)..."
 make clean > /dev/null
 make > /dev/null
 
-./nexs --compile example/minios/boot.nx \
+./nxscript --compile example/minios/boot.nx \
        --target baremetal-amd64 \
-       -o build/baremetal-amd64/nexs.elf
+       -o build/baremetal-amd64/nxscript.elf
 
-cp build/baremetal-amd64/nexs.elf "$RELEASE_DIR/MINIOS-amd64-STANDALONE.elf"
+cp build/baremetal-amd64/nxscript.elf "$RELEASE_DIR/MINIOS-amd64-STANDALONE.elf"
 
 echo "[*] Generating MINIOS-amd64-STANDALONE.iso..."
 ./scripts/make-iso.sh > /dev/null
@@ -66,7 +70,7 @@ cp build/nexs-amd64.iso "$RELEASE_DIR/MINIOS-amd64-STANDALONE.iso"
 # 5. Build Cross Interpreter
 echo "[*] Building Nexs-amd64-$CROSS_NAME (Cross-compiled Interpreter)..."
 make clean > /dev/null
-make "$CROSS_TARGET" POOL_PROFILE=16MB > /dev/null
+make "$CROSS_TARGET" POOL_PROFILE=64MB > /dev/null
 if [ -f "build/$CROSS_TARGET/nexs" ]; then
     cp "build/$CROSS_TARGET/nexs" "$RELEASE_DIR/Nexs-amd64-$CROSS_NAME"
 else
@@ -78,9 +82,23 @@ echo "[*] Building MINIOS-amd64-$CROSS_NAME (Cross-compiled AOT)..."
 # We need native nexs to run the compiler
 make clean > /dev/null
 make > /dev/null
-./nexs --compile example/minios/boot.nx \
+./nxscript --compile example/minios/boot.nx \
        --target "$CROSS_TARGET" \
        -o "$RELEASE_DIR/MINIOS-amd64-$CROSS_NAME" || echo "Warning: Cross AOT build failed, skipping"
+
+# 7. seL4 MiniOS targets (requires MICROKIT_SDK)
+if [ -n "${MICROKIT_SDK:-}" ]; then
+    for SEL4_ARCH in aarch64 riscv64 x86_64; do
+        echo "[*] Building NEXS-seL4-$SEL4_ARCH (MiniOS)..."
+        make "sel4-example-$SEL4_ARCH" MICROKIT_SDK="$MICROKIT_SDK" \
+             SEL4_ENTRY_NX=example/minios/boot.nx > /dev/null 2>&1 && \
+        cp "build/sel4-microkit/nxscript.elf" \
+           "$RELEASE_DIR/NEXS-seL4-${SEL4_ARCH}-MiniOS.elf" 2>/dev/null || \
+        echo "Warning: seL4 $SEL4_ARCH build skipped (check MICROKIT_SDK)"
+    done
+else
+    echo "[*] Skipping seL4 builds (MICROKIT_SDK not set)"
+fi
 
 echo "-------------------------------------------"
 echo "[+] RELEASE COMPLETE: $VERSION"

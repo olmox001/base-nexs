@@ -1,4 +1,6 @@
-# services/auth — Authentication / capability service
+# services/auth/init.nx — Auth service
+library "auth"
+# Handles user authentication and capabilities.
 # Security rings: 0=machine/HW, 1=root/NEXS-admin, 2=user, 3=guest
 # Capabilities stored at /sys/auth/caps/<name>/
 

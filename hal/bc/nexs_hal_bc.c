@@ -179,8 +179,11 @@ static void hal_dev_read(HalBcState *st, int reg, int32_t len) {
   while (i < len && i < (int)sizeof(buf) - 1) {
     int c = nexs_hal_getc();
     if (c < 0) break;
+    if (c == '\r' || c == '\n') {
+      buf[i++] = '\n';
+      break;
+    }
     buf[i++] = (char)c;
-    if (c == '\n') break;
   }
   buf[i] = '\0';
   stack_push_str(st, buf);

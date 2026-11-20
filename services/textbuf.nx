@@ -1,4 +1,6 @@
-# services/textbuf.nx — Text Buffer Library for NEXS
+# services/textbuf — Text Buffer utility library
+library "textbuf"
+# Helper functions for line-based text editing.
 # ===================================================================
 
 fn tb_create() {
