@@ -87,6 +87,16 @@ All 39 staged files (33 .nx, 4 .nxtimg, 2 catalog manifests) are
 byte-compared and SHA-256 checked. The userland image is PREPARED,
 NOT installed into the read-only NexsOS1 umbrella or QEMU OS1 VFS.
 
+**2026-11-21 correction:** The earlier 33-source/37-resource manifests
+and 39-file installation described above included example programs and
+assets. They are historical evidence, not the current installation contract.
+The current installed STARTUP catalog has 14 nxlib sources only. The
+subsequent image staging correction restores 20 external example sources
+and four assets as ordinary VFS files under /home/nxscript/examples.
+These 24 external files are not auto-admitted/auto-executed by the runtime.
+The image holds 40 files including both configuration manifests. Startup
+library/service behavior remains intact. See the current cutover register.
+
 ## Real interactive terminal acceptance
 
 The old readkey() wrapper checked all host PIDs >=100 against a

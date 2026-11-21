@@ -27,7 +27,7 @@
 #include <stdio.h>
 #include <string.h>
 
-extern const char *nexs_embedded_lookup(const char *path);
+extern const char *nexs_embedded_lookup(const char *path, size_t *bytes);
 
 /* =========================================================
    CONTEXT INIT
@@ -167,9 +167,17 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
     return ok(val_nil());
   }
 
-  /* --- Import --- */
+  /* --- Import ---
+   * An imported file has its own top-level control boundary. A library
+   * guard's CTRL_RET ends only that imported source, not the importer
+   * containing subsequent service definitions. Errors still propagate. */
   case AST_IMPORT: {
-    return eval_file(ctx, n->path);
+    EvalResult imported = eval_file(ctx, n->path);
+    if (imported.sig == CTRL_RET) {
+      val_free(&imported.ret_val);
+      return ok(val_nil());
+    }
+    return imported;
   }
 
   /* --- Literals --- */
@@ -823,9 +831,10 @@ EvalResult eval_file(EvalCtx *ctx, const char *fpath) {
     int source_error = errno;
     nx_status source_status = nexs_source_status_from_errno(source_error);
     if (nexs_source_embedded_admissible(source_status)) {
-      const char *emb = nexs_embedded_lookup(normalized);
-      if (emb == NULL && fpath[0] == '/')
-        emb = nexs_embedded_lookup(fpath + 1);
+      /* The compiler table and hosted source admission use the SAME
+       * logical key without a leading slash. A slash is only the NXREG
+       * namespace representation, not part of the compiled resource name. */
+      const char *emb = nexs_embedded_lookup(logical, NULL);
       if (emb != NULL)
         return eval_str(ctx, emb);
     }

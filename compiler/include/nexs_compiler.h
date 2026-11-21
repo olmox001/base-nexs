@@ -53,18 +53,22 @@ typedef struct {
 /* Maximum path length for a dependency entry */
 #define NEXS_DEP_PATH_MAX REG_PATH_MAX
 
-/* Maximum number of unique dependencies per compilation unit */
+/* Maximum number of unique source/data dependencies per runtime image */
 #define NEXS_MAX_DEPS 256
 
 /*
  * NexsDepEntry — one unique dependency discovered via exec("path").
- *   path — the resolved filesystem path of the dependency.
- *   src  — malloc'd copy of the file contents (NULL if unreadable).
+ *   path — canonical logical identity used by exec/import/open.
+ *   src  — malloc'd exact bytes of the source or passive asset.
+ *   src_len — exact byte count (independent of NUL terminator).
+ *   is_source — parsing classification, not a privilege grant.
  *          Must be freed with nexs_free_deps() after use.
  */
 typedef struct {
   char  path[NEXS_DEP_PATH_MAX];
-  char *src;   /* heap-alloc'd by nexs_scan_deps; freed by nexs_free_deps */
+  char *src;   /* byte payload (NUL-terminated only for source) */
+  size_t src_len; /* explicit resource size, never strlen(binary bytes) */
+  unsigned int is_source; /* source script or passive data resource */
 } NexsDepEntry;
 
 /*

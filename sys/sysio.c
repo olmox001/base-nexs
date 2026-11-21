@@ -157,37 +157,23 @@ static Value bi_chdir(Value *args, int n) {
   return val_int(nexs_chdir((char *)args[0].data));
 }
 
+/* These are Plan 9 namespace operations, not RegKey subtree-copy
+ * aliases. No script-supplied flags/path grant MACHINE mount authority.
+ * A real VFS/9P provider and an authenticated NXEC caller are mandatory
+ * before exposing mount/bind/unmount. No fake success or registry write. */
 static Value bi_mount(Value *args, int n) {
-  if (n < 2) return val_err(4, "mount: requires src and dst");
-  if (args[0].type != TYPE_STR || !args[0].data)
-    return val_err(4, "mount: src must be a string");
-  if (args[1].type != TYPE_STR || !args[1].data)
-    return val_err(4, "mount: dst must be a string");
-  int before = (n >= 3) ? (int)val_to_int(&args[2]) : 0;
-  return val_int(reg_mount((char *)args[0].data, (char *)args[1].data, before));
+  (void)args; (void)n;
+  return val_err(1, "mount: authorized Plan 9 namespace provider unavailable");
 }
 
 static Value bi_bind(Value *args, int n) {
-  if (n < 2) return val_err(4, "bind: requires src and dst");
-  if (args[0].type != TYPE_STR || !args[0].data)
-    return val_err(4, "bind: src must be a string");
-  if (args[1].type != TYPE_STR || !args[1].data)
-    return val_err(4, "bind: dst must be a string");
-  int flag = (n >= 3) ? (int)val_to_int(&args[2]) : 0;
-  return val_int(reg_bind((char *)args[0].data, (char *)args[1].data, flag));
+  (void)args; (void)n;
+  return val_err(1, "bind: authorized Plan 9 namespace provider unavailable");
 }
 
 static Value bi_unmount(Value *args, int n) {
-  if (n < 1) return val_err(4, "unmount: requires at least dst");
-  const char *src = NULL, *dst = NULL;
-  if (n >= 2) {
-    if (args[0].type == TYPE_STR && args[0].data) src = (char *)args[0].data;
-    if (args[1].type == TYPE_STR && args[1].data) dst = (char *)args[1].data;
-  } else {
-    if (args[0].type == TYPE_STR && args[0].data) dst = (char *)args[0].data;
-  }
-  if (!dst) return val_err(4, "unmount: invalid dst");
-  return val_int(reg_unmount(src, dst));
+  (void)args; (void)n;
+  return val_err(1, "unmount: authorized Plan 9 namespace provider unavailable");
 }
 
 /* =========================================================

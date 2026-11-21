@@ -31,8 +31,11 @@
  * always returns NULL so eval_file() falls through to fopen() as usual.
  * Declared as a weak symbol so both build paths link cleanly.
  */
-__attribute__((weak)) const char *nexs_embedded_lookup(const char *path) {
+__attribute__((weak)) const char *nexs_embedded_lookup(
+    const char *path, size_t *bytes) {
   (void)path;
+  if (bytes != NULL)
+    *bytes = 0u;
   return NULL;
 }
 

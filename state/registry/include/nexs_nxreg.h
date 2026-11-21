@@ -16,9 +16,11 @@ extern "C" {
 #endif
 
 #define NXREG_ABI_MAJOR UINT16_C(1)
-#define NXREG_ABI_MINOR UINT16_C(0)
+#define NXREG_ABI_MINOR UINT16_C(1)
 #define NXREG_API_V1_MIN_SIZE \
     (offsetof(nxreg_api_v1, child_count) + sizeof(((nxreg_api_v1 *)0)->child_count))
+#define NXREG_API_V1_PARENT_MIN_SIZE \
+    (offsetof(nxreg_api_v1, parent_read) + sizeof(((nxreg_api_v1 *)0)->parent_read))
 
 typedef struct nxreg_auth_context nxreg_auth_context;
 typedef struct nx_state_store nx_state_store;
@@ -26,9 +28,11 @@ typedef struct nx_state_node nx_state_node;
 
 #define NXREG_FEATURE_OBJECT_READ (UINT64_C(1) << 0)
 #define NXREG_FEATURE_TREE_RELATIONSHIPS (UINT64_C(1) << 1)
+#define NXREG_FEATURE_PARENT_RELATIONSHIP (UINT64_C(1) << 2)
 
 #define NXREG_FEATURE_KNOWN_MASK \
-    (NXREG_FEATURE_OBJECT_READ | NXREG_FEATURE_TREE_RELATIONSHIPS)
+    (NXREG_FEATURE_OBJECT_READ | NXREG_FEATURE_TREE_RELATIONSHIPS | \
+     NXREG_FEATURE_PARENT_RELATIONSHIP)
 
 #define NXREG_RIGHT_READ UINT64_C(1)
 #define NXREG_RIGHT_ENUMERATE UINT64_C(2)
@@ -54,6 +58,10 @@ typedef nx_status (*nxreg_child_count_fn)(
     void *context, const nxreg_auth_context *caller,
     nx_object_ref parent, uint32_t *count, nx_result *result);
 
+typedef nx_status (*nxreg_parent_read_fn)(
+    void *context, const nxreg_auth_context *caller,
+    nx_object_ref child, nx_object_ref *parent, nx_result *result);
+
 typedef struct nxreg_api_v1 {
     uint32_t struct_size;
     uint16_t abi_major;
@@ -66,6 +74,8 @@ typedef struct nxreg_api_v1 {
     nxreg_child_first_fn child_first;
     nxreg_child_next_fn child_next;
     nxreg_child_count_fn child_count;
+    /* Appended in ABI 1.1; only valid when feature and struct_size permit. */
+    nxreg_parent_read_fn parent_read;
 } nxreg_api_v1;
 
 typedef struct nxreg_client {
@@ -102,6 +112,8 @@ typedef struct nxreg_authorization_fuel_limits {
     uint64_t child_first;
     uint64_t child_next;
     uint64_t child_count;
+    /* Zero means the 1.1 parent relation is not published. */
+    uint64_t parent_read;
 } nxreg_authorization_fuel_limits;
 
 typedef struct nxreg_state_store_adapter {
@@ -144,7 +156,16 @@ nx_status nxreg_client_child_next(
     const nxreg_client *client, const nxreg_auth_context *caller,
     nx_object_ref parent, nx_object_ref current,
     nx_object_ref *next, nx_result *result);
-/* Return the exact direct-child count for a parent reference. */
+/* Resolve the exact StateStore parent, only if BOTH child and parent are
+ * visible through the trusted authority. No parent -> NOT_FOUND.
+ * Unavailable or hidden parent -> NOT_FOUND, never a leaked object ID.
+ * This is canonical parent traversal, not a mount/alias name operation. */
+nx_status nxreg_client_parent_read(
+    const nxreg_client *client, const nxreg_auth_context *caller,
+    nx_object_ref child, nx_object_ref *parent, nx_result *result);
+
+/* Return the exact number of accessible direct children for a parent.
+ * No underlying denied child ref or raw child count is returned. */
 nx_status nxreg_client_child_count(
     const nxreg_client *client, const nxreg_auth_context *caller,
     nx_object_ref parent, uint32_t *count, nx_result *result);

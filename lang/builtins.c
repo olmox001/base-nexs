@@ -526,7 +526,8 @@ static Value builtin_reg_set_fn(Value *args, int n) {
     return val_err(4, "reg_set: requires path and value");
   if (args[0].type != TYPE_STR || !args[0].data)
     return val_err(4, "reg_set: first argument must be a string path");
-  reg_set((char *)args[0].data, args[1], RK_ALL);
+  if (reg_set((char *)args[0].data, args[1], RK_ALL) != 0)
+    return val_err(4, "reg_set: object admission or update failed");
   return val_nil();
 }
 
@@ -538,7 +539,8 @@ static Value builtin_reg_del(Value *args, int n) {
     return val_err(4, "reg_del: requires a path string");
   if (args[0].type != TYPE_STR || !args[0].data)
     return val_err(4, "reg_del: argument must be a string path");
-  reg_delete((char *)args[0].data);
+  if (reg_delete((char *)args[0].data) != 0)
+    return val_err(4, "reg_del: object unlink failed");
   return val_nil();
 }
 
@@ -733,8 +735,7 @@ static Value builtin_sys_embedded_read(Value *args, int n) {
   if (n < 1 || args[0].type != TYPE_STR)
     return val_err(4, "sys_embedded_read: path string required");
   const char *path = (char *)args[0].data;
-  extern const char *nexs_embedded_lookup(const char *path);
-  const char *src = nexs_embedded_lookup(path);
+  const char *src = nexs_embedded_lookup(path, NULL);
   if (!src)
     return val_err(4, "File not found in embedded table");
   return val_str(src);
@@ -752,10 +753,14 @@ static Value builtin_sys_bundled(Value *args, int n) {
 
   size_t total = nexs_embedded_resource_count();
   if (total > 0U) {
+    size_t count = 0U;
     for (size_t i = 0U; i < total; ++i) {
       const char *logical = nexs_embedded_resource_at(i);
-      if (logical == NULL || logical[0] == '\0' ||
-          arr_set_owned(arr, i, val_str(logical)) != 0) {
+      /* Compiler dependency scanning is not a runtime example catalog. */
+      if (logical != NULL && strncmp(logical, "example/", 8U) == 0)
+        continue;
+      if (logical == NULL || strncmp(logical, "nxlib/", 6U) != 0 ||
+          arr_set_owned(arr, count++, val_str(logical)) != 0) {
         arr_unref(arr);
         return val_err(2, "sys_bundled: malformed embedded catalog");
       }
@@ -783,8 +788,7 @@ static Value builtin_sys_bundled(Value *args, int n) {
           line[--len] = '\0';
         if (len > 0U && line[0] != '#') {
           if (strstr(line, "..") != NULL ||
-              (strncmp(line, "nxlib/", 6U) != 0 &&
-               strncmp(line, "example/", 8U) != 0) ||
+              strncmp(line, "nxlib/", 6U) != 0 ||
               arr_set_owned(arr, idx, val_str(line)) != 0) {
             failure = 1;
           } else {

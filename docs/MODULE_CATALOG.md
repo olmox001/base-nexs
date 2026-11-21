@@ -1,7 +1,8 @@
 # Base-NEXS module catalog
 
-The authoritative C source list is config/sources.mk. NEXS-language sources
-are enumerated in config/nx_sources.txt and enforced by the build gate.
+The authoritative C source list is config/sources.mk. Installed NEXS library and service sources are enumerated in
+config/nx_sources.txt and enforced by the build gate.
+External examples are NOT part of this startup manifest.
 
 ## Module ownership and runtime interface
 
@@ -27,54 +28,28 @@ and capability transport. Platform HAL drivers are mutually exclusive.
 The first-party code remains independent of the external OS1 SDK on macOS,
 Linux, baremetal and seL4 targets.
 
-## Proprietary .nx module and service catalog
+## Runtime libraries and external examples
 
-These are executable NEXS-language modules, not passive assets. Execution
-can mutate the private language registry, open resources, spawn child processes
-or wait for input. Do not treat process exit 0 as a functional assertion.
+The installed startup inventory contains the 14 files under nxlib/,
+including its language libraries and service source files.
+config/nx_sources.txt lists only installed nxlib sources.
+config/nx_resources.txt lists only installed runtime resources.
+Pure root libraries load at startup; services under nxlib/services/
+are available but require explicit activation.
 
-### Automatically loaded language libraries (1)
+The 20 example/*.nx programs and their .nxtimg assets are external
+VFS content, not runtime-internal resources. They are not inserted
+into the registry at startup, included in the runtime manifests,
+auto-admitted into the startup registry, or linked automatically into an
+AOT dependency table. Image staging separately copies all example scripts
+and assets to /home/nxscript/examples as ordinary VFS files. Execution
+still uses the caller's namespace, mounted providers and permissions.
+Syntax and PTY tests use external files as fixtures without changing
+the runtime's source catalog.
 
-- modules/stdlib.nx
-
-### System-like language services (.nx) (13)
-
-- services/auth/init.nx
-- services/fs/init.nx
-- services/fs/p9_mnt.nx
-- services/fs/regfs.nx
-- services/hw_dt.nx
-- services/init.nx
-- services/logos/init.nx
-- services/pm/init.nx
-- services/stdlib.nx
-- services/textbuf.nx
-- services/tty/init.nx
-- services/ui/img.nx
-- services/ui/init.nx
-
-### Tests, demos and interactive programs (20)
-
-- example/druglords/druglords.nx
-- example/example_lib.nx
-- example/exent_bus.nx
-- example/lib.nx
-- example/micro_os.nx
-- example/minios/boot.nx
-- example/minios/druglords.nx
-- example/minios/logo.nx
-- example/minios/logos_config.nx
-- example/minios/nxed_editor.nx
-- example/minios/shell.nx
-- example/minios/termimg.nx
-- example/minios/wasm_vm.nx
-- example/nxed_editor copy.nx
-- example/nxed_editor.nx
-- example/test.nx
-- example/test_builtins_all.nx
-- example/test_input.nx
-- example/test_parse_loop.nx
-- example/test_syntax.nx
+sys_bundled() enumerates runtime resources only.
+The existence of a source file grants no privilege, mount or service
+activation.
 
 ## Registry namespaces and authority
 

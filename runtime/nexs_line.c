@@ -63,7 +63,7 @@ int nexs_line_raw_on(void) {
   raw.c_cc[VMIN] = 1;
   raw.c_cc[VTIME] = 0;
 
-  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1)
+  if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) == -1)
     return -1;
   s_raw_active = 1;
   return 0;
@@ -72,7 +72,7 @@ int nexs_line_raw_on(void) {
 void nexs_line_raw_off(void) {
   if (!s_raw_active)
     return;
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &s_orig_termios);
+  tcsetattr(STDIN_FILENO, TCSANOW, &s_orig_termios);
   s_raw_active = 0;
 }
 

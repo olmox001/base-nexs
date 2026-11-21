@@ -23,6 +23,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+/* Freestanding libc implements ferror but its minimal stdio header does
+ * not declare it. This is the standard C signature on every host. */
+extern int ferror(FILE *stream);
 #ifndef NEXS_BAREMETAL
 #include <dirent.h>
 #include <sys/stat.h>
@@ -42,23 +45,26 @@ static int dep_already_seen(NexsDepEntry *deps, int count, const char *path) {
 
 /* Read an entire file into a malloc'd buffer; caller must free() it.
  * Returns NULL on error. */
-static char *dep_read_file(const char *path) {
+static char *dep_read_file(const char *path, size_t *length) {
     char storage[NEXS_DEP_PATH_MAX];
     const char *resolved = nexs_platform_source_path(
         path, storage, sizeof(storage));
-    if (resolved == NULL)
-        return NULL;
-    FILE *f = fopen(resolved, "r");
+    if (length) *length = 0u;
+    if (resolved == NULL) return NULL;
+    FILE *f = fopen(resolved, "rb");
     if (!f) return NULL;
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    if (sz <= 0) { fclose(f); return calloc(1, 1); }
-    fseek(f, 0, SEEK_SET);
-    char *buf = malloc((size_t)sz + 1);
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
+    long size = ftell(f);
+    if (size < 0 || (uintmax_t)size > SIZE_MAX - 1u ||
+        fseek(f, 0, SEEK_SET) != 0) { fclose(f); return NULL; }
+    char *buf = malloc((size_t)size + 1u);
     if (!buf) { fclose(f); return NULL; }
-    size_t rd = fread(buf, 1, (size_t)sz, f);
-    buf[rd] = '\0';
+    size_t received = fread(buf, 1u, (size_t)size, f);
+    int failed = received != (size_t)size || ferror(f) != 0;
     fclose(f);
+    if (failed) { free(buf); return NULL; }
+    buf[received] = 0;
+    if (length) *length = received;
     return buf;
 }
 
@@ -159,10 +165,16 @@ static int scan_source(const char *src_path, const char *src,
                                     count++;
 
                                     /* Recurse into the dependency */
-                                    char *dep_src = dep_read_file(abs_path);
+                                    size_t nested_length = 0u;
+                                    char *dep_src = dep_read_file(abs_path, &nested_length);
                                     if (dep_src) {
-                                        count = scan_source(abs_path, dep_src,
-                                                            deps, count, max_deps);
+                                        size_t path_bytes = strlen(abs_path);
+                                        if (path_bytes >= 3u &&
+                                            strcmp(abs_path + path_bytes - 3u,
+                                                   ".nx") == 0) {
+                                            count = scan_source(abs_path, dep_src,
+                                                                deps, count, max_deps);
+                                        }
                                         free(dep_src);
                                     }
                                     /* If file not found, we still record the path
@@ -200,7 +212,8 @@ int nexs_scan_deps(const char *src_path,
                    int max_deps) {
     if (!src_path || !deps || max_deps <= 0) return 0;
 
-    char *src = dep_read_file(src_path);
+    size_t entry_length = 0u;
+    char *src = dep_read_file(src_path, &entry_length);
     if (!src) return 0;
 
     int count = scan_source(src_path, src, deps, 0, max_deps);
@@ -209,8 +222,12 @@ int nexs_scan_deps(const char *src_path,
     /* Fill in .src for each discovered dep */
     for (int i = 0; i < count; i++) {
         if (!deps[i].src) {
-            deps[i].src = dep_read_file(deps[i].path);
-            /* NULL if file not readable — codegen will warn */
+            deps[i].src = dep_read_file(deps[i].path, &deps[i].src_len);
+            size_t name_size = strlen(deps[i].path);
+            deps[i].is_source = name_size >= 3u &&
+                strcmp(deps[i].path + name_size - 3u, ".nx") == 0;
+            /* The compiler rejects unreadable deps rather than substituting
+             * an empty script or data blob. */
         }
     }
 
@@ -283,13 +300,16 @@ int nexs_scan_directory(const char *dir_path, NexsDepEntry *deps,
           error = -1;
           continue;
         }
-        char *contents = dep_read_file(logical);
+        size_t content_length = 0u;
+        char *contents = dep_read_file(logical, &content_length);
         if (contents == NULL) {
           error = -1;
           continue;
         }
         memcpy(deps[count].path, logical, (size_t)length + 1U);
         deps[count].src = contents;
+        deps[count].src_len = content_length;
+        deps[count].is_source = 1u;
         ++count;
       }
     }

@@ -16,9 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_LIST = ROOT / "config/sources.mk"
 OUTPUT = ROOT / "build/assurance/power12_compiler_diagnostics.json"
 INCLUDE_DIRS = (
-    "core/include", "registry/include", "authority/include",
-    "hardware/include", "buffer/include", "block/include",
-    "journal/include", "fs/include", "lang/include",
+    "core/include", "registry/include", "state/registry/include", "state/authority/include",
+    "state/authority/hardware/include", "state/memory/buffer/include", "state/storage/block/include",
+    "state/storage/journal/include", "fs/include", "state/storage/9p/include", "lang/include",
     "sys/include", "runtime/include", "compiler/include", "hal/include",
 )
 FLAGS = (

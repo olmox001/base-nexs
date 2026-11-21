@@ -38,7 +38,25 @@ out vfs_exists("/nxlib/fs.nx")
 ''', Path(temp))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(),
-                         ["str", "str", "str", "err", "err", "1"])
+                         ["str", "str", "err", "err", "err", "1"])
+
+    def test_external_examples_execute_without_autocataloging(self):
+        # The real hosted filesystem provider resolves external example files
+        # from an arbitrary caller CWD. Execution never publishes /example.
+        with tempfile.TemporaryDirectory() as temp:
+            result = execute_script(EXECUTABLE, """
+out type(reg_get("/example"))
+out type(reg_get("/nxlib/stdlib.nx"))
+out type(reg_get("/fn/term_size"))
+exec("example/example_lib.nx")
+out reg_get("/lib/math/version")
+out type(reg_get("/example"))
+""", Path(temp))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(["err", "str", "fn"], lines[:3])
+        self.assertIn("[Main] Esecuzione completata.", lines)
+        self.assertEqual(["1.0.0", "err"], lines[-2:])
 
     def test_linking_a_source_never_starts_privileged_services(self):
         with tempfile.TemporaryDirectory() as temp:

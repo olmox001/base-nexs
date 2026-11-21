@@ -204,6 +204,7 @@ static const nx_operation_contract nx_operation_contracts[] = {
     {UINT64_C(0x000d0008), "nxreg_dispatch", NX_OPERATION_WORK_FIXED_OR_BOUNDED_RETRY, NX_OPERATION_CONTRACT_OPEN, 0u, 0u, 0u, 0u, 0u},
     {UINT64_C(0x000d0009), "nxreg_opcode_encode", NX_OPERATION_WORK_FIXED_OR_BOUNDED_RETRY, NX_OPERATION_CONTRACT_OPEN, 0u, 0u, 0u, 0u, 0u},
     {UINT64_C(0x000d000a), "nxreg_opcode_decode", NX_OPERATION_WORK_FIXED_OR_BOUNDED_RETRY, NX_OPERATION_CONTRACT_OPEN, 0u, 0u, 0u, 0u, 0u},
+    {UINT64_C(0x000d000b), "nxreg_client_parent_read", NX_OPERATION_WORK_STORE_INDEX_CHILDREN_AND_SNAPSHOTS, NX_OPERATION_CONTRACT_METERED, 0u, 0u, 0u, 0u, 0u},
 };
 
 size_t nx_operation_catalog_count(void) {

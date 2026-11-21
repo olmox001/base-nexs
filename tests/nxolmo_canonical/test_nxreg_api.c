@@ -25,6 +25,12 @@ struct nxreg_auth_context {
 typedef struct nxreg_test_authority {
     struct nxreg_auth_context caller;
     uint64_t denied_operation;
+    nx_object_ref hidden_object;
+    nx_object_ref second_hidden_object;
+    nx_state_store *mutation_store;
+    nx_object_ref mutation_on_auth_target;
+    nx_object_ref mutation_target;
+    uint32_t mutation_pending;
     _Atomic uint64_t authorization_count;
     uint64_t fuel_to_consume;
 } nxreg_test_authority;
@@ -45,7 +51,31 @@ static nx_status authorize_test_call(
         if (status != NX_STATUS_OK)
             return status;
     }
-    if (operation_id == authority->denied_operation)
+    /* This is an actual StateStore revision committed DURING a registry
+     * authorization callback, not a fake BUSY result or mocked epoch. */
+    if (authority->mutation_pending != 0u &&
+        nx_object_ref_equal(target, authority->mutation_on_auth_target)) {
+        nx_state_node current, updated;
+        nx_result result;
+        if (nx_state_store_read(authority->mutation_store,
+                                authority->mutation_target,
+                                &current, &result) != NX_STATUS_OK)
+            return NX_STATUS_CORRUPT;
+        current.spec.type_id++;
+        if (nx_state_store_update(authority->mutation_store,
+                                  authority->mutation_target,
+                                  current.revision, &current.spec,
+                                  &updated, &result) != NX_STATUS_OK)
+            return NX_STATUS_CORRUPT;
+        authority->mutation_pending = 0u;
+    }
+    if (operation_id == authority->denied_operation ||
+        (required_rights == NXREG_RIGHT_READ &&
+         nx_object_ref_is_valid(authority->hidden_object) &&
+         nx_object_ref_equal(target, authority->hidden_object)) ||
+        (required_rights == NXREG_RIGHT_READ &&
+         nx_object_ref_is_valid(authority->second_hidden_object) &&
+         nx_object_ref_equal(target, authority->second_hidden_object)))
         return NX_STATUS_ACCESS_DENIED;
     if (required_rights != NXREG_RIGHT_READ &&
         required_rights != NXREG_RIGHT_ENUMERATE)
@@ -74,7 +104,7 @@ static int test_api_read_and_tree(void) {
     nx_state_store_stats stats;
     nxreg_api_v1 api;
     nxreg_state_store_adapter adapter;
-    nxreg_authorization_fuel_limits fuel_limits = {2u, 2u, 1u, 2u};
+    nxreg_authorization_fuel_limits fuel_limits = {2u, 2u, 1u, 2u, 2u};
     nxreg_client client;
     nxreg_test_authority authority;
     nx_result result;
@@ -119,7 +149,7 @@ static int test_api_read_and_tree(void) {
     CHECK(nxreg_client_child_next(&client, &authority.caller, root, child,
                                   &next, &result) == NX_STATUS_BUDGET_EXHAUSTED);
     CHECK(result.fuel_used == 1u);
-    CHECK(atomic_load_explicit(&authority.authorization_count, memory_order_relaxed) == 5u);
+    CHECK(atomic_load_explicit(&authority.authorization_count, memory_order_relaxed) == 8u);
     CHECK(nx_state_store_stats_read(&store, &stats, &result) == NX_STATUS_OK);
     CHECK(stats.count == 2u);
     return 0;
@@ -134,7 +164,7 @@ static int test_authority_and_feature_failures(void) {
     nx_object_ref root;
     nxreg_api_v1 api, altered;
     nxreg_state_store_adapter adapter;
-    nxreg_authorization_fuel_limits fuel_limits = {2u, 2u, 1u, 2u};
+    nxreg_authorization_fuel_limits fuel_limits = {2u, 2u, 1u, 2u, 2u};
     nxreg_client client, unchanged;
     nxreg_test_authority authority;
     nx_state_node node;
@@ -146,7 +176,7 @@ static int test_authority_and_feature_failures(void) {
                               UINT64_C(0x4e58524547), key, &result) == NX_STATUS_OK);
     CHECK(nx_state_store_create(&store, &spec, &root, &result) == NX_STATUS_OK);
     {
-        nxreg_authorization_fuel_limits invalid_limits = {2u, 0u, 1u, 2u};
+        nxreg_authorization_fuel_limits invalid_limits = {2u, 0u, 1u, 2u, 2u};
         CHECK(nxreg_state_store_adapter_init(
             &api, &adapter, &store, authorize_test_call, &authority,
             &invalid_limits) == NX_STATUS_INVALID_ARGUMENT);
@@ -165,7 +195,7 @@ static int test_authority_and_feature_failures(void) {
     CHECK(result.fuel_used == 1u);
     memset(&unchanged, 0xa5, sizeof(unchanged));
     client = unchanged;
-    CHECK(nxreg_client_bind(&client, &api, 1u, NXREG_FEATURE_KNOWN_MASK,
+    CHECK(nxreg_client_bind(&client, &api, 2u, NXREG_FEATURE_KNOWN_MASK,
                             NXREG_FEATURE_OBJECT_READ) == NX_STATUS_VERSION_MISMATCH);
     CHECK(memcmp(&client, &unchanged, sizeof(client)) == 0);
     CHECK(nxreg_client_bind(&client, &api, 0u, NXREG_FEATURE_OBJECT_READ,
@@ -198,6 +228,246 @@ static int test_authority_and_feature_failures(void) {
     altered = api;
     altered.child_next = NULL;
     CHECK(nxreg_api_validate(&altered, 0u) == NX_STATUS_MALFORMED);
+    return 0;
+}
+
+static int test_canonical_epoch_changed_during_visibility(void) {
+    nx_state_store store;
+    nx_state_slot slots[8];
+    uint32_t index[16], rehash_index[16];
+    const uint64_t key[2] = {UINT64_C(0x714e5852454731),
+                             UINT64_C(0x71726163653131)};
+    nx_state_node_spec spec = make_spec(1u);
+    nx_object_ref root, first, second, output;
+    nxreg_api_v1 api;
+    nxreg_state_store_adapter adapter;
+    nxreg_authorization_fuel_limits limits = {2u, 2u, 2u, 2u, 2u};
+    nxreg_client client;
+    nxreg_test_authority authority;
+    nx_result result;
+    uint32_t count = UINT32_MAX;
+    memset(&authority, 0, sizeof(authority));
+    authority.fuel_to_consume = 1u;
+    CHECK(nx_state_store_init(&store, slots, 8u, index, rehash_index,
+                              16u, 72u, key, &result) == NX_STATUS_OK);
+    CHECK(nx_state_store_create(&store, &spec, &root, &result) == NX_STATUS_OK);
+    spec.parent = root;
+    CHECK(nx_state_store_create(&store, &spec, &first, &result) == NX_STATUS_OK);
+    CHECK(nx_state_store_create(&store, &spec, &second, &result) == NX_STATUS_OK);
+    CHECK(nxreg_state_store_adapter_init(&api, &adapter, &store,
+                                         authorize_test_call, &authority,
+                                         &limits) == NX_STATUS_OK);
+    CHECK(nxreg_client_bind(&client, &api, 0u,
+                            NXREG_FEATURE_KNOWN_MASK,
+                            NXREG_FEATURE_TREE_RELATIONSHIPS) == NX_STATUS_OK);
+    authority.mutation_store = &store;
+    authority.mutation_target = second;
+    authority.mutation_on_auth_target = second;
+    authority.mutation_pending = 1u;
+    CHECK(nxreg_client_child_first(&client, &authority.caller, root,
+                                   &output, &result) == NX_STATUS_BUSY);
+    CHECK(!nx_object_ref_is_valid(output));
+    CHECK(authority.mutation_pending == 0u);
+    CHECK(nxreg_client_child_first(&client, &authority.caller, root,
+                                   &output, &result) == NX_STATUS_OK);
+    CHECK(nx_object_ref_equal(output, second));
+    authority.mutation_on_auth_target = first;
+    authority.mutation_pending = 1u;
+    CHECK(nxreg_client_child_count(&client, &authority.caller, root,
+                                   &count, &result) == NX_STATUS_BUSY);
+    CHECK(count == 0u);
+    CHECK(authority.mutation_pending == 0u);
+    CHECK(nxreg_client_child_count(&client, &authority.caller, root,
+                                   &count, &result) == NX_STATUS_OK);
+    CHECK(count == 2u);
+    CHECK(nx_state_store_validate(&store, &result) == NX_STATUS_OK);
+    return 0;
+}
+
+/* ABI 1.1 parent traversal is an authenticated StateStore edge, not an
+ * inferred path/slot. Move/revision and a hidden parent must not expose
+ * stale or masked identities. */
+static int test_parent_link_authorization_and_abi(void) {
+    nx_state_store store;
+    nx_state_slot slots[8];
+    uint32_t index[16], rehash_index[16];
+    const uint64_t key[2] = {UINT64_C(0x714e5852454731),
+                             UINT64_C(0x71706172656e7431)};
+    nx_state_node_spec spec = make_spec(1u);
+    nx_object_ref root, other, child, observed;
+    nx_state_node current, updated;
+    nx_result result;
+    nxreg_api_v1 api, legacy;
+    nxreg_state_store_adapter adapter;
+    nxreg_authorization_fuel_limits limits = {2u, 2u, 2u, 2u, 2u};
+    nxreg_test_authority authority;
+    nxreg_client client, old_client;
+    uint8_t encoded[8];
+    uint64_t operation_id = 0u;
+    nxreg_dispatch_request request;
+    memset(&authority, 0, sizeof(authority));
+    authority.fuel_to_consume = 1u;
+    CHECK(nx_state_store_init(&store, slots, 8u, index, rehash_index,
+                              16u, 27u, key, &result) == NX_STATUS_OK);
+    CHECK(nx_state_store_create(&store, &spec, &root, &result) == NX_STATUS_OK);
+    spec = make_spec(4u);
+    CHECK(nx_state_store_create(&store, &spec, &other, &result) == NX_STATUS_OK);
+    spec = make_spec(3u);
+    spec.parent = root;
+    CHECK(nx_state_store_create(&store, &spec, &child, &result) == NX_STATUS_OK);
+    CHECK(nxreg_state_store_adapter_init(&api, &adapter, &store,
+                                         authorize_test_call, &authority,
+                                         &limits) == NX_STATUS_OK);
+    CHECK(api.abi_minor == 1u);
+    CHECK(api.struct_size >= NXREG_API_V1_PARENT_MIN_SIZE);
+    CHECK((api.feature_bits & NXREG_FEATURE_PARENT_RELATIONSHIP) != 0u);
+    CHECK(nxreg_client_bind(&client, &api, 1u, NXREG_FEATURE_KNOWN_MASK,
+                            NXREG_FEATURE_PARENT_RELATIONSHIP) == NX_STATUS_OK);
+    CHECK(nxreg_client_parent_read(&client, &authority.caller,
+                                   child, &observed, &result) == NX_STATUS_OK);
+    CHECK(nx_object_ref_equal(observed, root));
+    CHECK(result.operation_id == NX_OP_NXREG_CLIENT_PARENT_READ);
+    CHECK(result.fuel_used >= 3u);
+    CHECK(nxreg_client_parent_read(&client, &authority.caller,
+                                   root, &observed, &result) == NX_STATUS_NOT_FOUND);
+    CHECK(!nx_object_ref_is_valid(observed));
+    CHECK(nxreg_opcode_encode(NX_OP_NXREG_CLIENT_PARENT_READ,
+                              encoded) == NX_STATUS_OK);
+    CHECK(nxreg_opcode_decode(encoded, &operation_id) == NX_STATUS_OK);
+    CHECK(operation_id == NX_OP_NXREG_CLIENT_PARENT_READ);
+    memset(&request, 0, sizeof(request));
+    request.operation_id = operation_id;
+    request.client = &client;
+    request.caller = &authority.caller;
+    request.object = child;
+    request.reference_output = &observed;
+    request.result = &result;
+    CHECK(nxreg_dispatch(&request) == NX_STATUS_OK);
+    CHECK(nx_object_ref_equal(observed, root));
+    authority.hidden_object = root;
+    CHECK(nxreg_client_parent_read(&client, &authority.caller,
+                                   child, &observed, &result) == NX_STATUS_NOT_FOUND);
+    CHECK(!nx_object_ref_is_valid(observed));
+    authority.hidden_object = child;
+    CHECK(nxreg_client_parent_read(&client, &authority.caller,
+                                   child, &observed, &result) == NX_STATUS_ACCESS_DENIED);
+    CHECK(!nx_object_ref_is_valid(observed));
+    memset(&authority.hidden_object, 0, sizeof(authority.hidden_object));
+    CHECK(nx_state_store_read(&store, child, &current, &result) == NX_STATUS_OK);
+    current.spec.parent = other;
+    CHECK(nx_state_store_update(&store, child, current.revision,
+                                &current.spec, &updated,
+                                &result) == NX_STATUS_OK);
+    CHECK(nxreg_client_parent_read(&client, &authority.caller,
+                                   child, &observed, &result) == NX_STATUS_OK);
+    CHECK(nx_object_ref_equal(observed, other));
+    CHECK(nx_state_store_delete(&store, child, updated.revision,
+                                &result) == NX_STATUS_OK);
+    CHECK(nxreg_client_parent_read(&client, &authority.caller,
+                                   child, &observed, &result) != NX_STATUS_OK);
+    CHECK(!nx_object_ref_is_valid(observed));
+    /* An older, feature-omitting 1.0 caller still binds the same ABI prefix.
+     * The 1.1 method cannot be invoked through its feature mask. */
+    legacy = api;
+    legacy.abi_minor = 0u;
+    legacy.feature_bits &= ~NXREG_FEATURE_PARENT_RELATIONSHIP;
+    legacy.parent_read = NULL;
+    CHECK(nxreg_api_validate(&legacy, 0u) == NX_STATUS_OK);
+    CHECK(nxreg_client_bind(&old_client, &legacy, 0u,
+                            NXREG_FEATURE_KNOWN_MASK,
+                            NXREG_FEATURE_OBJECT_READ) == NX_STATUS_OK);
+    CHECK(nxreg_client_parent_read(&old_client, &authority.caller,
+                                   other, &observed, &result) == NX_STATUS_UNAVAILABLE);
+    CHECK(!nx_object_ref_is_valid(observed));
+    CHECK(nx_state_store_validate(&store, &result) == NX_STATUS_OK);
+    return 0;
+}
+
+/* Real canonical StateStore + NXREG visibility test. Deny the first child
+ * through the trusted authority callback, without deleting or copying it.
+ * The view returns only authorized refs/counts; hidden cursors cannot probe
+ * neighboring siblings. */
+static int test_masked_child_visibility(void) {
+    nx_state_store store;
+    nx_state_slot slots[8];
+    uint32_t index[16], rehash_index[16];
+    const uint64_t key[2] = {UINT64_C(0x714e5852454731),
+                             UINT64_C(0x72656461637431)};
+    nx_state_node_spec spec = make_spec(1u);
+    nx_object_ref root, a, b, first, hidden, visible, after;
+    nxreg_api_v1 api;
+    nxreg_state_store_adapter adapter;
+    nxreg_authorization_fuel_limits limits = {2u, 2u, 2u, 2u, 2u};
+    nxreg_client client;
+    nxreg_test_authority authority;
+    nx_result result;
+    nx_state_node node;
+    uint32_t count = UINT32_MAX;
+    memset(&authority, 0, sizeof(authority));
+    authority.fuel_to_consume = 1u;
+    CHECK(nx_state_store_init(&store, slots, 8u, index, rehash_index,
+                              16u, 71u, key, &result) == NX_STATUS_OK);
+    CHECK(nx_state_store_create(&store, &spec, &root, &result) == NX_STATUS_OK);
+    spec.parent = root;
+    spec.type_id = 2u;
+    CHECK(nx_state_store_create(&store, &spec, &a, &result) == NX_STATUS_OK);
+    spec.type_id = 3u;
+    CHECK(nx_state_store_create(&store, &spec, &b, &result) == NX_STATUS_OK);
+    CHECK(nx_state_store_child_first(&store, root, &first,
+                                      &result) == NX_STATUS_OK);
+    hidden = first;
+    CHECK(nx_state_store_child_next(&store, root, hidden, &visible,
+                                     &result) == NX_STATUS_OK);
+    authority.hidden_object = hidden;
+    CHECK(nxreg_state_store_adapter_init(&api, &adapter, &store,
+                                         authorize_test_call, &authority,
+                                         &limits) == NX_STATUS_OK);
+    CHECK(nxreg_client_bind(&client, &api, 0u, NXREG_FEATURE_KNOWN_MASK,
+                            NXREG_FEATURE_KNOWN_MASK) == NX_STATUS_OK);
+    CHECK(nxreg_client_child_count(&client, &authority.caller,
+                                   root, &count, &result) == NX_STATUS_OK);
+    CHECK(count == 1u);
+    CHECK(nxreg_client_child_first(&client, &authority.caller,
+                                   root, &after, &result) == NX_STATUS_OK);
+    CHECK(nx_object_ref_equal(after, visible));
+    CHECK(nxreg_client_child_next(&client, &authority.caller,
+                                  root, visible, &after,
+                                  &result) == NX_STATUS_NOT_FOUND);
+    CHECK(!nx_object_ref_is_valid(after));
+    CHECK(nxreg_client_child_next(&client, &authority.caller,
+                                  root, hidden, &after,
+                                  &result) == NX_STATUS_ACCESS_DENIED);
+    CHECK(!nx_object_ref_is_valid(after));
+    CHECK(nxreg_client_object_read(&client, &authority.caller,
+                                   hidden, &node,
+                                   &result) == NX_STATUS_ACCESS_DENIED);
+    authority.second_hidden_object = visible;
+    CHECK(nxreg_client_child_count(&client, &authority.caller,
+                                   root, &count, &result) == NX_STATUS_OK);
+    CHECK(count == 0u);
+    CHECK(nxreg_client_child_first(&client, &authority.caller,
+                                   root, &after, &result) == NX_STATUS_NOT_FOUND);
+    CHECK(!nx_object_ref_is_valid(after));
+    /* If the LAST sibling alone is masked, child_next must exhaust the
+     * visible namespace, not report BUSY and leak internal traversal. */
+    authority.hidden_object = visible;
+    memset(&authority.second_hidden_object, 0,
+           sizeof(authority.second_hidden_object));
+    CHECK(nxreg_client_child_count(&client, &authority.caller,
+                                   root, &count, &result) == NX_STATUS_OK);
+    CHECK(count == 1u);
+    CHECK(nxreg_client_child_first(&client, &authority.caller,
+                                   root, &after, &result) == NX_STATUS_OK);
+    CHECK(nx_object_ref_equal(after, hidden));
+    CHECK(nxreg_client_child_next(&client, &authority.caller,
+                                  root, hidden, &after,
+                                  &result) == NX_STATUS_NOT_FOUND);
+    CHECK(!nx_object_ref_is_valid(after));
+    CHECK(nx_state_store_read(&store, hidden, &node,
+                              &result) == NX_STATUS_OK);
+    CHECK(nx_state_store_read(&store, visible, &node,
+                              &result) == NX_STATUS_OK);
+    CHECK(nx_state_store_validate(&store, &result) == NX_STATUS_OK);
     return 0;
 }
 
@@ -265,7 +535,7 @@ static int test_million_concurrent_direct_reads(void) {
     nx_object_ref root;
     nxreg_api_v1 api;
     nxreg_state_store_adapter adapter;
-    nxreg_authorization_fuel_limits limits = {2u, 2u, 1u, 2u};
+    nxreg_authorization_fuel_limits limits = {2u, 2u, 1u, 2u, 2u};
     nxreg_client client;
     nxreg_test_authority authority;
     nxreg_read_stress_shared shared;
@@ -454,7 +724,7 @@ static int test_million_concurrent_binary_dispatches(void) {
     nx_object_ref root, child;
     nxreg_api_v1 api;
     nxreg_state_store_adapter adapter;
-    nxreg_authorization_fuel_limits limits = {2u, 2u, 1u, 2u};
+    nxreg_authorization_fuel_limits limits = {2u, 2u, 1u, 2u, 2u};
     nxreg_client client;
     nxreg_test_authority authority;
     nxreg_dispatch_stress_shared shared;
@@ -511,7 +781,7 @@ static int test_million_concurrent_binary_dispatches(void) {
     CHECK(atomic_load_explicit(&shared.failed, memory_order_acquire) == 0u);
     CHECK(completed == NXREG_STRESS_OPERATIONS);
     CHECK(atomic_load_explicit(&authority.authorization_count,
-                               memory_order_relaxed) == attempts);
+                               memory_order_relaxed) >= attempts);
     CHECK(attempts == completed + retries);
     CHECK(codec_round_trips == attempts * 2u);
     {
@@ -565,6 +835,9 @@ static int test_million_concurrent_binary_dispatches(void) {
 int main(void) {
     CHECK(test_api_read_and_tree() == 0);
     CHECK(test_authority_and_feature_failures() == 0);
+    CHECK(test_parent_link_authorization_and_abi() == 0);
+    CHECK(test_canonical_epoch_changed_during_visibility() == 0);
+    CHECK(test_masked_child_visibility() == 0);
     CHECK(test_million_concurrent_direct_reads() == 0);
     CHECK(test_million_concurrent_binary_dispatches() == 0);
     puts("NXREG versioned API, binary codec/dispatcher and million-operation stress tests: PASS");

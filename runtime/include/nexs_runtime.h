@@ -35,7 +35,10 @@ NEXS_API int nexs_source_is_bootstrap_library(const char *logical,
                                               const char *source);
 /* Canonical logical embedded-resource enumeration for hosted/freestanding AOT.
  * The ordinary hosted interpreter has an empty embedded catalog. */
-NEXS_API const char *nexs_embedded_lookup(const char *path);
+/* Existing embedded lookup, now byte-exact. For scripts the payload is
+ * NUL-terminated text; passive assets may contain arbitrary zero bytes. */
+NEXS_API const char *nexs_embedded_lookup(const char *path,
+                                            size_t *byte_length);
 NEXS_API size_t nexs_embedded_resource_count(void);
 NEXS_API const char *nexs_embedded_resource_at(size_t index);
 NEXS_API void nexs_repl(void);

@@ -77,8 +77,8 @@ kernel/physical HAL are linked only for standalone baremetal, not for OS1.
 ## Staged Power12-inspired checks
 
 make gate is enforced before compilation of C objects. It runs
-scripts/quality_gate.py and checks the canonical C source list, the reviewed
-34-file .nx manifest, the exact SDK gitlink and no recursive reference link.
+scripts/quality_gate.py and checks the canonical C source list, the reviewed 14-file runtime library/service manifest, the exact SDK gitlink
+and no recursive reference link. The 20 external examples are tested separately.
 
 Blocking in hal/os1: assertions, goto/break, obviously unbounded loops,
 privileged ISA instructions, platform #ifdef branches, missing sources and

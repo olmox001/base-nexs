@@ -80,6 +80,7 @@ BASE-NEXS,tests/nxolmo_canonical/test_capability.c,C_OR_PYTHON_MAIN,main,"Execut
 BASE-NEXS,tests/nxolmo_canonical/test_hardware_capability.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
 BASE-NEXS,tests/nxolmo_canonical/test_migration.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
 BASE-NEXS,tests/nxolmo_canonical/test_nxreg_api.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_nxreg_signed_authority.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
 BASE-NEXS,tests/nxolmo_canonical/test_p9_frame.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
 BASE-NEXS,tests/nxolmo_canonical/test_ring_mpmc.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
 BASE-NEXS,tests/nxolmo_canonical/test_schema.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"

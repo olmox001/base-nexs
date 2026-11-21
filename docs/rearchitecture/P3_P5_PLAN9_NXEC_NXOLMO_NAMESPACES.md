@@ -118,3 +118,50 @@ hardware access, implement usermode ext4, offer concurrent submitters, promise
 zero-copy payloads, persist to SSD, or bypass NXEC authorization. Future
 per-endpoint ownership/lease and nonblocking worker scheduling require
 explicit NXEC admission, typed completion and revocation tests.
+
+
+## T3/T4 register-machine, masked arrays and genuine Plan 9 gap correction
+
+The registry IS the entire runtime State Node Machine, including the masked
+virtual representation of actual hardware registers/resources. This is not
+a POSIX tree plus a separate application catalogue. Register geometry comes
+from HCD-authorized real resources, not device names such as sd00 or from
+script reg_set calls. Virtual arrays, file contents, devices, executable
+symbols and mounts are NXOLMO typed objects with ONE ID, generation,
+revision, schema, operation budget and transactional publication.
+
+Protected read/write/map/execute views require intersection of principal,
+domain, object, namespace, operation, hardware range, page, lease and
+revocation masks. Masked registers return a REDACTED zero/absent projection,
+not a mapped zero page; hidden IDs and relationships may not be listed.
+Actual array/buffer views carry exact geometry/element width/encoding,
+offset/length, bit masks, alignment, lease, cache policy and rights.
+Push/pull uses existing NXOLMO buffer leases/rings and authenticated
+versioned change-set transactions. No raw pointers or caller-invented
+device grants. MMIO side effects cannot be undone by restoring metadata.
+
+Plan 9 Chan/Dev/Pgrp, ordered union mounts, attach/walk/open/create,
+read/write/stat/wstat/remove/clunk/flush, real hard/symbolic links, /srv,
+device namespace and 9P2000.L peer compatibility remain mandatory.
+The original registry/registry.c mount/bind/unmount clones and removes
+subtrees and is NOT a mount/link implementation. The kernel/vfs.c
+fixed 16-slot s_mounts catalogue did not participate in ANY path lookup;
+it has been removed. Neither implementation is allowed to masquerade
+as a capability-aware NXREG namespace edge.
+
+Current security tranche: unauthenticated script mount/bind/unmount
+and privileged kernel namespace verbs return denial/unavailability and
+publish no copies. Kernel fork no longer copies forged /proc/PID/caps into
+child grants. The Plan 9 script no longer invents sd00/sd01/sd02/sd99
+devices; the minios demo boots with storage unavailable until a real
+provider is admitted. AST_IMPORT also now contains a child library's
+CTRL_RET so an already-loaded library cannot interrupt the importer.
+
+This does NOT mean mounts/links work. Build the parent+name index,
+object link-edge and namespace-root ABI, mandatory authenticated NXREG
+transaction/WAL writer, per-principal mount view and Chan/Dev providers,
+then 9P2000.L and ext4 independent tests. A positive test must prove:
+same object ref across links, ordered mount selection and coherent fd/fid
+reads, revocation/unmount with active leases, no alias to unauthorized
+memory, masked visibility, old-or-new transaction root on errors.
+Preserve full Plan 9 behavior; do not add a private fake namespace.

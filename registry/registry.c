@@ -621,7 +621,12 @@ RegKey *reg_resolve_callable(const char *name, const char *scope_path) {
 }
 
 int reg_set(const char *path, Value val, uint8_t rights) {
-  if (!reg_path_valid(path))
+  /* Pointer Values have one exact pathname grammar as every other
+   * registry/VFS operation. Reject malformed targets before mutation.
+   * Dangling but syntactically valid targets are allowed (Plan 9 links). */
+  if (!reg_path_valid(path) ||
+      (val.type == TYPE_PTR &&
+       (val.data == NULL || !reg_path_valid((const char *)val.data))))
     return -1;
   /* Clone BEFORE creating a key or replacing a live value. A failed
    * admission is never allowed to publish an error in place of a value. */
@@ -681,161 +686,40 @@ int reg_set_ptr(const char *path, const char *target) {
   return status;
 }
 
+/* Resolve a pointer through the ONE actual registry namespace. Its
+ * Value payload is borrowed for the duration of this read; no copied
+ * or truncated path alias, global pointer table, or 64-hop ceiling. */
+static RegKey *reg_deref_next(const RegKey *key) {
+  if (key == NULL || key->val.type != TYPE_PTR || key->val.data == NULL)
+    return NULL;
+  const char *target = (const char *)key->val.data;
+  return reg_path_valid(target) != 0 ? reg_lookup(target) : NULL;
+}
+
 Value reg_get_deref(const char *path) {
-  if (!path)
-    return val_err(3, "reg_get_deref: NULL path");
-
-  /* Follow pointer chain (max 64 hops to avoid infinite loops) */
-  const char *cur = path;
-  char buf[REG_PATH_MAX];
-  int hops = 0;
-
-  while (hops < 64) {
-    RegKey *k = reg_lookup(cur);
-    if (!k)
+  if (!reg_path_valid(path))
+    return val_err(3, "reg_get_deref: invalid path");
+  RegKey *slow = reg_lookup(path);
+  RegKey *fast = slow;
+  /* Every valid acyclic chain contains <= total_keys unique identities.
+   * Floyd detection uses NXOLMO references instead of mutable path text.
+   * This remains a local registry read, NOT an authority grant. */
+  for (size_t visited = 0U; visited < g_registry.total_keys; ++visited) {
+    if (slow == NULL)
       return val_err(3, "reg_get_deref: key not found");
-    if (k->val.type != TYPE_PTR)
-      return val_clone(&k->val); /* reached non-pointer: return value */
-    if (!k->val.data)
+    if (slow->val.type != TYPE_PTR)
+      return val_clone(&slow->val);
+    if (slow->val.data == NULL)
       return val_err(3, "reg_get_deref: NULL pointer target");
-    strncpy(buf, (char *)k->val.data, REG_PATH_MAX - 1);
-    buf[REG_PATH_MAX - 1] = '\0';
-    cur = buf;
-    hops++;
+    slow = reg_deref_next(slow);
+    if (slow == NULL)
+      return val_err(3, "reg_get_deref: invalid or missing target");
+    fast = reg_deref_next(fast);
+    fast = reg_deref_next(fast);
+    if (fast != NULL && nx_object_ref_equal(slow->object, fast->object))
+      return val_err(3, "reg_get_deref: cyclic object reference");
   }
-  return val_err(3, "reg_get_deref: pointer chain too deep (circular?)");
-}
-
-/* =========================================================
-   LISTING
-   ========================================================= */
-
-static void reg_ls_node(RegKey *k, FILE *out, int depth, int recursive) {
-  if (!k)
-    return;
-  for (int i = 0; i < depth; i++)
-    nexs_fprintf(out, "  ");
-
-  /* Count children for display */
-  int n_children = 0;
-  for (RegKey *c = k->children; c; c = c->next)
-    n_children++;
-
-  nexs_fprintf(out, "%-28s  %-6s", k->name, val_type_name(k->val.type));
-
-  if (k->val.type != TYPE_NIL) {
-    nexs_fprintf(out, "  = ");
-    /* Arrays: show element count instead of full dump (too wide) */
-    if (k->val.type == TYPE_ARR && k->val.data) {
-      DynArray *arr = (DynArray *)k->val.data;
-      nexs_fprintf(out, "arr[%zu elements]", arr->size);
-    } else {
-      val_print(&k->val, out);
-    }
-    /* Pointer: show resolved value */
-    if (k->val.type == TYPE_PTR && k->val.data) {
-      Value resolved = reg_get_deref(k->path);
-      if (resolved.type != TYPE_ERR) {
-        nexs_fprintf(out, "  [→ ");
-        val_print(&resolved, out);
-        nexs_fprintf(out, "]");
-      }
-      val_free(&resolved);
-    }
-  } else if (n_children > 0) {
-    /* Container node with children: show count so user knows to recurse */
-    nexs_fprintf(out, "  (%d keys)", n_children);
-  }
-
-  /* IPC queue indicator */
-  if (k->queue) {
-    int pending = k->queue->use_pipe ? -1 : k->queue->count;
-    if (pending >= 0)
-      nexs_fprintf(out, "  [Q:%d/%d]", pending, k->queue->max_count);
-    else
-      nexs_fprintf(out, "  [Q:pipe]");
-  }
-
-  nexs_fprintf(out, "\n");
-  if (recursive) {
-    for (RegKey *c = k->children; c; c = c->next)
-      reg_ls_node(c, out, depth + 1, 1);
-  }
-}
-
-void reg_ls(const char *path, FILE *out) {
-  RegKey *k = reg_lookup(path);
-  if (!k) {
-    nexs_fprintf(out, "Path '%s' not found\n", path);
-    return;
-  }
-
-  nexs_fprintf(out, "\n[REGISTRY] %s\n", path);
-  nexs_fprintf(out, "%-28s  %-6s  %s\n", "NAME", "TYPE", "VALUE");
-  nexs_fprintf(out, "---------------------------------------------------\n");
-
-  /* The actual tree is the only index. Bound traversal against the
-   * admitted key count before allocating a transient sorting buffer. */
-  size_t count = 0U;
-  RegKey *cursor = k->children;
-  while (cursor != NULL && count < g_registry.total_keys) {
-    ++count;
-    cursor = cursor->next;
-  }
-  if (cursor != NULL || count > SIZE_MAX / sizeof(RegKey *)) {
-    nexs_fprintf(out, "[REGISTRY] invalid child traversal\n");
-    return;
-  }
-
-  if (count > 0U) {
-    size_t bytes = count * sizeof(RegKey *);
-    RegKey **list = nexs_alloc(bytes);
-    if (list == NULL) {
-      nexs_fprintf(out, "[REGISTRY] listing unavailable: provider exhausted\n");
-      return;
-    }
-    cursor = k->children;
-    for (size_t i = 0U; i < count; ++i) {
-      list[i] = cursor;
-      cursor = cursor->next;
-    }
-
-    /* Stable order without allocating a second index or unsafe recursion. */
-    for (size_t j = 0U; j < count - 1U; ++j) {
-      for (size_t l = 0U; l < count - j - 1U; ++l) {
-        if (strcmp(list[l]->name, list[l + 1U]->name) > 0) {
-          RegKey *swap = list[l];
-          list[l] = list[l + 1U];
-          list[l + 1U] = swap;
-        }
-      }
-    }
-
-    for (size_t j = 0U; j < count; ++j)
-      reg_ls_node(list[j], out, 0, 0);
-    nexs_free(list, bytes);
-  }
-
-  nexs_fprintf(out, "\n");
-}
-
-void reg_ls_recursive(const char *path, FILE *out, int depth) {
-  RegKey *k = reg_lookup(path);
-  if (!k)
-    return;
-  reg_ls_node(k, out, depth, 1);
-}
-
-void reg_key_print(RegKey *k, FILE *out) {
-  if (!k)
-    return;
-  nexs_fprintf(out, "[%s] type=%s rights=%02x", k->path,
-               val_type_name(k->val.type), k->rights);
-  if (k->val.type != TYPE_NIL) {
-    nexs_fprintf(out, " val=");
-    val_print(&k->val, out);
-  }
-  nexs_fprintf(out, "\n");
+  return val_err(3, "reg_get_deref: corrupt reference traversal");
 }
 
 /* =========================================================

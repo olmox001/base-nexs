@@ -16,21 +16,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-/* =========================================================
-   RING CHECK
-   ========================================================= */
-
-static int caller_has_admin(uint32_t pid) {
-    char path[REG_PATH_MAX];
-    snprintf(path, sizeof(path), "/proc/%u/caps", pid);
-    Value v = reg_get(path);
-    int ok = (v.type == TYPE_INT && (v.ival & RK_ADMIN));
-    val_free(&v);
-    return ok;
-}
-
+/* A sender_pid or /proc/PID/caps registry value is not a capability.
+ * Current KernelMsg has neither authenticated sender context nor a
+ * verified NXEC namespace grant. Privileged operations are unavailable
+ * until they can revalidate an issued object handle at access/commit.
+ * Do not promote the local legacy CSpace or a registry string to MACHINE
+ * authority. */
 static Value err_eperm(void) {
-    return val_err(1, "EPERM");
+    return val_err(1, "EPERM: trusted capability context required");
 }
 
 /* =========================================================
@@ -80,32 +73,25 @@ static Value sys_stat(const KernelMsg *m, uint32_t pid) {
 }
 
 static Value sys_mkdir(const KernelMsg *m, uint32_t pid) {
-    if (!caller_has_admin(pid)) return err_eperm();
-    int rc = vfs_mkdir(m->arg0, (uint32_t)m->n);
-    return val_int(rc);
+    (void)m; (void)pid;
+    return err_eperm();
 }
 
 static Value sys_mount(const KernelMsg *m, uint32_t pid) {
-    if (!caller_has_admin(pid)) return err_eperm();
-    int rc = vfs_mount(m->arg0, m->arg1, "regfs");
-    return val_int(rc);
+    (void)m; (void)pid;
+    return err_eperm();
 }
 
 static Value sys_fork(const KernelMsg *m, uint32_t sender_pid) {
     (void)m;
-    /* Copy /proc/<parent>/ subtree to /proc/<child>/ */
+    (void)sender_pid;
+    /* A /proc path is descriptive, NOT a transferable capability.
+     * The legacy fork path cannot inherit any MACHINE/SYSTEM authority
+     * until the NXEXEC provider authenticates transferable handles.
+     * Never clone user-written /proc/PID/caps as a child grant. */
     NexsProc *child = proc_create("fork_child", NULL, NULL);
-    if (!child) return val_err(1, "fork failed");
-
-    /* Copy parent caps to child */
-    char parent_caps[REG_PATH_MAX], child_caps[REG_PATH_MAX];
-    snprintf(parent_caps, sizeof(parent_caps), "/proc/%u/caps", sender_pid);
-    snprintf(child_caps,  sizeof(child_caps),  "/proc/%u/caps", child->pid);
-    Value caps = reg_get(parent_caps);
-    reg_set(child_caps, caps, RK_READ | RK_WRITE);
-    val_free(&caps);
-
-    /* Return child PID to parent; child gets 0 via its own reply */
+    if (!child)
+        return val_err(1, "fork failed");
     return val_int((int64_t)child->pid);
 }
 
@@ -143,9 +129,9 @@ static Value sys_sleep(const KernelMsg *m, uint32_t pid) {
 }
 
 static Value sys_bind(const KernelMsg *m, uint32_t pid) {
-    if (!caller_has_admin(pid)) return err_eperm();
-    reg_ipc_init_queue(m->arg0, 64);
-    return val_int(0);
+    (void)m; (void)pid;
+    /* Plan 9 bind MUST compose a namespace, not create an IPC queue. */
+    return err_eperm();
 }
 
 static Value sys_chdir(const KernelMsg *m, uint32_t pid) {
@@ -162,10 +148,8 @@ static Value sys_create(const KernelMsg *m, uint32_t pid) {
 }
 
 static Value sys_remove(const KernelMsg *m, uint32_t pid) {
-    if (!caller_has_admin(pid)) return err_eperm();
-    /* Remove exactly the named NXOLMO VFS resource, not arbitrary
-     * registry memory or a fabricated successful syscall. */
-    return val_int(vfs_remove(m->arg0));
+    (void)m; (void)pid;
+    return err_eperm();
 }
 
 static Value sys_pipe(const KernelMsg *m, uint32_t pid) {

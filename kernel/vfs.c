@@ -225,22 +225,6 @@ int vfs_seek(int fd, int64_t offset, int whence) {
 }
 
 /* =========================================================
-   MOUNT TABLE
-   ========================================================= */
-
-#define VFS_MAX_MOUNTS 16
-
-typedef struct {
-    int  in_use;
-    char src[REG_PATH_MAX];
-    char dst[REG_PATH_MAX];
-    char fstype[32];
-} VfsMount;
-
-static VfsMount s_mounts[VFS_MAX_MOUNTS];
-static int      s_mount_count = 0;
-
-/* =========================================================
    PUBLIC VFS: path -> canonical NXOLMO identity, not inode scan.
    ========================================================= */
 
@@ -410,19 +394,15 @@ int vfs_remove(const char *path) {
     return reg_delete(named);
 }
 
+/* Mounts compose per-domain Plan 9 Chan/Dev/Pgrp namespace edges.
+ * The former implementation silently wrote /vfs/mount/N strings but
+ * never resolved those edges, checked capability or mounted a provider.
+ * There is not yet an authenticated NXREG mutation/commit interface.
+ * Reject this operation without publishing ANY fake namespace state.
+ * Real mount admission must follow T3/T4, not reintroduce path copies. */
 int vfs_mount(const char *src, const char *dst, const char *fstype) {
-    if (s_mount_count >= VFS_MAX_MOUNTS) return -1;
-    VfsMount *m = &s_mounts[s_mount_count++];
-    m->in_use = 1;
-    strncpy(m->src,    src,    sizeof(m->src) - 1);
-    strncpy(m->dst,    dst,    sizeof(m->dst) - 1);
-    strncpy(m->fstype, fstype, sizeof(m->fstype) - 1);
-
-    char reg_base[REG_PATH_MAX];
-    snprintf(reg_base, sizeof(reg_base), "/vfs/mount/%d", s_mount_count - 1);
-    reg_set(reg_base,           val_str(src),    RK_READ);
-    char tmp[REG_PATH_MAX];
-    snprintf(tmp, sizeof(tmp), "%s/dst",    reg_base); reg_set(tmp, val_str(dst),    RK_READ);
-    snprintf(tmp, sizeof(tmp), "%s/fstype", reg_base); reg_set(tmp, val_str(fstype), RK_READ);
-    return 0;
+    (void)src;
+    (void)dst;
+    (void)fstype;
+    return -1;
 }

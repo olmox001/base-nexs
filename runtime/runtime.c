@@ -78,14 +78,16 @@ __attribute__((weak)) int nexs_embed_load_all(EvalCtx *ctx) { (void)ctx; return 
 /* The embedded program is a boot image, NOT a second filesystem. Only
  * actual NXOLMO registry objects own the installed resource names.
  * Host-installed resources take priority; ENOENT/ENOSYS alone permit an
- * immutable linked image to materialize as a registry Value. */
+ * immutable linked LIBRARY image to materialize as a registry Value.
+ * Example scripts never become automatic registry resources. */
 static int nexs_bundle_name(const char *name, char path[REG_PATH_MAX]) {
   if (name == NULL || path == NULL)
     return -1;
   /* Source catalogs restrict roots; the ONE RegKey parser owns exact
    * component lengths, forbidden dot segments and full-path capacity. */
-  if (strncmp(name, "nxlib/", 6U) != 0 &&
-      strncmp(name, "example/", 8U) != 0)
+  /* Only installed runtime libraries/services are admitted at startup.
+   * Example scripts stay on explicitly available external VFS mounts. */
+  if (strncmp(name, "nxlib/", 6U) != 0)
     return -1;
   size_t length = 0U;
   while (length < REG_PATH_MAX - 1U && name[length] != '\0')
@@ -170,13 +172,18 @@ static int nexs_runtime_publish_embedded_sources(void) {
   /* Check the *entire* image before publishing the first registry node. */
   for (size_t i = 0U; i < count; ++i) {
     const char *name = nexs_embedded_resource_at(i);
+    /* Explicit AOT example dependencies are not startup resources. */
+    if (name != NULL && strncmp(name, "example/", 8U) == 0)
+      continue;
     char path[REG_PATH_MAX];
     if (nexs_bundle_name(name, path) != 0 ||
-        nexs_embedded_lookup(name) == NULL)
+        nexs_embedded_lookup(name, NULL) == NULL)
       return -1;
   }
   for (size_t i = 0U; i < count; ++i) {
     const char *name = nexs_embedded_resource_at(i);
+    if (name != NULL && strncmp(name, "example/", 8U) == 0)
+      continue;
     char path[REG_PATH_MAX];
     if (nexs_bundle_name(name, path) != 0)
       return -1;
@@ -188,7 +195,7 @@ static int nexs_runtime_publish_embedded_sources(void) {
     if (admitted == 0)
       continue;
     if (nexs_runtime_install_source(name,
-                                    nexs_embedded_lookup(name)) != 0)
+                                    nexs_embedded_lookup(name, NULL)) != 0)
       return -1;
   }
   return 0;

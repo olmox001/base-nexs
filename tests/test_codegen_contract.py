@@ -19,7 +19,7 @@ class CodegenContractTests(unittest.TestCase):
         data = output.read_text()
         self.assertIn('#include "nexs_eval.h"', data)
         self.assertIn("const NexsEmbedDep nexs_embed_deps_table[]", data)
-        self.assertIn("{ (void*)0, (void*)0 }", data)
+        self.assertIn("{ (void*)0, (void*)0, 0u, 0u }", data)
         self.assertNotIn("char  scope[256]", data)
 
     def test_embed_lookup_is_built_with_same_runtime_abi(self):
@@ -29,7 +29,7 @@ class CodegenContractTests(unittest.TestCase):
         result = subprocess.run([
             "clang", "-std=c11", "-DPOOL_64MB", "-DNEXS_HOST_TOOL",
             "-Ilang/include", "-Icore/include", "-Iruntime/include",
-            "-Ihal/include", "-Isys/include", "-Iregistry/include",
+            "-Ihal/include", "-Isys/include", "-Iregistry/include", "-Istate/registry/include",
             "-fsyntax-only", str(output),
         ], cwd=ROOT, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)

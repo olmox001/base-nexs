@@ -1,6 +1,6 @@
 # Base-NEXS complete function-level redesign and execution plan
 
-Status: PROPOSED; this is not an implementation progress claim.
+Status: ACTIVE STRUCTURAL MIGRATION; P0–P8 exit gates remain open.
 Inputs: FUNCTION_CATALOG.csv, SOURCE_FILE_CATALOG.csv,
 DECLARATION_GAPS.csv, EXECUTION_ENTRYPOINTS.csv,
 INTEGRATED_ARCHITECTURE.md and POWER12_ENGINEERING_STANDARD.md.
@@ -19,6 +19,199 @@ baremetal dual-ISA and performance gates are for stable cutovers. Stage
 verified changes only; no commits/push. NexsOS1 and both references
 remain read-only. No unverified HCD, REG or signed-grant implementation
 is considered finished.
+
+## Actual structural source cutover and verification gate — 21 November 2026
+
+This is one **existing P0–P8/T0–T8 plan**. No new registry, allocator,
+hardware model or alternative 9P filesystem has been introduced. Original
+NXOLMO product implementations and their public interfaces were physically
+relocated as whole modules, retaining the existing ABI and implementation.
+
+| Source owner now in product | Moved existing source + interface | Actually tested | Required semantic exit still OPEN |
+| --- | --- | --- | --- |
+| `state/registry/` | StateStore, NXREG, signed-capability adapter, snapshot pool, schema, migration (6 C + 6 H) | NXREG signed masked child/parent reads; million-operation concurrency; schema/snapshot and 34 RegKey integration assertions | Single indexed name/object graph, transactions/MVCC, typed arrays/register push-pull, trusted issuer, revocation and WAL commit |
+| `state/authority/` | Signed capability and hardware capability (2 C + 2 H) | Original signed token/authority and hardware capability tests | NXEC kernel issuer/revoker and true MMIO/DMA mapping |
+| `state/memory/buffer/` | Buffer manager and capability adapter (2 C + 2 H) | Original MPMC, concurrent leases, 10,000 reclaim cycles | RuntimeInstance page/lease owner, zero-copy lifecycle, pin/revoke and failure isolation |
+| `state/storage/block/` | Block device, memory and memory-device (3 C + 3 H) | 24,577 real request/completion pairs, backpressure, fault injection | Live device authority and actually durable flush |
+| `state/storage/journal/` | Existing WAL (1 C + 1 H) | Original WAL crash recovery suite; 100,000 media mutations | Atomic NXREG transaction publish and persistent ext4 crash consistency |
+| `state/storage/9p/` | Original frame codec (1 C + 1 H) | Actual 9P frame/request tests | Full Plan 9 Chan/Dev/Pgrp and 9P2000.L peer/FID/mount interoperability |
+
+**15 C files and 15 headers moved, not duplicated.** The unchanged
+`registry/registry.c`, `registry/view.c`, `registry/reg_ipc.c`, `sys/fd_owner.c`,
+`kernel/vfs.c`, `fs/9p.c` and runtime singleton are still live cutover inputs.
+No RegKey clone is allowed as a substitute for Plan 9 name/mount semantics.
+
+One `config/sources.mk` catalog selects the moved modules for hosted, OS1,
+baremetal and AOT. Separate seL4 single/multi-PD privileged kernel source
+lists were consolidated to one manifest variable. The three seL4
+secondary-service codegen fallbacks that silently emitted empty source
+files were deleted; all four PD compiler invocations now fail closed.
+Signed NXOLMO `nx_capability_verify` was previously missing from a direct
+RegKey integration link: the real production authority source is now
+in the test dependency closure exactly once, with no mock.
+
+One post-cutover AST/catalog reconciliation classifies all 5,351
+definition/label candidates, with 2,282 mapped compiler AST bodies,
+45 indirect/unresolved AST call nodes and 33 not-yet-qualified target
+translation units. These are explicit unresolved gates, not invented
+function/target verification; the 29 dedicated catalog/AST/ownership
+tests passed after their provenance was refreshed.
+
+**Targeted proof, not release:** hosted product build PASS; actual
+NXOLMO resource, block, WAL, StateStore, RegKey integration PASS;
+11 focused structural/ownership/recipe tests PASS. The partial Power12
+lexical gate still reports WARN=275, BLOCK=0 across 36 strict source files (all
+canonical state providers plus OS1 adapters); this is still only lexical
+assurance, not full Power12 certification. Full strict-all/AST/CFG audit, seL4 boot, complete NXEC/OS1
+runtime and Plan 9 positive tests are **NOT complete**.
+
+### Next mandatory dependencies and positive acceptance criteria
+
+| Step (original phase) | Required implementation in existing owner | Hard exit gate; no negative-only shortcuts |
+| --- | --- | --- |
+| T1/P1 | Replace active global Buddy/pager/Value/array ownership through one per-RuntimeInstance memory provider, binary-length spans and page leases; do not remove existing features | Two independent concurrent instances, forced OOM with other instance surviving, stale lease and rollback, wide arrays |
+| T2/P2 | Migrate runtime/main/eval/repl/TTY/FD into admitted tasks, scopes, cancellable fuel and segmented VM frames; remove host recursion after caller cutover | Real independent interactive sessions, input ownership, cancellation and old/new execution differential |
+| T3/P3 | Evolve existing StateStore/NXREG typed identity and name index; explicit signed scope/mask + hardware register geometry; atomic mutations and parent/link relations | Visible/hidden generation checks, concurrent rename/insert/delete, signed grant+revoke, no parallel name tree |
+| T3/P5 | Couple the *same* registry transaction to the existing WAL; no rollback fiction for MMIO side effects | Old-or-new publish after crash, conflict rejection, real durable reopen, commit-time authority proof |
+| T4/P5 | Actual Plan 9 Chan/Dev/Pgrp, 9P2000.L sessions/FIDs, bind/mount/union and real file/link/device operations via NXREG, never clones | Independent 9P peer; mounted/open channel and unmount races; ordered union, link identity and real provider I/O |
+| T5/P4 | Integrate existing REG IPC with NXEC transport, trusted credential transfer, MPMC buffer credits and NXEXEC lifecycle | Two processes, owner-death/cancel/backpressure, real CTTY/FD handoff and no duplicate TTY |
+| T6/P6 | One typed/effect IR, verifier, VM and native AOT; preserve source dependency/resource table and original MiniOS | Interpreter/AOT value, array, exception, I/O/failure equality; invalid IR rejection, independent build targets |
+| T7/P7 | Port independently validated NXEC HCD/ISA boot admission and runtime device maps, IRQ/timer/DMA grants, fault reporting | Independent HCD parser negative corpus, firmware variants and dual-ISA QEMU/OS1 nxadb |
+| T8/P0/P8 | Close function-by-function callers/effects, two independent positive/negative tests per function and every strict Power12/CFG defect; then global qualification | Full AST/link map, per-function evidence, sanitizers/race/crash/ext4/Plan9 interoperability and both real guests |
+
+**Execution order:** continue substantive owner/consumer and ABI cutovers
+first; after each coherent implementation do its real positive/negative
+targeted tests, targeted compiler/gate checks and stage the verified work.
+Rebuild the P0 inventory and traceability once at the stable cutover.
+Run expensive global suites only after source placement and functional
+migration are no longer moving. No commit or push; NXOLMO/NXEC/NexsOS1
+reference trees stay read-only. A source move never closes a phase.
+
+## Coherent structural cutover / completion ledger (current source state)
+
+This is the **same original P0-P8 plan** and T0-T8 register, not another
+architecture or an index-only progress claim. Existing upstream NXOLMO/NXEC
+algorithms are to be preserved when moved; their complete contracts must be
+read and validated, not replaced by smaller invented stubs. All remaining
+exits below are BLOCKING, including items with passing component tests.
+
+| Phase, prerequisite | Actual product source / unresolved replacement | Required exit evidence |
+| --- | --- | --- |
+| T0/P0 first | config/sources.mk, source/AST/CFG ownership; reconcile current staged and unstaged changes; remove repeated Makefile source selection | Every function has owner, callers, ABI, effects, two meaningful normal/negative test IDs, tested profiles and honest NOT RUN; current auto-index alone is insufficient |
+| T1/P1 | core/buddy, pager, value, dynarray still contain global pools, fixed Value representation and source-sized limits | Per-instance provider memory, independent OOM, lease/revoke, bounded allocation rollback and no fatal global fallback |
+| T2/P2 after P1 | runtime/runtime, repl, lang/eval, parser and fn_table remain single-process or recursive | RuntimeInstance/Task/Scope/Executor ownership, concurrent isolation, cancellation and continuation frames, no unbounded C call stack |
+| T3/P3 after P1/P2 | registry/registry RegKey remains mutable pathname/payload projection over NXOLMO StateStore; schema/MVCC/transactions/authority incomplete | ONE indexed NXREG identity/name/payload graph, generation and revision linearization, trusted grant and revocation rechecks, commit atomicity and stale reference rejection |
+| T4/P4/P5 after T3 | sys/fd_owner, kernel/vfs, fs/9p, fs/regfs, nxlib/fs and services still implement partial Chan/Dev/FD/FID/mount semantics | Full Plan 9 Chan/Dev/Pgrp, attach/walk/open/read/write/stat/wstat/clunk/flush and bind/union/mount, true independent 9P2000.L interoperability and one capability-checked object identity |
+| T4/P5 after Chan | block, journal WAL and NXOLMO ext4 metadata are linked but no complete writable transactional filesystem | ext4 feature/extent/link/rename/xattr/ACL, independent e2fsprogs/fsck and fsync, power loss, complete replay against durable block provider |
+| T5/P4 after T2/T3/T4 | registry/reg_ipc, sys/sysproc, kernel IPC and NXEXEC ownership are not a complete REG endpoint | Versioned session/wire protocol, credit, correlation, cancellation/commit, real shared page leases, process/CTTY/FD ownership and permission transfer; no new OS1 syscalls or duplicate TTY |
+| T6/P6 after T2/T3 | lang AST evaluator, C codegen, NXB declarations and linker remain different semantic paths | ONE typed/effect IR, verifier, native/portable backends, W^X, signed imports, differential language+failure tests |
+| T7/P7 after T1/T3/T5 | HAL/ISA, HCD, hardcoded firmware memory and NXPaX still incomplete | Independent NXEC hardware admission, two firmware maps and two guest ISAs, IRQ/CPU/timer/device grant and nonblocking fault channel |
+| T8/P8 after coherent moves | Whole production still has strict Power12 debt and incomplete coverage | No duplicate storage/registry/FD/TTY/compiler; two real tests per function, strict CFG/compilers, sanitizer+race+crash/interop tests and only then full system suites |
+
+### Current safe migration order (no false exit)
+
+1. T3 registry presentation now owns only a read-only view of the EXISTING
+   NXOLMO object identity in registry/view.c; list/recursive print are
+   iterative, sorted by bounded heapsort, and never expose payload by
+   enumeration. Explicit reads still use reg_get. No second registry.
+2. T3 registry reference traversal resolves existing canonical object
+   references without an arbitrary 64-hop/path-copy limit, detects real
+   identity cycles and rejects malformed pointer targets before mutation.
+   Script mutation/deletion now report typed failure instead of silent
+   success. Full NXEC principal authority is still not present.
+3. T4 source staging installs 14 nxlib runtime sources and separately the
+   20 external examples plus four image assets in the same OS1 image VFS.
+   Only nxlib belongs to the autoload manifest; examples are plain
+   filesystem resources at /home/nxscript/examples, never automatically
+   loaded into the runtime registry.
+4. Next substantive dependency is RuntimeInstance-owned page/Value/array
+   state and ONE indexed StateStore namespace. Only after eliminating
+   their obsolete consumers can Plan 9 Chan/Dev/Pgrp, REG, ext4/9P,
+   hardware grants and verified IR be accepted.
+5. Per-tranche verification: inspect real callers/ownership first; compile
+   the changed production closure, run focused positive/hostile tests,
+   targeted strict Power12/Clang/sanitizers, and cross-ISA compile as
+   appropriate. Regenerate inventory/AST/ownership catalogs once when the
+   changes settle; stage proven code and docs, but do not commit/push.
+   Do NOT repeatedly run recursively all global suites before structural
+   moves and their targeted tests are complete.
+
+### T3/T4/T5 acceptance correction: real register machine and Plan 9
+
+The **registry is the NEXS State Node Machine itself**, not a catalogue
+layer atop another runtime. NXOLMO's actual hardware-resource registry
+and its virtual masked representation must obey the same typed geometry,
+rights and lifetime contract. Hardware register extents are discovered
+and admitted via NXEC HCD/HAL; no script can declare a physical device
+by writing a string. Virtual registers, software objects and resources
+use the SAME canonical ID+generation/schema/revision/lifecycle, but
+different authority and mapping providers. A virtual mirror is not MMIO.
+
+Each canonical register/resource has typed array and container metadata,
+hardware-derived geometry (register width, element encoding, address-space,
+offset, length, alignment, supported bit masks/side effects), principal,
+domain, namespace, capability lineage/lease/expiry/epoch, operation mask,
+resource mask and page/buffer extents. Hardware and protocol field widths
+are exact. No arbitrary global logical node/file/register size limits.
+Inaccessible objects project zero/absent protected fields without mapping
+backing resources or revealing an existence oracle. A zero projection is
+never a writable alias of protected memory.
+
+The complete operation path is:
+NXREG object ref -> trusted principal + capability/mask admission ->
+generation/schema/budget checks -> buffer/array lease -> bounded typed
+read or staged write (push/pull, scatter/gather, masked bit operation) ->
+conflict/authority/revocation recheck -> WAL transaction commit ->
+publish revision/root -> release/scrub. Cross-domain push/pull sends
+descriptors and authenticated proposals, never raw pointers or bearer
+capability strings. Mask handling MUST honor register-specific reserved
+bits, read-clear and write-one-clear behavior; MMIO effects are not
+rollback-safe by merely undoing descriptive metadata.
+
+Plan 9 must implement its actual Pgrp/Chan/Dev/devtab, Qid, fid, device
+namespaces, /dev, /proc, /env, /fd, /srv, ordered mount/bind/union,
+attach/walk/open/create/read/write/stat/wstat/clunk/flush, hardlinks,
+symlinks, rename and removal. A directory or file is a *namespace view*
+of an NXREG object, not its canonical identity or physical memory.
+Mounts/links are versioned namespace relationships to SAME NXOLMO refs,
+not cloned Value trees. A link preserves identity/link-count/lifetime;
+a mounted Channel owns live provider/namespace rights until unmount
+drains and revokes leases. 9P2000.L and the VFS are separate NXREG
+clients, not a second filesystem database. Device names such as sd00,
+sd01, sd02 and sd99 only exist after real provider discovery and mount.
+
+The current OS1 SDK has capability-scoped FILE operations, but a complete
+authenticated NEXS namespace mount API was not found. Until NXEC-issued
+namespace grants and an NXREG transaction/commit API exist, user mount,
+bind and unmount MUST fail closed, not modify arbitrary RegKeys or
+pretend that mounting succeeded. Examples remain external VFS files;
+nxlib libraries/services remain installed, not automatically privileged.
+
+#### Concrete source cutover / owner matrix (all exits remain open)
+
+| Product source and entrypoints | Verified gap and mandatory successor |
+| --- | --- |
+| kernel/syscall.c kmsg_handle, sys_mkdir/sys_bind/sys_mount/sys_remove/sys_fork | Untrusted sender_pid and /proc/PID/caps cannot authorize operations or transfer child grants. Route to authenticated NXEC endpoint and NXEXEC object-capability transfer, no new OS1 syscalls |
+| kernel/vfs.c vfs_mount/open/read/write/remove | Former 16-entry mount catalogue did not redirect paths; remove false success. Move to per-domain Plan 9 Chan/Pgrp and typed NXREG access/commit, no independent path/inode authority |
+| registry/registry.c reg_mount/reg_bind/reg_unmount/reg_set/reg_get | Old subtree copy/erase and raw writes remain callable from C and still require removal, with all consumers migrated to NXREG name/link/mount/transaction ops before retirement |
+| state/registry/state_store.c + state/registry/nxreg.c | H0 supports only object ID and child traversal reads. Implement parent+name index, links, namespace roots, mounted relations, capability-checked mutations, WAL/MVCC and safe retire/reuse |
+| registry/view.c + lang/builtins.c + lang/eval.c | Raw registry view and script reg_set/reg_del remain insufficiently masked. Migrate to per-principal NXREG client and redacted file/directory views, including private callables and hardware IDs |
+| sys/sysio.c + sys/fd_owner.c | Hosted FILE sessions/global owner; namespace builtins previously cloned RegKeys. Implement Channel/FD ownership, bounded authenticated mount/bind/unmount, shared ref leases and per-task sessions |
+| fs/9p.c + state/storage/9p/9p_frame.c + fs/regfs.c | Incomplete 9P2000.L protocol/fids/cancellation, not a real independently interoperable Plan 9 filesystem. Consume NXREG operations rather than duplicate the tree |
+| nxlib/fs.nx + nxlib/services/fs/init.nx + nxlib/services/fs/p9_mnt.nx + example/minios/boot.nx | Scripts fabricated sd00-sd99 contents and /sys/fs/mounts. Remove fictional devices, route real operations to provider and refuse mount without authority; examples remain ordinary VFS resources |
+| state/authority/hardware/capability.c + state/memory/buffer/* + state/storage/block/* | Real H0 signed range/grant and buffer lease validation, but no trusted kernel issuer, mapped hardware-register geometry, per-page mask or actual push/pull commit. Extend existing providers, not a duplicate software register array |
+| hal/* + kernel/cap.c + NXEC HCD | Physical geometry, IRQ/DMA and revocation must derive from independently verified HCD and live kernel authority, never script paths or registry flags |
+
+Required exit tests: unseen/masked non-existence and zero projection;
+hardware/HCD geometry vectors; forged PID/path/rights rejection;
+link identity and stale generations; ordered mount/union/replace and
+unmount with open Channels under race; transaction old-or-new publication,
+lease/revoke, signed push/pull and WAL crash recovery; exact Plan 9 and
+9P2000.L peer interoperability; OS1 AMD64/AArch64 nxadb guest control,
+all strict Power12 rules and two substantive tests per production function.
+A negative provider-unavailable test is NOT positive mount/link evidence.
+Run targeted product-linked tests after semantic cutovers; full recursive
+qualification remains deferred until structural migration is complete.
 
 ## Definition of completion: FUNCTION-BASED, NOT FILE-COUNT BASED
 
@@ -621,3 +814,32 @@ goto or unbounded loop; HAL module scans are bounded by admitted
 atomic entries. A test of this tranche does NOT establish usermode
 hardware driver support; only NXEC trusted grant issuance can allow
 the currently denied HALBC I/O opcodes.
+
+### MiniOS AOT compiler regression: one runtime binary with real assets
+
+The existing nexs_scan_deps already discovered all the original explicitly
+referenced MiniOS dependencies, including three .nxtimg images. The actual
+regression was in compiler/codegen.c, which discarded every example/ resource
+after scanning. That source-removal logic has been corrected: one executable
+contains the entire runtime, original boot script, recursively referenced
+script files and the original image data. No new scanner, second executable,
+source splicing or runtime service auto-activation was introduced.
+
+The existing embedded resource table and lookup now preserve exact payload
+length; source eval and file I/O use their original runtime paths. The
+MiniOS boot example was restored rather than disabled. Its example-local
+registry storage is distinct from a genuine Plan 9 mount authority, which
+remains unimplemented.
+
+Evidence: existing dependency scanner 19 resources, 21 source/data entries
+linked in one ARM64 runtime (including otherwise installed runtime libraries);
+9,484-byte logo1, 3,580-byte logo2 and 2,450-byte Druglords image all
+loaded. A real QEMU ARM64 run emitted logo1 byte-for-byte (normalizing UART
+LF/CRLF), reached interactive shell, accepted exit and showed no fatal or
+external resource errors. Test: tests/test_aot_compiled_runtime_resources.py.
+22 targeted hosted interpreter/source/catalog tests pass. OS1 AMD64/ARM64
+compile checks pass; NXREG signed-capability and concurrent tests pass.
+
+Still open: trusted NXEC issuer, Plan 9 namespace mount/link, canonical
+transaction commit/WAL, arbitrarily NUL-containing language Values and
+real NXEC/OS1 guest boot. Do not treat this example as the VFS implementation.

@@ -22,7 +22,7 @@
  * stdio header does not yet publish the standard declaration. This is the
  * exact portable C library signature; it does not fabricate I/O status. */
 extern int ferror(FILE *stream);
-extern const char *nexs_embedded_lookup(const char *path);
+extern const char *nexs_embedded_lookup(const char *path, size_t *bytes);
 
 /* A descriptor slot only refers to an OPEN DESCRIPTION. dup shares that
  * description, its stream/cursor, and the single close owner.
@@ -220,6 +220,7 @@ int sysio_init(void) {
 }
 
 static NexsOpenFile *open_new(FILE *stream, const char *embedded,
+                              size_t embedded_bytes,
                               const char *path, int flags) {
     if (path == NULL)
         return NULL;
@@ -232,7 +233,7 @@ static NexsOpenFile *open_new(FILE *stream, const char *embedded,
     memset(file, 0, sizeof(*file));
     file->stream = stream;
     file->embedded = embedded;
-    file->embedded_size = embedded == NULL ? 0u : strlen(embedded);
+    file->embedded_size = embedded == NULL ? 0u : embedded_bytes;
     file->flags = (unsigned int)flags;
     atomic_init(&file->refs, 1u);
     memcpy(file->path, path, length + 1u);
@@ -306,17 +307,18 @@ int nexs_open(const char *path, int mode) {
     }
     FILE *stream = fopen(real_path, fmode);
     const char *embedded = NULL;
+    size_t embedded_bytes = 0u;
     if (stream == NULL) {
         nx_status source_status = nexs_source_status_from_errno(errno);
         if (base == NEXS_OREAD &&
             nexs_source_embedded_admissible(source_status))
-            embedded = nexs_embedded_lookup(path);
+            embedded = nexs_embedded_lookup(path, &embedded_bytes);
         if (embedded == NULL) {
             set_errstr("open: filesystem provider refused resource");
             return -1;
         }
     }
-    NexsOpenFile *file = open_new(stream, embedded, path, mode);
+    NexsOpenFile *file = open_new(stream, embedded, embedded_bytes, path, mode);
     if (file == NULL) {
         if (stream != NULL)
             (void)fclose(stream);
@@ -356,7 +358,7 @@ int nexs_create(const char *path, int mode, int perm) {
         set_errstr("create: no writable filesystem provider");
         return -1;
     }
-    NexsOpenFile *file = open_new(stream, NULL, path, mode);
+    NexsOpenFile *file = open_new(stream, NULL, 0u, path, mode);
     if (file == NULL) {
         (void)fclose(stream);
         set_errstr("create: resource admission failed");
@@ -642,9 +644,9 @@ int nexs_pipe(int ends[2]) {
         (void)close(native[1]);
         return -1;
     }
-    NexsOpenFile *reader = open_new(read_stream, NULL,
+    NexsOpenFile *reader = open_new(read_stream, NULL, 0u,
                                     "/dev/pipe/r", NEXS_OREAD);
-    NexsOpenFile *writer = open_new(write_stream, NULL,
+    NexsOpenFile *writer = open_new(write_stream, NULL, 0u,
                                     "/dev/pipe/w", NEXS_OWRITE);
     if (reader == NULL || writer == NULL) {
         if (reader != NULL) open_release_resource(reader);

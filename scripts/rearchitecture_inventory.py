@@ -24,7 +24,7 @@ OUTPUT = BASE / "docs/rearchitecture"
 C_SUFFIX = {".c", ".h", ".cc", ".cpp"}
 ASM_SUFFIX = {".s", ".S"}
 PROJECTS = [
-    ("BASE-NEXS", BASE, ("core/", "registry/", "lang/", "sys/", "runtime/",
+    ("BASE-NEXS", BASE, ("core/", "registry/", "state/", "lang/", "sys/", "runtime/",
                            "compiler/", "hal/", "kernel/", "fs/", "block/", "journal/", "extensions/", "include/",
                           "tests/", "scripts/", "nxlib/", "nxlib/services/", "example/")),
     ("NXOLMO", NXOLMO, ("src/", "include/", "tests/", "example/", "tools/")),
@@ -154,7 +154,10 @@ def subsystem(project: str, path: str) -> str:
         ("core/buddy", "Allocator"), ("core/pager", "PageMemory"),
         ("core/value", "ValueAndObject"), ("core/dynarray", "ArrayAndBuffer"),
         ("core/", "RuntimeUtilities"), ("registry/reg_ipc", "REGTransport"),
-        ("registry/", "LegacyNamespace"), ("lang/lexer", "Lexer"),
+        ("registry/", "LegacyNamespace"), ("state/registry/", "CanonicalStateStore"),
+        ("state/authority/", "CanonicalAuthority"),
+        ("state/memory/", "CanonicalMemory"),
+        ("state/storage/", "CanonicalStorage"), ("lang/lexer", "Lexer"),
         ("lang/parser", "ParserAndAST"), ("lang/eval", "Evaluator"),
         ("lang/fn_table", "CallableRegistry"), ("lang/builtins", "LanguageBindings"),
         ("sys/sysproc", "ProcessExecution"), ("sys/sysio", "VFSAndStreams"),

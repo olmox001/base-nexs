@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Stage the ONE reviewed NEXS source catalog into an OS1-compatible image.
+"""Stage the reviewed NEXS libraries AND external VFS example files.
 
-No kernel/SDK modification, no alternative registry, no implicit privilege.
+Only nxlib is a startup source catalog. Example programs/assets are installed
+as ordinary filesystem files under /home/nxscript/examples, never admitted
+into the startup registry or auto-executed. No kernel/SDK modification.
 An existing staging directory is never overwritten or deleted.
 """
 from __future__ import annotations
@@ -23,7 +25,7 @@ def reviewed_sources():
     ]
     actual = sorted(
         file.relative_to(ROOT).as_posix()
-        for directory in ("nxlib", "example")
+        for directory in ("nxlib",)
         for file in (ROOT / directory).rglob("*")
         if file.is_file() and file.suffix in (".nx", ".nxtimg")
     )
@@ -39,6 +41,21 @@ def reviewed_sources():
             len(names) != len(set(names))):
         raise ValueError("Refuse to stage an incomplete or duplicated catalog")
     return names
+
+
+def external_examples() -> list[str]:
+    tree = ROOT / "example"
+    # Every deployed example is an ordinary VFS file, not a runtime source.
+    # Check *all* entries, not only suffix-filtered files, to reject hidden
+    # symlinks, unexpected binaries and new unreviewed assets.
+    entries = sorted(tree.rglob("*"))
+    if not entries or any(entry.is_symlink() for entry in entries):
+        raise ValueError("Missing examples or unsafe symbolic link")
+    files = [entry for entry in entries if entry.is_file()]
+    if not files or any(file.suffix not in (".nx", ".nxtimg")
+                        for file in files):
+        raise ValueError("Unreviewed external example file type")
+    return [file.relative_to(ROOT).as_posix() for file in files]
 
 
 def image_path(logical: str) -> Path:
@@ -57,8 +74,11 @@ def stage(destination: Path) -> int:
         raise ValueError("Refuse to use a source or ancestor as image root")
     if destination.exists():
         raise ValueError("Refuse to overwrite an existing staging directory")
+    # Installation and startup are separate contracts. The image contains
+    # external examples but the two runtime catalogs contain nxlib ONLY.
     names = reviewed_sources()
     names += ["config/nx_sources.txt", "config/nx_resources.txt"]
+    names += external_examples()
     manifest = []
     # Complete validation before writing the first destination object.
     for name in names:
@@ -85,6 +105,8 @@ def stage(destination: Path) -> int:
         records.append({
             "logical": logical,
             "installed": "/" + target.as_posix(),
+            "source_class": ("external-vfs" if logical.startswith("example/")
+                             else "installed-runtime"),
             "bytes": len(source_bytes),
             "sha256": hashlib.sha256(source_bytes).hexdigest(),
         })

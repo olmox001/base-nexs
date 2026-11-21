@@ -69,12 +69,16 @@ def target(project: str, path: str, subsystem: str) -> tuple[str, str]:
             ("core/dynarray.c", "NXOLMO", "state/memory/array"),
             ("core/value.c", "NXOLMO", "state/object"),
             ("core/", "SHARED_ABI", "core"),
+            ("state/authority/", "NXOLMO", "state/authority"),
+            ("state/memory/", "NXOLMO", "state/memory"),
+            ("state/storage/", "NXOLMO", "state/storage"),
             ("authority/", "NXOLMO", "state/authority"),
             ("hardware/", "NXOLMO", "state/authority/hardware"),
             ("buffer/", "NXOLMO", "state/memory/buffer"),
             ("block/", "NXOLMO", "state/storage/block"),
             ("journal/", "NXOLMO", "state/storage/journal"),
             ("registry/reg_ipc.c", "NXEC", "transport/reg"),
+            ("state/registry/", "NXOLMO", "state/registry"),
             ("registry/", "NXOLMO", "state/registry"),
             ("lang/fn_table.c", "NXOLMO", "state/registry/callables"),
             ("extensions/", "BASE_NEXS", "extensions"),
@@ -170,11 +174,11 @@ def migration(row: dict) -> tuple[str, str, str]:
     # and 9P frame providers. Six upstream suites and 2 billion-op profiles
     # are evidence of these paths ONLY, not an NXEC contract/VFS cutover.
     canonical_resource_ports = {
-        "authority/capability.c": "src/authority/capability.c",
-        "hardware/capability.c": "src/hardware/capability.c",
-        "buffer/buffer.c": "src/buffer/buffer.c",
-        "buffer/capability_adapter.c": "src/buffer/capability_adapter.c",
-        "fs/9p_frame.c": "src/protocol/9p/frame.c",
+        "state/authority/capability.c": "src/authority/capability.c",
+        "state/authority/hardware/capability.c": "src/hardware/capability.c",
+        "state/memory/buffer/buffer.c": "src/buffer/buffer.c",
+        "state/memory/buffer/capability_adapter.c": "src/buffer/capability_adapter.c",
+        "state/storage/9p/9p_frame.c": "src/protocol/9p/frame.c",
     }
     resource_evidence = (
         "product authority/hardware/buffer/9P sources; "
@@ -196,10 +200,10 @@ def migration(row: dict) -> tuple[str, str, str]:
     # Only the source/real regression portion is proven; P3 transactional
     # namespace, full capability and per-function assurance gates remain.
     state_ports = {"state_store", "nxreg", "snapshot_pool", "schema", "migration"}
-    base_state_sources = {"registry/" + item + ".c" for item in state_ports}
+    base_state_sources = {"state/registry/" + item + ".c" for item in state_ports}
     reference_state_sources = {
         "src/registry/" + item + ".c" for item in state_ports}
-    evidence = ("registry/state_store.c+nxreg.c+schema.c+snapshot_pool.c+"
+    evidence = ("state/registry/state_store.c+nxreg.c+schema.c+snapshot_pool.c+"
                 "migration.c; tests/nxolmo_canonical (7 original suites); "
                 "tests/test_nxolmo_regkey_state_core.c (34 checks); "
                 "full P3 authority/transaction/MVCC acceptance pending")

@@ -52,10 +52,10 @@ def choose_profile(project: str, path: str) -> tuple[str, list[str]] | None:
     if project == "BASE-NEXS":
         common = [
             "-std=c11", "-DPOOL_64MB", "-Icore/include",
-            "-Iregistry/include", "-Iauthority/include",
-            "-Ihardware/include", "-Ibuffer/include", "-Iblock/include",
-            "-Ijournal/include",
-            "-Ifs/include",
+            "-Iregistry/include", "-Istate/registry/include", "-Istate/authority/include",
+            "-Istate/authority/hardware/include", "-Istate/memory/buffer/include", "-Istate/storage/block/include",
+            "-Istate/storage/journal/include",
+            "-Ifs/include", "-Istate/storage/9p/include",
             "-Ilang/include", "-Isys/include", "-Iruntime/include",
             "-Icompiler/include", "-Ihal/include",
         ]
@@ -92,7 +92,7 @@ def choose_profile(project: str, path: str) -> tuple[str, list[str]] | None:
                     "-target", target, "-ffreestanding", "-DNEXS_BAREMETAL",
                     "-Ikernel/include", *common,
                 ])
-        if path.startswith(("hal/", "core/", "registry/", "lang/",
+        if path.startswith(("hal/", "core/", "registry/", "state/", "lang/",
                             "sys/", "runtime/", "compiler/", "extensions/",
                             "authority/", "hardware/", "buffer/", "block/", "journal/")):
             return ("host-darwin-c11", [
@@ -320,7 +320,7 @@ def main() -> int:
     calls = []
     translation_units = []
     projects = [
-        ("BASE-NEXS", BASE, ("core/", "registry/", "lang/", "sys/",
+        ("BASE-NEXS", BASE, ("core/", "registry/", "state/", "lang/", "sys/",
                              "runtime/", "compiler/", "hal/", "kernel/", "fs/", "block/", "journal/",
                              "extensions/")),
         ("NXOLMO", NXOLMO, ("src/",)),

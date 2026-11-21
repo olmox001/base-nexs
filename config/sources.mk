@@ -15,21 +15,23 @@ NEXS_SHARED_SRCS := \
   core/value.c \
   core/dynarray.c \
   core/utils.c \
-  authority/capability.c \
-  hardware/capability.c \
-  buffer/buffer.c \
-  buffer/capability_adapter.c \
-  block/device.c \
-  block/memory.c \
-  block/memory_device.c \
-  journal/wal.c \
-  fs/9p_frame.c \
-  registry/state_store.c \
-  registry/nxreg.c \
-  registry/snapshot_pool.c \
-  registry/schema.c \
-  registry/migration.c \
+  state/authority/capability.c \
+  state/authority/hardware/capability.c \
+  state/memory/buffer/buffer.c \
+  state/memory/buffer/capability_adapter.c \
+  state/storage/block/device.c \
+  state/storage/block/memory.c \
+  state/storage/block/memory_device.c \
+  state/storage/journal/wal.c \
+  state/storage/9p/9p_frame.c \
+  state/registry/state_store.c \
+  state/registry/nxreg.c \
+  state/registry/capability_adapter.c \
+  state/registry/snapshot_pool.c \
+  state/registry/schema.c \
+  state/registry/migration.c \
   registry/registry.c \
+  registry/view.c \
   registry/reg_ipc.c \
   lang/fn_table.c \
   lang/lexer.c \
@@ -129,6 +131,15 @@ NEXS_BAREMETAL_RISCV64_SRCS := \
   hal/riscv64/uart.c \
   hal/riscv64/timer.c \
   hal/riscv64/ctx_riscv64.S
+
+# One seL4 privileged kernel source closure, independent of PD count.
+# Neither target may redefine it or silently omit provider implementations.
+NEXS_SEL4_PRIVILEGED_SRCS := \
+  kernel/msg.c \
+  kernel/syscall.c \
+  kernel/vfs.c \
+  kernel/blk.c \
+  kernel/journal.c
 
 # The OS1 architecture adapter is selected by OS1_ARCH (amd64 or arm64).
 NEXS_OS1_SRCS = $(NEXS_SHARED_SRCS) $(NEXS_OS1_ADAPTER_SRCS) \

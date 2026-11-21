@@ -56,7 +56,7 @@ make baremetal-amd64 # x86_64-elf-gcc, Multiboot2 / Limine
 ```sh
 ./nxscript --compile program.nx --target linux-amd64 -o out/program
 ./nxscript --standalone-program example/minios/boot.nx --target macos-amd64 -o minios.out
-./nxscript --compile program.nx --target baremetal-arm64 -o out/kernel.elf
+./nxscript --compile example/minios/boot.nx --target baremetal-arm64 -o out/kernel.elf
 ```
 
 ### Baremetal QEMU
@@ -100,10 +100,14 @@ To embed a custom entry script or the full example set:
 
 ```sh
 make sel4-aarch64 SEL4_ENTRY_NX=example/minios/boot.nx MICROKIT_SDK=$MICROKIT_SDK
-make sel4-aarch64 EMBED_EXAMPLES=1 MICROKIT_SDK=$MICROKIT_SDK
 ```
 
 ---
+
+OS1 image staging: make nxlib-stage NXLIB_STAGE_ROOT=<new-image-root>
+installs nxlib under /lib/nxscript/nxlib and all example programs/assets as
+external VFS files under /home/nxscript/examples. Only the separate
+14-source nxlib catalog loads at runtime; example files never autoload.
 
 ## Architecture
 

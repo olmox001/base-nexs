@@ -22,3 +22,4 @@ nexs
 /nxscript_dbg
 /nxscript_dbg.dSYM/
 *.pyc
+out/

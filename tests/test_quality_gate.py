@@ -12,6 +12,17 @@ class CatalogSafetyTests(unittest.TestCase):
     def test_canonical_catalog_is_complete(self):
         self.assertEqual([], quality_gate.catalog_issues())
 
+    def test_canonical_state_ownership_is_strictly_gated(self):
+        self.assertIn("state/", quality_gate.STRICT_ROOTS)
+        for source in ("goto err; err: return;", "break;"):
+            with self.subTest(source=source):
+                issues = quality_gate.audit_source(
+                    "state/registry/fault.c", "void fail(void) { " + source + " }",
+                    strict=True,
+                )
+                self.assertTrue(issues)
+                self.assertTrue(all(issue["severity"] == "block" for issue in issues))
+
     def test_strict_os1_sources_are_present(self):
         for path in (
             "hal/os1/os1_driver.c",
@@ -54,14 +65,14 @@ class CatalogSafetyTests(unittest.TestCase):
     def test_old_recursive_reference_is_not_tracked(self):
         self.assertFalse((ROOT / "reference/.git").exists())
 
-    def test_all_proprietary_nx_files_are_cataloged(self):
+    def test_installed_library_service_resources_are_cataloged(self):
         entries = [
             line for line in (ROOT / "config/nx_sources.txt").read_text().splitlines()
             if line and not line.startswith("#")
         ]
         actual = sorted(
             path.relative_to(ROOT).as_posix()
-            for directory in ("example", "nxlib")
+            for directory in ("nxlib",)
             for path in (ROOT / directory).rglob("*.nx")
         )
         self.assertEqual(actual, sorted(entries))

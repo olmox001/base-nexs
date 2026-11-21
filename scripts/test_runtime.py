@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -23,11 +24,17 @@ MARKERS = {
     "example/test_parse_loop.nx": "45",
     "example/test_syntax.nx": "33",
 }
-INTERACTIVE = {
-    "example/druglords/druglords.nx",
-    "example/minios/boot.nx",
-    "example/nxed_editor.nx",
+# Acceptance methods run real OS PTY I/O on the selected interpreter.
+# This mapping is only the test harness, never a runtime resource catalog.
+INTERACTIVE_PTY = {
+    "example/druglords/druglords.nx":
+        "test_druglords_quit_at_intro_in_real_pty",
+    "example/minios/boot.nx":
+        "test_boot_shell_help_pwd_exit_in_real_pty",
+    "example/nxed_editor.nx":
+        "test_nxed_editor_calibrate_edit_menu_quit_in_real_pty",
 }
+INTERACTIVE = frozenset(INTERACTIVE_PTY)
 # Actual functional probes for import-only modules: exercise an exported
 # operation instead of declaring their silent top-level load successful.
 # These tests do not claim full interactive workflow or UI acceptance.
@@ -80,6 +87,35 @@ def main() -> int:
         fixture, expected = FEATURE_FIXTURES.get(relative, (relative, ()))
         if relative in MARKERS:
             expected = (MARKERS[relative],)
+        if args.all and relative in INTERACTIVE:
+            # No source is auto-admitted. Prove real interactive behavior
+            # independently, using this exact tested interpreter binary.
+            env = os.environ.copy()
+            env["NEXS_TEST_BINARY"] = str(binary)
+            try:
+                proc = subprocess.run(
+                    [sys.executable, "-m", "unittest",
+                     "tests.test_interactive_os_examples.InteractiveOSExamples."
+                     + INTERACTIVE_PTY[relative], "-v"],
+                    cwd=ROOT, env=env, text=True, capture_output=True,
+                    timeout=20, check=False)
+                passed = (proc.returncode == 0 and
+                          "Ran 1 test" in proc.stderr and
+                          "\nOK\n" in proc.stderr)
+                results.append({
+                    "path": relative, "status": "PASS" if passed else "FAIL_PTY",
+                    "execution_mode": "real-pty",
+                    "assertion": INTERACTIVE_PTY[relative],
+                    "return_code": proc.returncode,
+                    "stdout_tail": proc.stdout[-900:],
+                    "stderr_tail": proc.stderr[-900:]})
+            except subprocess.TimeoutExpired:
+                results.append({
+                    "path": relative, "status": "FAIL_PTY_TIMEOUT",
+                    "execution_mode": "real-pty",
+                    "assertion": INTERACTIVE_PTY[relative]})
+            print(f"[nxtest] {results[-1]['status']:<23} {relative}")
+            continue
         try:
             proc = subprocess.run(
                 [str(binary), fixture], cwd=ROOT, stdin=subprocess.DEVNULL,

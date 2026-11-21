@@ -309,6 +309,68 @@ static int p9_case(uint64_t iteration) {
 /* A genuine positive kernel EXEC path must evaluate a source program and
  * publish an independently testable NXOLMO registry side effect. This is
  * separate from the randomized non-existing-path negative EXEC corpus. */
+/* Real malicious /proc/PID/caps records must never authorize privileged
+ * mounts, namespace binds, deletion or provider creation. This executes
+ * the actual kernel dispatcher, VFS, RegKey and NXOLMO StateStore. */
+static int test_untrusted_registry_cannot_authorize_namespace(void) {
+    static const char *const privileged[] = {
+        "mount", "bind", "mkdir", "remove"
+    };
+    KernelMsg request;
+    nx_state_node before, after;
+    nx_result result;
+    size_t objects;
+    if (reg_set("/fuzz/protected", val_str("ORIGINAL"), RK_READ) != 0 ||
+        reg_set("/proc/201/caps", val_int(RK_ADMIN), RK_ALL) != 0 ||
+        reg_object_read("/fuzz/protected", &before, &result) != NX_STATUS_OK)
+        return 0;
+    objects = g_registry.total_keys;
+    for (size_t i = 0u; i < sizeof(privileged) / sizeof(privileged[0]); ++i) {
+        Value answer;
+        memset(&request, 0, sizeof(request));
+        (void)snprintf(request.verb, sizeof(request.verb), "%s", privileged[i]);
+        (void)snprintf(request.arg0, sizeof(request.arg0),
+                       "%s", i == 3u ? "/fuzz/protected" : "/fuzz/forged");
+        (void)snprintf(request.arg1, sizeof(request.arg1), "/fuzz/dst");
+        request.sender_pid = 201u;
+        answer = kmsg_handle(&request);
+        int rejected = answer.type == TYPE_ERR;
+        val_free(&answer);
+        if (!rejected || g_registry.total_keys != objects)
+            return 0;
+    }
+    if (vfs_mount("/fuzz/protected", "/fuzz/dst", "regfs") != -1 ||
+        reg_lookup("/vfs/mount") != NULL ||
+        reg_lookup("/fuzz/dst") != NULL ||
+        reg_lookup("/fuzz/forged") != NULL ||
+        reg_object_read("/fuzz/protected", &after, &result) != NX_STATUS_OK ||
+        !nx_object_ref_equal(before.ref, after.ref) ||
+        before.revision != after.revision)
+        return 0;
+    Value retained = reg_get("/fuzz/protected");
+    int ok = retained.type == TYPE_STR &&
+             retained.data != NULL &&
+             strcmp(retained.data, "ORIGINAL") == 0;
+    val_free(&retained);
+    if (!ok)
+        return 0;
+    /* A forged parent /proc/PID/caps must NOT be cloned as a child grant. */
+    memset(&request, 0, sizeof(request));
+    (void)snprintf(request.verb, sizeof(request.verb), "fork");
+    request.sender_pid = 201u;
+    Value child = kmsg_handle(&request);
+    if (child.type != TYPE_INT || child.ival <= 0) {
+        val_free(&child);
+        return 0;
+    }
+    char child_caps[128];
+    int written = snprintf(child_caps, sizeof(child_caps),
+                           "/proc/%lld/caps", (long long)child.ival);
+    val_free(&child);
+    return written > 0 && (size_t)written < sizeof(child_caps) &&
+           reg_lookup(child_caps) == NULL;
+}
+
 static int test_real_exec_positive(void) {
     const char *path = "build/assurance/fuzz_exec_real.nx";
     static const char source[] = "reg /fuzz/exec_real = 7919\n";
@@ -452,6 +514,11 @@ int main(int argc, char **argv) {
     if (reg_set("/proc/201/caps", val_int(RK_ADMIN), RK_ALL) != 0 ||
         reg_set("/proc/202/caps", val_int(0), RK_ALL) != 0)
         return 2;
+    if (test_untrusted_registry_cannot_authorize_namespace() == 0) {
+        fprintf(stderr, "REGISTRY_CAPABILITY_FORGERY_DENIAL FAILED\n");
+        return 2;
+    }
+    printf("REGISTRY_CAPABILITY_FORGERY_DENIAL PASS\n");
     if (test_real_exec_positive() == 0) {
         fprintf(stderr, "REAL syscall exec positive source evaluation FAILED\n");
         return 2;

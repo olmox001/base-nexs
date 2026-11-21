@@ -19,11 +19,13 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build/assurance"
 VALID_EXTS = {".c", ".h", ".S", ".s"}
 SOURCE_ROOTS = (
-    "core", "registry", "authority", "hardware", "buffer", "block", "journal",
+    "core", "registry", "state", "authority", "hardware", "buffer", "block", "journal",
     "lang", "sys", "runtime", "compiler", "hal", "kernel", "fs",
     "extensions", "include",
 )
-STRICT_ROOTS = ("hal/os1/",)
+# Every relocated NXOLMO product implementation now blocks new lexical
+# safety violations. Historical non-migrated source remains warning debt.
+STRICT_ROOTS = ("hal/os1/", "state/")
 FORBIDDEN_CALLS = ("assert", "__assert_fail", "_Static_assert", "static_assert",
                    "setjmp", "longjmp", "_setjmp", "_longjmp")
 RESERVED_INSTRUCTIONS = ("cli", "hlt", "lidt", "lgdt", "wfi", "msr", "outb", "inb")
@@ -32,6 +34,7 @@ REQUIRED_GROUPS = {
     "NEXS_OS1_ADAPTER_SRCS", "NEXS_KERNEL_SRCS",
     "NEXS_BAREMETAL_ARM64_SRCS", "NEXS_BAREMETAL_AMD64_SRCS",
     "NEXS_BAREMETAL_RISCV64_SRCS",
+    "NEXS_SEL4_PRIVILEGED_SRCS",
 }
 ALLOWED_SUBMODULES = {
     "external/os1/nx-sdk": {
@@ -172,8 +175,8 @@ def catalog_issues() -> list[dict]:
               "NXTIMG files must not be rewritten by text normalization")
 
     # .nx is a first-class proprietary library/service file, not an opaque
-    # untracked data asset. The reviewed manifest must exactly match nxlib
-    # and example source trees, including paths containing spaces.
+    # untracked data asset. The reviewed manifest covers only installed
+    # runtime libraries/services. Examples remain on external VFS sources.
     nx_manifest = ROOT / "config/nx_sources.txt"
     if not nx_manifest.is_file():
         fault("nx_script_manifest_missing", str(nx_manifest))
@@ -184,7 +187,7 @@ def catalog_issues() -> list[dict]:
         ]
         on_disk = sorted(
             p.relative_to(ROOT).as_posix()
-            for directory in ("example", "nxlib")
+            for directory in ("nxlib",)
             for p in (ROOT / directory).rglob("*.nx")
         )
         if sorted(set(registered)) != on_disk or len(set(registered)) != len(registered):
@@ -199,7 +202,7 @@ def catalog_issues() -> list[dict]:
     else:
         expected_resources = sorted(
             p.relative_to(ROOT).as_posix()
-            for directory in ("example", "nxlib")
+            for directory in ("nxlib",)
             for p in (ROOT / directory).rglob("*")
             if p.is_file() and p.suffix in (".nx", ".nxtimg")
         )

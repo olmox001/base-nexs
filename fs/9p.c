@@ -7,7 +7,7 @@
  */
 
 #include "include/nexs_fs9p.h"
-#include "include/nexs_p9_frame.h"
+#include "nexs_p9_frame.h"
 #include "nexs_endian.h"
 #include <limits.h>
 #include "../kernel/include/nexs_vfs.h"

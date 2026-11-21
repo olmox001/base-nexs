@@ -69,7 +69,7 @@ class CanonicalOwnershipTests(unittest.TestCase):
         module_names = ("state_store", "nxreg", "snapshot_pool",
                         "schema", "migration")
         for module in module_names:
-            product_path = f"registry/{module}.c"
+            product_path = f"state/registry/{module}.c"
             original_path = f"src/registry/{module}.c"
             product = [r for r in records if
                        r["source_project"] == "BASE-NEXS"

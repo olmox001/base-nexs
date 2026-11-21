@@ -1,24 +1,4 @@
 # Reviewed NEXS source subset; see nx_resources.txt for assets.
-example/druglords/druglords.nx
-example/example_lib.nx
-example/exent_bus.nx
-example/lib.nx
-example/micro_os.nx
-example/minios/boot.nx
-example/minios/druglords.nx
-example/minios/logo.nx
-example/minios/logos_config.nx
-example/minios/nxed_editor.nx
-example/minios/shell.nx
-example/minios/termimg.nx
-example/minios/wasm_vm.nx
-example/nxed_editor copy.nx
-example/nxed_editor.nx
-example/test.nx
-example/test_builtins_all.nx
-example/test_input.nx
-example/test_parse_loop.nx
-example/test_syntax.nx
 nxlib/fs.nx
 nxlib/services/auth/init.nx
 nxlib/services/fs/init.nx

@@ -25,7 +25,7 @@ class NxlibImageStageTests(unittest.TestCase):
             [sys.executable, str(STAGER), "--root", str(self.target)],
             cwd=ROOT.parents[2], capture_output=True, text=True, timeout=15)
 
-    def test_all_catalog_sources_and_original_binary_assets_stage(self):
+    def test_installed_runtime_and_external_vfs_examples_stage_exact_bytes(self):
         result = self.invoke()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("NXLIB_IMAGE_STAGE_PASS", result.stdout)
@@ -36,8 +36,12 @@ class NxlibImageStageTests(unittest.TestCase):
             line for line in (ROOT / "config/nx_sources.txt").read_text().splitlines()
             if line and not line.startswith("#")
         ]
-        self.assertEqual(len(scripts), 33)
-        self.assertEqual(len(entries), len(scripts) + 4 + 2)
+        external = sorted(
+            f.relative_to(ROOT).as_posix()
+            for f in (ROOT / "example").rglob("*") if f.is_file())
+        self.assertEqual(len(scripts), 14)
+        self.assertEqual(len(external), 24)
+        self.assertEqual(len(entries), len(scripts) + len(external) + 2)
         self.assertEqual(len(entries), len({row["installed"] for row in entries}))
         for row in entries:
             with self.subTest(source=row["logical"]):
@@ -48,7 +52,15 @@ class NxlibImageStageTests(unittest.TestCase):
                 self.assertEqual(row["sha256"], hashlib.sha256(installed).hexdigest())
         self.assertTrue((self.target / "lib/nxscript/config/nx_resources.txt").exists())
         self.assertTrue((self.target / "lib/nxscript/nxlib/services/fs/init.nx").exists())
-        self.assertTrue((self.target / "home/nxscript/examples/minios/logos/logo1.nxtimg").exists())
+        self.assertTrue((self.target / "home/nxscript/examples/minios/boot.nx").is_file())
+        self.assertTrue((self.target / "home/nxscript/examples/minios/logos/logo1.nxtimg").is_file())
+        self.assertEqual(
+            {row["logical"] for row in entries if row["source_class"] == "external-vfs"},
+            set(external))
+        self.assertEqual(
+            {row["logical"] for row in entries if row["source_class"] == "installed-runtime"},
+            set(scripts) | {"config/nx_sources.txt", "config/nx_resources.txt"})
+        self.assertTrue(all(not name.startswith("example/") for name in scripts))
         self.assertFalse((self.target / "lib/nxscript/services").exists())
 
     def test_second_stage_refuses_overwrite_without_touching_first(self):

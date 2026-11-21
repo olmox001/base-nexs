@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Regenerate the two views of ONE reviewed NEXS resource inventory.
+"""Regenerate the reviewed runtime library/service inventory.
 
-Sources are a subset of resources. Both are derived from the actual tree;
-the full inventory also includes exact binary assets for image staging.
+Examples are external VFS files, never startup/catalog resources.
+Installed libraries and services still use the canonical nxlib source tree.
 """
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-roots = (ROOT / "example", ROOT / "nxlib")
+roots = (ROOT / "nxlib",)
 sources = sorted(
     p.relative_to(ROOT).as_posix() for base in roots
     for p in base.rglob("*.nx") if p.is_file()
@@ -22,6 +22,6 @@ if not sources or len(set(sources + assets)) != len(sources) + len(assets):
     "# Reviewed NEXS source subset; see nx_resources.txt for assets.\n"
     + "\n".join(sources) + "\n", encoding="utf-8")
 (ROOT / "config/nx_resources.txt").write_text(
-    "# One canonical NEXS resource index: library/service/application and assets.\n"
+    "# Canonical NEXS installed runtime library/service resources; examples remain external.\n"
     + "\n".join(sorted(sources + assets)) + "\n", encoding="utf-8")
 print(f"Cataloged {len(sources)} source files and {len(assets)} binary assets")

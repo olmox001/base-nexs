@@ -31,6 +31,8 @@ static uint64_t nxreg_authorization_limit(
         return adapter->authorization_fuel_limits.child_next;
     case NX_OP_NXREG_CLIENT_CHILD_COUNT:
         return adapter->authorization_fuel_limits.child_count;
+    case NX_OP_NXREG_CLIENT_PARENT_READ:
+        return adapter->authorization_fuel_limits.parent_read;
     default:
         return 0u;
     }
@@ -113,72 +115,303 @@ static nx_status nxreg_store_object_read(
         &authorization, result);
     if (status != NX_STATUS_OK)
         return status;
-    status = nx_state_store_read(adapter->store, object, node, &store_result);
+    /* Object READ is not permission to observe the object's unrelated
+     * owner/parent references or raw backing extent/digest. These require
+     * their own typed relationship/buffer capabilities; do not leak them
+     * through this broad metadata projection. */
+    nx_state_node projected = {0};
+    status = nx_state_store_read(adapter->store, object, &projected,
+                                 &store_result);
+    if (status == NX_STATUS_OK) {
+        memset(&projected.spec.parent, 0, sizeof(projected.spec.parent));
+        memset(&projected.spec.owner, 0, sizeof(projected.spec.owner));
+        projected.spec.payload_offset = 0u;
+        memset(&projected.spec.payload_digest, 0,
+               sizeof(projected.spec.payload_digest));
+        *node = projected;
+    }
     return nxreg_merge_operation_result(result, NX_OP_NXREG_CLIENT_OBJECT_READ, status,
                                         &store_result, &authorization);
+}
+
+/* A parent's ENUMERATE grant does not authorize exposing a child's object
+ * ID, its existence or the exact number of hidden descendants. Every visible
+ * child is rechecked through the same trusted NXREG authority as object_read.
+ * Iterate canonical StateStore refs: no RegKey pointer traversal or second
+ * namespace/index is constructed. Failed scans never expose partial output.
+ * Remaining work: resumable versioned namespace cursors, commit-capable
+ * relation updates and a timing-safe redaction policy for hardware views. */
+enum nxreg_child_query {
+    NXREG_CHILD_FIRST = 1,
+    NXREG_CHILD_NEXT = 2,
+    NXREG_CHILD_COUNT = 3
+};
+
+static nx_status nxreg_child_step_work(uint64_t *total,
+                                       uint64_t step) {
+    uint64_t combined;
+    nx_status status = nx_u64_add(*total, step, &combined);
+    if (status == NX_STATUS_OK)
+        *total = combined;
+    return status;
+}
+
+static nx_status nxreg_child_finish(nx_result *result, uint64_t operation,
+                                    nx_status status, uint64_t fuel,
+                                    uint32_t visible) {
+    nx_status recorded = nx_result_init(
+        result, status,
+        status == NX_STATUS_ACCESS_DENIED ? NX_RESULT_DOMAIN_SECURITY
+                                          : NX_RESULT_DOMAIN_REGISTRY,
+        operation, status == NX_STATUS_OK ? 1u : 0u,
+        status == NX_STATUS_OK ? visible : 0u,
+        NX_CYCLES_UNKNOWN, fuel);
+    return recorded == NX_STATUS_OK ? status : recorded;
+}
+
+/* A multi-call child walk must be one committed-epoch observation,
+ * even though each StateStore read takes its own short internal lock.
+ * Return BUSY on any concurrent structural/value revision instead of
+ * exposing mixed old/new relationships or partial counts. */
+static nx_status nxreg_child_epoch_read(
+    nxreg_state_store_adapter *adapter, uint64_t *fuel,
+    uint64_t *epoch) {
+    nx_state_store_stats stats;
+    nx_result result = {0};
+    nx_status status = nx_state_store_stats_read(
+        adapter->store, &stats, &result);
+    if (nxreg_child_step_work(fuel, result.fuel_used) != NX_STATUS_OK)
+        return NX_STATUS_OVERFLOW;
+    if (status == NX_STATUS_OK)
+        *epoch = stats.epoch;
+    return status;
+}
+
+static nx_status nxreg_child_epoch_validate(
+    nxreg_state_store_adapter *adapter, uint64_t *fuel,
+    uint64_t initial_epoch) {
+    uint64_t final_epoch = 0u;
+    nx_status status = nxreg_child_epoch_read(adapter, fuel, &final_epoch);
+    if (status != NX_STATUS_OK)
+        return status;
+    return final_epoch == initial_epoch ? NX_STATUS_OK : NX_STATUS_BUSY;
+}
+
+static nx_status nxreg_store_visible_children(
+    void *context, const nxreg_auth_context *caller,
+    nx_object_ref parent, nx_object_ref current,
+    enum nxreg_child_query query, nx_object_ref *output,
+    uint32_t *count, nx_result *result) {
+    nxreg_state_store_adapter *adapter = context;
+    nx_operation_measurement parent_auth = {0};
+    nx_result state_result = {0};
+    nx_result hidden_result = {0};
+    uint64_t operation = query == NXREG_CHILD_FIRST
+        ? NX_OP_NXREG_CLIENT_CHILD_FIRST
+        : query == NXREG_CHILD_NEXT
+        ? NX_OP_NXREG_CLIENT_CHILD_NEXT
+        : NX_OP_NXREG_CLIENT_CHILD_COUNT;
+    uint64_t fuel = 0u;
+    uint64_t initial_epoch = 0u;
+    uint32_t raw_count = 0u;
+    uint32_t visible = 0u;
+    nx_object_ref cursor = {0};
+    nx_status status;
+    if (result == NULL || (query != NXREG_CHILD_COUNT && output == NULL) ||
+        (query == NXREG_CHILD_COUNT && count == NULL))
+        return nxreg_result_error(result, NX_STATUS_INVALID_ARGUMENT,
+                                  operation);
+    status = nxreg_adapter_authorize(
+        adapter, caller, operation, parent, NXREG_RIGHT_ENUMERATE,
+        &parent_auth, result);
+    if (status != NX_STATUS_OK)
+        return status;
+    fuel = parent_auth.fuel_used;
+    /* The position passed to child_next is also an object reference.
+     * Knowing an inaccessible ref must not allow probing its parent or
+     * neighboring sibling identities through a cursor. */
+    if (query == NXREG_CHILD_NEXT) {
+        nx_operation_measurement cursor_auth = {0};
+        status = nxreg_adapter_authorize(
+            adapter, caller, NX_OP_NXREG_CLIENT_OBJECT_READ, current,
+            NXREG_RIGHT_READ, &cursor_auth, &hidden_result);
+        if (nxreg_child_step_work(&fuel, cursor_auth.fuel_used)
+            != NX_STATUS_OK)
+            return nxreg_child_finish(result, operation, NX_STATUS_OVERFLOW,
+                                      fuel, 0u);
+        if (status != NX_STATUS_OK)
+            return nxreg_child_finish(result, operation, status, fuel, 0u);
+    }
+    status = nxreg_child_epoch_read(adapter, &fuel, &initial_epoch);
+    if (status != NX_STATUS_OK)
+        return nxreg_child_finish(result, operation, status, fuel, 0u);
+    status = nx_state_store_child_count(adapter->store, parent, &raw_count,
+                                        &state_result);
+    if (nxreg_child_step_work(&fuel, state_result.fuel_used) != NX_STATUS_OK)
+        return nxreg_child_finish(result, operation, NX_STATUS_OVERFLOW,
+                                  fuel, 0u);
+    if (status != NX_STATUS_OK)
+        return nxreg_child_finish(result, operation, status, fuel, 0u);
+
+    /* At most the actual, currently committed child count is visited. A
+     * concurrent parent mutation may invalidate the cursor and abort the
+     * read, never yielding a child that was not independently authorized. */
+    for (uint32_t examined = 0u; examined < raw_count; ++examined) {
+        nx_object_ref candidate = {0};
+        nx_operation_measurement child_auth = {0};
+        if (examined == 0u && query != NXREG_CHILD_NEXT)
+            status = nx_state_store_child_first(adapter->store, parent,
+                                                 &candidate, &state_result);
+        else
+            status = nx_state_store_child_next(
+                adapter->store, parent,
+                examined == 0u ? current : cursor,
+                &candidate, &state_result);
+        if (nxreg_child_step_work(&fuel, state_result.fuel_used)
+            != NX_STATUS_OK)
+            return nxreg_child_finish(result, operation, NX_STATUS_OVERFLOW,
+                                      fuel, 0u);
+        /* After skipped masked siblings, reaching the end is a normal
+         * child_next miss, not a corrupted or BUSY namespace. */
+        if (status == NX_STATUS_NOT_FOUND && query == NXREG_CHILD_NEXT) {
+            nx_status epoch_status = nxreg_child_epoch_validate(
+                adapter, &fuel, initial_epoch);
+            return nxreg_child_finish(result, operation,
+                epoch_status == NX_STATUS_OK ? status : epoch_status,
+                fuel, 0u);
+        }
+        if (status != NX_STATUS_OK)
+            return nxreg_child_finish(result, operation,
+                status == NX_STATUS_NOT_FOUND ? NX_STATUS_BUSY : status,
+                fuel, 0u);
+        cursor = candidate;
+        status = nxreg_adapter_authorize(
+            adapter, caller, NX_OP_NXREG_CLIENT_OBJECT_READ, candidate,
+            NXREG_RIGHT_READ, &child_auth, &hidden_result);
+        if (nxreg_child_step_work(&fuel, child_auth.fuel_used) != NX_STATUS_OK)
+            return nxreg_child_finish(result, operation, NX_STATUS_OVERFLOW,
+                                      fuel, 0u);
+        if (status == NX_STATUS_ACCESS_DENIED)
+            continue;
+        if (status != NX_STATUS_OK)
+            return nxreg_child_finish(result, operation, status, fuel, 0u);
+        if (query != NXREG_CHILD_COUNT) {
+            nx_status epoch_status = nxreg_child_epoch_validate(
+                adapter, &fuel, initial_epoch);
+            if (epoch_status != NX_STATUS_OK)
+                return nxreg_child_finish(result, operation, epoch_status,
+                                          fuel, 0u);
+            *output = candidate;
+            return nxreg_child_finish(result, operation, NX_STATUS_OK,
+                                      fuel, 1u);
+        }
+        if (visible == UINT32_MAX)
+            return nxreg_child_finish(result, operation,
+                                      NX_STATUS_RESOURCE_EXHAUSTED,
+                                      fuel, 0u);
+        ++visible;
+    }
+    status = nxreg_child_epoch_validate(adapter, &fuel, initial_epoch);
+    if (status != NX_STATUS_OK)
+        return nxreg_child_finish(result, operation, status, fuel, 0u);
+    if (query == NXREG_CHILD_COUNT) {
+        *count = visible;
+        return nxreg_child_finish(result, operation, NX_STATUS_OK,
+                                  fuel, visible);
+    }
+    return nxreg_child_finish(result, operation, NX_STATUS_NOT_FOUND,
+                              fuel, 0u);
 }
 
 static nx_status nxreg_store_child_first(
     void *context, const nxreg_auth_context *caller, nx_object_ref parent,
     nx_object_ref *child, nx_result *result) {
-    nxreg_state_store_adapter *adapter = context;
-    nx_operation_measurement authorization;
-    nx_result store_result;
-    nx_status status;
-    if (result == NULL || child == NULL)
-        return nxreg_result_error(result, NX_STATUS_INVALID_ARGUMENT,
-                                  NX_OP_NXREG_CLIENT_CHILD_FIRST);
-    status = nxreg_adapter_authorize(
-        adapter, caller, NX_OP_NXREG_CLIENT_CHILD_FIRST, parent, NXREG_RIGHT_ENUMERATE,
-        &authorization, result);
-    if (status != NX_STATUS_OK)
-        return status;
-    status = nx_state_store_child_first(adapter->store, parent, child,
-                                        &store_result);
-    return nxreg_merge_operation_result(result, NX_OP_NXREG_CLIENT_CHILD_FIRST, status,
-                                        &store_result, &authorization);
+    return nxreg_store_visible_children(
+        context, caller, parent, (nx_object_ref){0}, NXREG_CHILD_FIRST,
+        child, NULL, result);
 }
 
 static nx_status nxreg_store_child_next(
     void *context, const nxreg_auth_context *caller, nx_object_ref parent,
     nx_object_ref current, nx_object_ref *next, nx_result *result) {
-    nxreg_state_store_adapter *adapter = context;
-    nx_operation_measurement authorization;
-    nx_result store_result;
-    nx_status status;
-    if (result == NULL || next == NULL || !nx_object_ref_is_valid(current))
-        return nxreg_result_error(result, NX_STATUS_INVALID_ARGUMENT,
-                                  NX_OP_NXREG_CLIENT_CHILD_NEXT);
-    status = nxreg_adapter_authorize(
-        adapter, caller, NX_OP_NXREG_CLIENT_CHILD_NEXT, parent, NXREG_RIGHT_ENUMERATE,
-        &authorization, result);
-    if (status != NX_STATUS_OK)
-        return status;
-    status = nx_state_store_child_next(adapter->store, parent, current, next,
-                                       &store_result);
-    return nxreg_merge_operation_result(result, NX_OP_NXREG_CLIENT_CHILD_NEXT, status,
-                                        &store_result, &authorization);
+    return nxreg_store_visible_children(
+        context, caller, parent, current, NXREG_CHILD_NEXT,
+        next, NULL, result);
 }
 
 static nx_status nxreg_store_child_count(
     void *context, const nxreg_auth_context *caller, nx_object_ref parent,
     uint32_t *count, nx_result *result) {
+    return nxreg_store_visible_children(
+        context, caller, parent, (nx_object_ref){0}, NXREG_CHILD_COUNT,
+        NULL, count, result);
+}
+
+/* Every edge is read from the same canonical StateStore. A read grant on
+ * the child alone cannot reveal its parent: the parent itself requires an
+ * independently authenticated READ grant. Re-read the child after checking
+ * the parent and reject a concurrent move, instead of returning a stale
+ * topology relation that has already changed. */
+static nx_status nxreg_store_parent_read(
+    void *context, const nxreg_auth_context *caller,
+    nx_object_ref child, nx_object_ref *parent, nx_result *result) {
     nxreg_state_store_adapter *adapter = context;
-    nx_operation_measurement authorization;
-    nx_result store_result;
+    nx_operation_measurement child_auth = {0};
+    nx_operation_measurement parent_auth = {0};
+    nx_result store_result = {0};
+    nx_result denied_result = {0};
+    nx_state_node node;
+    nx_state_node current;
+    uint64_t fuel = 0u;
+    const uint64_t operation = NX_OP_NXREG_CLIENT_PARENT_READ;
     nx_status status;
-    if (result == NULL || count == NULL)
+    if (result == NULL || parent == NULL)
         return nxreg_result_error(result, NX_STATUS_INVALID_ARGUMENT,
-                                  NX_OP_NXREG_CLIENT_CHILD_COUNT);
-    status = nxreg_adapter_authorize(
-        adapter, caller, NX_OP_NXREG_CLIENT_CHILD_COUNT, parent, NXREG_RIGHT_ENUMERATE,
-        &authorization, result);
+                                  operation);
+    status = nxreg_adapter_authorize(adapter, caller, operation, child,
+                                      NXREG_RIGHT_READ, &child_auth, result);
     if (status != NX_STATUS_OK)
         return status;
-    status = nx_state_store_child_count(adapter->store, parent, count,
-                                        &store_result);
-    return nxreg_merge_operation_result(result, NX_OP_NXREG_CLIENT_CHILD_COUNT, status,
-                                        &store_result, &authorization);
+    fuel = child_auth.fuel_used;
+    status = nx_state_store_read(adapter->store, child, &node, &store_result);
+    if (nxreg_child_step_work(&fuel, store_result.fuel_used) != NX_STATUS_OK)
+        return nxreg_child_finish(result, operation, NX_STATUS_OVERFLOW,
+                                  fuel, 0u);
+    if (status != NX_STATUS_OK)
+        return nxreg_child_finish(result, operation, status, fuel, 0u);
+    if (!nx_object_ref_is_valid(node.spec.parent))
+        return nxreg_child_finish(result, operation, NX_STATUS_NOT_FOUND,
+                                  fuel, 0u);
+    status = nxreg_adapter_authorize(
+        adapter, caller, operation, node.spec.parent, NXREG_RIGHT_READ,
+        &parent_auth, &denied_result);
+    if (nxreg_child_step_work(&fuel, parent_auth.fuel_used) != NX_STATUS_OK)
+        return nxreg_child_finish(result, operation, NX_STATUS_OVERFLOW,
+                                  fuel, 0u);
+    if (status == NX_STATUS_ACCESS_DENIED)
+        return nxreg_child_finish(result, operation, NX_STATUS_NOT_FOUND,
+                                  fuel, 0u);
+    if (status != NX_STATUS_OK)
+        return nxreg_child_finish(result, operation, status, fuel, 0u);
+    status = nx_state_store_read(adapter->store, node.spec.parent,
+                                  &current, &store_result);
+    if (nxreg_child_step_work(&fuel, store_result.fuel_used) != NX_STATUS_OK)
+        return nxreg_child_finish(result, operation, NX_STATUS_OVERFLOW,
+                                  fuel, 0u);
+    if (status != NX_STATUS_OK)
+        return nxreg_child_finish(result, operation, NX_STATUS_BUSY,
+                                  fuel, 0u);
+    status = nx_state_store_read(adapter->store, child,
+                                  &current, &store_result);
+    if (nxreg_child_step_work(&fuel, store_result.fuel_used) != NX_STATUS_OK)
+        return nxreg_child_finish(result, operation, NX_STATUS_OVERFLOW,
+                                  fuel, 0u);
+    if (status != NX_STATUS_OK || current.revision != node.revision ||
+        !nx_object_ref_equal(current.spec.parent, node.spec.parent))
+        return nxreg_child_finish(result, operation, NX_STATUS_BUSY,
+                                  fuel, 0u);
+    *parent = node.spec.parent;
+    return nxreg_child_finish(result, operation, NX_STATUS_OK, fuel, 1u);
 }
 
 static int nxreg_opcode_is_assigned(uint64_t operation_id) {
@@ -259,6 +492,15 @@ nx_status nxreg_dispatch(const nxreg_dispatch_request *request) {
                                         request->parent,
                                         request->count_output,
                                         request->result);
+    case NX_OP_NXREG_CLIENT_PARENT_READ:
+        if (request->reference_output == NULL)
+            return nxreg_result_error(request->result,
+                                      NX_STATUS_INVALID_ARGUMENT,
+                                      request->operation_id);
+        return nxreg_client_parent_read(request->client, request->caller,
+                                        request->object,
+                                        request->reference_output,
+                                        request->result);
     default:
         return nxreg_result_error(request->result, NX_STATUS_NOT_SUPPORTED,
                                   request->operation_id);
@@ -287,6 +529,14 @@ nx_status nxreg_api_validate(const nxreg_api_v1 *api,
          api->child_count == NULL ||
          (features & NXREG_FEATURE_OBJECT_READ) == 0u))
         return NX_STATUS_MALFORMED;
+    if ((features & NXREG_FEATURE_PARENT_RELATIONSHIP) != 0u) {
+        if (api->abi_minor < 1u ||
+            api->struct_size < NXREG_API_V1_PARENT_MIN_SIZE)
+            return NX_STATUS_VERSION_MISMATCH;
+        if (api->parent_read == NULL ||
+            (features & NXREG_FEATURE_TREE_RELATIONSHIPS) == 0u)
+            return NX_STATUS_MALFORMED;
+    }
     return NX_STATUS_OK;
 }
 
@@ -367,6 +617,10 @@ static void nxreg_state_store_adapter_publish_api(
     candidate.abi_minor = NXREG_ABI_MINOR;
     candidate.feature_bits = NXREG_FEATURE_OBJECT_READ |
                              NXREG_FEATURE_TREE_RELATIONSHIPS;
+    if (adapter->authorization_fuel_limits.parent_read != 0u) {
+        candidate.feature_bits |= NXREG_FEATURE_PARENT_RELATIONSHIP;
+        candidate.parent_read = nxreg_store_parent_read;
+    }
     candidate.context = adapter;
     candidate.object_read = nxreg_store_object_read;
     candidate.child_first = nxreg_store_child_first;
@@ -487,4 +741,24 @@ nx_status nxreg_client_child_count(
                                   NX_OP_NXREG_CLIENT_CHILD_COUNT);
     return client->api->child_count(client->api->context, caller, parent,
                                     count, result);
+}
+
+nx_status nxreg_client_parent_read(
+    const nxreg_client *client, const nxreg_auth_context *caller,
+    nx_object_ref child, nx_object_ref *parent, nx_result *result) {
+    const uint64_t operation = NX_OP_NXREG_CLIENT_PARENT_READ;
+    nx_status status;
+    if (parent != NULL)
+        memset(parent, 0, sizeof(*parent));
+    status = nxreg_client_validate_feature(
+        client, NXREG_FEATURE_PARENT_RELATIONSHIP, operation, result);
+    if (status != NX_STATUS_OK)
+        return status;
+    if (caller == NULL)
+        return nxreg_result_error(result, NX_STATUS_ACCESS_DENIED, operation);
+    if (parent == NULL || result == NULL || !nx_object_ref_is_valid(child))
+        return nxreg_result_error(result, NX_STATUS_INVALID_ARGUMENT,
+                                  operation);
+    return client->api->parent_read(client->api->context, caller,
+                                    child, parent, result);
 }

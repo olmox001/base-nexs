@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Syntax-only gate for the complete NEXS .nx module/service/example catalog."""
+"""Syntax-only gate for installed nxlib sources plus external example fixtures."""
 from __future__ import annotations
 
 import hashlib
@@ -18,9 +18,14 @@ def main() -> int:
         print("[nx-syntax] Missing interpreter or reviewed manifest",
               file=sys.stderr)
         return 2
-    source_paths = [line for line in MANIFEST.read_text().splitlines()
-                    if line and not line.startswith("#")]
-    if not source_paths or len(source_paths) != len(set(source_paths)):
+    installed = [line for line in MANIFEST.read_text().splitlines()
+                 if line and not line.startswith("#")]
+    # External examples remain independently testable without autoload or
+    # admission to the runtime's library/service resource catalog.
+    examples = sorted(p.relative_to(BASE).as_posix()
+                      for p in (BASE / "example").rglob("*.nx"))
+    source_paths = installed + examples
+    if not installed or len(source_paths) != len(set(source_paths)):
         print("[nx-syntax] Empty or duplicated source manifest",
               file=sys.stderr)
         return 2

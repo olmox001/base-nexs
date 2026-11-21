@@ -4,17 +4,12 @@
 library "fs_service"
 import "nxlib/fs.nx"
 
+# Mount/bind require an authenticated namespace owner and a real provider.
+# Do not manufacture /sys/fs/mounts records or treat a filename as a grant.
 fn fs_mount(src dst fstype) {
   result = mount(src dst 0)
   if type(result) == "err" || result != 0 { ret -1 }
-  count = reg_get("/sys/fs/mount_count")
-  if type(count) == "err" { count = 0 }
-  entry = "/sys/fs/mounts/" + str(count)
-  reg_set(entry + "/src" src)
-  reg_set(entry + "/dst" dst)
-  reg_set(entry + "/fstype" fstype)
-  reg_set("/sys/fs/mount_count" count + 1)
-  ret count
+  ret 0
 }
 
 fn fs_umount(dst) {
@@ -35,6 +30,7 @@ fn fs_stat(path) {
 fn fs_start() {
   # A namespace owner must explicitly select and authorize every mount.
   # Do not synthesize SD disks or announce a ready service here.
-  reg_set("/sys/fs/status" "registered")
-  ret 0
+  # No authenticated mount provider has been admitted on this profile.
+  # Advertising "registered" here would be a false device/service state.
+  ret -1
 }

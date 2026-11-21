@@ -35,7 +35,8 @@ typedef struct {
 
 /* Resolve source paths only through the selected platform's real VFS.
  * Default hosted/baremetal behaviour is identity; the OS1 adapter maps
- * catalogued relative service/example paths to its system image layout.
+ * installed library/service paths to its system image layout.
+ * External examples use available VFS paths and permissions.
  * NULL signals a rejected or overflowing path. No capability bypass.
  */
 NEXS_API const char *nexs_platform_source_path(const char *path,

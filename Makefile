@@ -2,7 +2,7 @@
 # NEXS — Top-Level Makefile
 # =============================================================================
 .DEFAULT_GOAL := all
-# Modular layout: core/ registry/ lang/ sys/ runtime/ compiler/ hal/
+# Modular layout: core/ state/ registry/ lang/ sys/ runtime/ compiler/ hal/
 # Legacy code: old/src/ (not compiled)
 # =============================================================================
 
@@ -28,12 +28,14 @@ endif
 INCS = \
   -Icore/include \
   -Iregistry/include \
-  -Iauthority/include \
-  -Ihardware/include \
-  -Ibuffer/include \
-  -Iblock/include \
-  -Ijournal/include \
+  -Istate/registry/include \
+  -Istate/authority/include \
+  -Istate/authority/hardware/include \
+  -Istate/memory/buffer/include \
+  -Istate/storage/block/include \
+  -Istate/storage/journal/include \
   -Ifs/include \
+  -Istate/storage/9p/include \
   -Ilang/include \
   -Isys/include \
   -Iruntime/include \
@@ -62,6 +64,10 @@ DBGFLAGS = -O0 -g -std=c11 -Wall -Wextra -Wno-unused-parameter \
 
 include config/sources.mk
 
+# Focused C test harnesses must use the SAME registry object + view sources
+# selected by the canonical product source manifest, never a shadow list.
+NEXS_REGISTRY_CORE_SRCS := $(filter registry/registry.c registry/view.c,$(NEXS_SHARED_SRCS))
+
 OBJS = $(SRCS:.c=.o)
 
 # All header files (for dependency tracking)
@@ -71,20 +77,20 @@ HDRS = \
   core/include/nexs_alloc.h \
   core/include/nexs_value.h \
   core/include/nexs_utils.h \
-  authority/include/nexs_capability.h \
-  hardware/include/nexs_hardware_capability.h \
-  buffer/include/nexs_buffer.h \
-  buffer/include/nexs_buffer_capability_adapter.h \
-  block/include/nexs_block_device.h \
-  block/include/nexs_block_memory.h \
-  block/include/nexs_block_memory_device.h \
-  journal/include/nexs_journal_wal.h \
-  fs/include/nexs_p9_frame.h \
-  registry/include/nexs_state_store.h \
-  registry/include/nexs_nxreg.h \
-  registry/include/nexs_snapshot_pool.h \
-  registry/include/nexs_schema.h \
-  registry/include/nexs_migration.h \
+  state/authority/include/nexs_capability.h \
+  state/authority/hardware/include/nexs_hardware_capability.h \
+  state/memory/buffer/include/nexs_buffer.h \
+  state/memory/buffer/include/nexs_buffer_capability_adapter.h \
+  state/storage/block/include/nexs_block_device.h \
+  state/storage/block/include/nexs_block_memory.h \
+  state/storage/block/include/nexs_block_memory_device.h \
+  state/storage/journal/include/nexs_journal_wal.h \
+  state/storage/9p/include/nexs_p9_frame.h \
+  state/registry/include/nexs_state_store.h \
+  state/registry/include/nexs_nxreg.h \
+  state/registry/include/nexs_snapshot_pool.h \
+  state/registry/include/nexs_schema.h \
+  state/registry/include/nexs_migration.h \
   registry/include/nexs_registry.h \
   lang/include/nexs_lex.h \
   lang/include/nexs_ast.h \
@@ -105,9 +111,6 @@ HDRS = \
   hal/include/nexs_hal.h \
   hal/include/nexs_hal_bc.h \
   include/nexs.h
-
-# Set EMBED_EXAMPLES=1 to also bundle example/ scripts into the seL4 binary
-EMBED_EXAMPLES ?= 0
 
 .PHONY: gate quality-check check
 gate:
@@ -325,6 +328,11 @@ check-syntax: $(TARGET)
 # fallback source selection and checked under strict compiler warnings.
 # Real guest, real libc stub, exact-copy and sentinel boundary regression.
 # Real installed-source/registry namespace and service-activation acceptance.
+# Focused canonical source owner and seL4 build contracts.
+.PHONY: test-structural-source-ownership
+test-structural-source-ownership: $(TARGET)
+	@python3 -m unittest discover -s tests -p "test_structural_*.py" -v
+
 .PHONY: test-source-manifest-unified
 test-source-manifest-unified: $(TARGET)
 	python3 -m unittest discover -s tests -p 'test_source_manifest_unified.py'
@@ -543,12 +551,6 @@ sel4-microkit: $(TARGET)
 	fi; \
 	mkdir -p build/sel4-microkit; \
 	ENTRY_NX="$(SEL4_ENTRY_NX)"; \
-	if [ "$(EMBED_EXAMPLES)" = "1" ]; then \
-		ENTRY_NX="/tmp/nexs_sel4_entry.nx"; \
-		printf 'exec("$(SEL4_ENTRY_NX)")\n' > $$ENTRY_NX; \
-		find example -name "*.nx" | sort | while read f; do printf 'exec("%s")\n' "$$f"; done >> $$ENTRY_NX; \
-		echo "[sel4-microkit] EMBED_EXAMPLES=1: entry = $$ENTRY_NX"; \
-	fi; \
 	echo "[sel4-microkit] Generating embed table from $$ENTRY_NX..."; \
 	./$(TARGET) --codegen $$ENTRY_NX -o build/sel4-microkit/nexs_embed.c || exit 1; \
 	echo "[sel4-microkit] Compiling nexs.elf for $$ARCH..."; \
@@ -556,7 +558,7 @@ sel4-microkit: $(TARGET)
 		-DNEXS_BAREMETAL -DPOOL_$(POOL_PROFILE) -DNEXS_SEL4 \
 		$(INCS) -Ikernel/include -Ihal/include -I$$BOARD_DIR/include $$CFLAGS_ARCH \
 		$(BAREMETAL_SRCS) $(KERNEL_SRCS) $$CTX_SRC \
-		kernel/msg.c kernel/syscall.c kernel/vfs.c kernel/blk.c kernel/journal.c \
+		$(NEXS_SEL4_PRIVILEGED_SRCS) \
 		build/sel4-microkit/nexs_embed.c \
 		hal/sel4/hal_sel4.c hal/sel4/timer.c $$SEL4_UART_SRC hal/sel4/sel4_main.c \
 		-L$$BOARD_DIR/lib -lmicrokit -Tmicrokit.ld -o build/sel4-microkit/nxscript.elf && \
@@ -566,11 +568,6 @@ sel4-microkit: $(TARGET)
 gen-embed: $(TARGET)
 	@mkdir -p build/sel4-microkit
 	@ENTRY_NX="nxlib/services/init.nx"; \
-	if [ "$(EMBED_EXAMPLES)" = "1" ]; then \
-		ENTRY_NX="/tmp/nexs_sel4_entry.nx"; \
-		printf 'exec("nxlib/services/init.nx")\n' > $$ENTRY_NX; \
-		find example -name "*.nx" | sort | while read f; do printf 'exec("%s")\n' "$$f"; done >> $$ENTRY_NX; \
-	fi; \
 	echo "[gen-embed] Generating build/sel4-microkit/nexs_embed.c from $$ENTRY_NX..."; \
 	./$(TARGET) --codegen $$ENTRY_NX -o build/sel4-microkit/nexs_embed.c && \
 	echo "[gen-embed] Done"
@@ -593,7 +590,7 @@ gen-embed: $(TARGET)
 #                         MICROKIT_SDK=/path/to/sdk
 # ─────────────────────────────────────────────────────────────────────────────
 sel4-multikernel: $(TARGET)
-	@if [ -z "$(MICROKIT_SDK)" ] || [ -z "$(MICROKIT_BOARD)" ] || [ -z "$(MICROKIT_CONFIG)" ]; then \
+	@set -e; if [ -z "$(MICROKIT_SDK)" ] || [ -z "$(MICROKIT_BOARD)" ] || [ -z "$(MICROKIT_CONFIG)" ]; then \
 		echo "MICROKIT_SDK, MICROKIT_BOARD, and MICROKIT_CONFIG must be specified"; \
 		exit 1; \
 	fi
@@ -638,37 +635,38 @@ sel4-multikernel: $(TARGET)
 		$(INCS) -Ikernel/include -Ihal/include \
 		-I$$BOARD_DIR/include $$CFLAGS_ARCH"; \
 	COMMON_SRCS="$(BAREMETAL_SRCS) $(KERNEL_SRCS) $$CTX_SRC \
-		kernel/msg.c kernel/syscall.c kernel/vfs.c kernel/blk.c kernel/journal.c \
+		$(NEXS_SEL4_PRIVILEGED_SRCS) \
 		hal/sel4/sel4_ipc_bridge.c hal/sel4/timer.c"; \
 	echo "[sel4-multikernel] Generating embed tables..."; \
 	./$(TARGET) --codegen nxlib/services/init.nx    -o $$OUT/nexs_embed_root.c || exit 1; \
-	./$(TARGET) --codegen nxlib/services/fs/init.nx -o $$OUT/nexs_embed_fs.c  2>/dev/null || \
-		printf '/* no fs script */\n' > $$OUT/nexs_embed_fs.c; \
-	./$(TARGET) --codegen nxlib/services/pm/init.nx -o $$OUT/nexs_embed_pm.c  2>/dev/null || \
-		printf '/* no pm script */\n' > $$OUT/nexs_embed_pm.c; \
-	./$(TARGET) --codegen nxlib/services/tty/init.nx -o $$OUT/nexs_embed_tty.c 2>/dev/null || \
-		printf '/* no tty script */\n' > $$OUT/nexs_embed_tty.c; \
+	./$(TARGET) --codegen nxlib/services/fs/init.nx -o $$OUT/nexs_embed_fs.c || exit 1; \
+	./$(TARGET) --codegen nxlib/services/pm/init.nx -o $$OUT/nexs_embed_pm.c || exit 1; \
+	./$(TARGET) --codegen nxlib/services/tty/init.nx -o $$OUT/nexs_embed_tty.c || exit 1; \
 	echo "[sel4-multikernel] Building nexs_root.elf ($$ARCH)..."; \
 	$$CC $$COMMON_FLAGS $$COMMON_SRCS $$SEL4_UART_SRC \
 		hal/sel4/hal_sel4.c hal/sel4/sel4_main.c $$VERIFY_SRC \
 		$$OUT/nexs_embed_root.c \
 		-L$$BOARD_DIR/lib -lmicrokit -Tmicrokit.ld \
-		-o $$OUT/nexs_root.elf && echo "[sel4-multikernel] nexs_root.elf OK"; \
+		-o $$OUT/nexs_root.elf || exit 1; \
+	echo "[sel4-multikernel] nexs_root.elf OK"; \
 	echo "[sel4-multikernel] Building nexs_fs.elf ($$ARCH)..."; \
 	$$CC $$COMMON_FLAGS $$COMMON_SRCS \
 		hal/sel4/hal_sel4.c hal/sel4/sel4_pd_fs.c $$OUT/nexs_embed_fs.c \
 		-L$$BOARD_DIR/lib -lmicrokit -Tmicrokit.ld \
-		-o $$OUT/nexs_fs.elf  && echo "[sel4-multikernel] nexs_fs.elf OK"; \
+		-o $$OUT/nexs_fs.elf || exit 1; \
+	echo "[sel4-multikernel] nexs_fs.elf OK"; \
 	echo "[sel4-multikernel] Building nexs_pm.elf ($$ARCH)..."; \
 	$$CC $$COMMON_FLAGS $$COMMON_SRCS \
 		hal/sel4/hal_sel4.c hal/sel4/sel4_pd_pm.c $$OUT/nexs_embed_pm.c \
 		-L$$BOARD_DIR/lib -lmicrokit -Tmicrokit.ld \
-		-o $$OUT/nexs_pm.elf  && echo "[sel4-multikernel] nexs_pm.elf OK"; \
+		-o $$OUT/nexs_pm.elf || exit 1; \
+	echo "[sel4-multikernel] nexs_pm.elf OK"; \
 	echo "[sel4-multikernel] Building nexs_tty.elf ($$ARCH)..."; \
 	$$CC $$COMMON_FLAGS $$COMMON_SRCS \
 		hal/sel4/hal_sel4.c hal/sel4/sel4_pd_tty.c $$OUT/nexs_embed_tty.c \
 		-L$$BOARD_DIR/lib -lmicrokit -Tmicrokit.ld \
-		-o $$OUT/nexs_tty.elf && echo "[sel4-multikernel] nexs_tty.elf OK"; \
+		-o $$OUT/nexs_tty.elf || exit 1; \
+	echo "[sel4-multikernel] nexs_tty.elf OK"; \
 	echo "[sel4-multikernel] Packaging with Microkit tool..."; \
 	$(MICROKIT_SDK)/bin/microkit $$SYSTEM_FILE \
 		--search-path $$OUT \
@@ -898,11 +896,12 @@ verify-nexs-amd64: verify-nexs-x86_64
 # state engine as the product. Avoid a test-only shadow registry.
 NEXS_STATE_PRODUCT_LINK_SRCS := \
   core/status.c core/types.c core/result.c core/crypto/sha256.c \
+  state/authority/capability.c \
   runtime/operation_budget.c runtime/operation_metrics.c \
   runtime/operation_catalog.c runtime/cycle_counter_fallback.c \
   runtime/clock_unavailable.c \
-  registry/state_store.c registry/nxreg.c registry/snapshot_pool.c \
-  registry/schema.c registry/migration.c
+  state/registry/state_store.c state/registry/nxreg.c state/registry/capability_adapter.c state/registry/snapshot_pool.c \
+  state/registry/schema.c state/registry/migration.c
 NEXS_STATE_PRODUCT_LINK_OBJS := $(NEXS_STATE_PRODUCT_LINK_SRCS:.c=.o)
 
 .PHONY: test-nxolmo-resource-conformance
@@ -965,23 +964,23 @@ test-nxolmo-wal-conformance: $(TARGET)
 	@mkdir -p build/assurance
 	@$(CC) $(CFLAGS) -Werror tests/nxolmo_canonical/test_wal.c \
 	  core/checked.o core/crypto/crc64.o core/crypto/sha256.o \
-	  block/device.o block/memory.o block/memory_device.o journal/wal.o \
+	  state/storage/block/device.o state/storage/block/memory.o state/storage/block/memory_device.o state/storage/journal/wal.o \
 	  -o build/assurance/test_wal
 	@./build/assurance/test_wal
 	@$(CC) $(CFLAGS) -Werror tests/nxolmo_canonical/fuzz_wal_standalone.c \
 	  core/checked.o core/crypto/crc64.o core/crypto/sha256.o \
-	  block/device.o block/memory.o block/memory_device.o journal/wal.o \
+	  state/storage/block/device.o state/storage/block/memory.o state/storage/block/memory_device.o state/storage/journal/wal.o \
 	  -o build/assurance/fuzz_wal_standalone
 	@./build/assurance/fuzz_wal_standalone
 
 test-nxolmo-block-conformance: $(TARGET)
 	@mkdir -p build/assurance
 	@$(CC) $(CFLAGS) -Werror tests/nxolmo_canonical/test_block_memory.c \
-	  core/checked.o block/device.o block/memory.o block/memory_device.o \
+	  core/checked.o state/storage/block/device.o state/storage/block/memory.o state/storage/block/memory_device.o \
 	  -o build/assurance/test_block_memory
 	@./build/assurance/test_block_memory
 	@$(CC) $(CFLAGS) -Werror tests/nxolmo_canonical/test_block_memory_adversarial.c \
-	  core/checked.o block/device.o block/memory.o block/memory_device.o \
+	  core/checked.o state/storage/block/device.o state/storage/block/memory.o state/storage/block/memory_device.o \
 	  -o build/assurance/test_block_memory_adversarial
 	@./build/assurance/test_block_memory_adversarial
 
@@ -991,8 +990,8 @@ test-nxolmo-resource-conformance: $(TARGET)
 	  $(CC) $(CFLAGS) -pthread tests/nxolmo_canonical/$$test.c \
 	    core/checked.o core/crypto/crc64.o runtime/clock_hosted.o \
 	    $(NEXS_STATE_PRODUCT_LINK_OBJS) \
-	    authority/capability.o hardware/capability.o buffer/buffer.o \
-	    buffer/capability_adapter.o fs/9p_frame.o \
+	    state/authority/hardware/capability.o state/memory/buffer/buffer.o \
+	    state/memory/buffer/capability_adapter.o state/storage/9p/9p_frame.o \
 	    -o build/assurance/$$test; \
 	  ./build/assurance/$$test; \
 	done
@@ -1020,7 +1019,7 @@ report-real-syscall-fuzz:
 test-p9-request-conformance: $(TARGET)
 	@mkdir -p build/assurance
 	@$(CC) $(CFLAGS) tests/test_p9_request_validation.c \
-	  core/checked.o fs/9p_frame.o -o build/assurance/test_p9_request_validation
+	  core/checked.o state/storage/9p/9p_frame.o -o build/assurance/test_p9_request_validation
 	@./build/assurance/test_p9_request_validation
 
 # Explicit long-running stress, never hidden inside the fast regression suite.
@@ -1042,7 +1041,7 @@ perf-stress-billion-buffer:
 perf-billion-p9:
 	@mkdir -p build/assurance
 	@$(CC) $(CFLAGS) -O3 -pthread tests/perf/billion_p9.c \
-	  core/checked.o fs/9p_frame.o runtime/clock_hosted.o \
+	  core/checked.o state/storage/9p/9p_frame.o runtime/clock_hosted.o \
 	  runtime/cycle_counter_fallback.o \
 	  $(filter runtime/cycle_counter_hosted_amd64.o,$(OBJS)) \
 	  -o build/assurance/billion_p9
@@ -1056,8 +1055,8 @@ perf-billion-buffer:
 	@mkdir -p build/assurance
 	@$(CC) $(CFLAGS) -O3 -pthread tests/perf/billion_masked_buffer.c \
 	  core/checked.o core/crypto/crc64.o $(NEXS_STATE_PRODUCT_LINK_OBJS) \
-	  authority/capability.o hardware/capability.o buffer/buffer.o \
-	  buffer/capability_adapter.o runtime/clock_hosted.o \
+	  state/authority/hardware/capability.o state/memory/buffer/buffer.o \
+	  state/memory/buffer/capability_adapter.o runtime/clock_hosted.o \
 	  runtime/cycle_counter_fallback.o \
 	  $(filter runtime/cycle_counter_hosted_amd64.o,$(OBJS)) \
 	  -o build/assurance/billion_masked_buffer
@@ -1160,7 +1159,7 @@ test-system-syscall-fuzz:
 # Original NXOLMO schema, snapshot, NXREG and concurrency assertions,
 # compiled against product-owned source files, not external reference objects.
 NEXS_STATE_CONFORMANCE_TESTS := test_snapshot_pool test_schema test_migration \
-  test_nxreg_api test_snapshot_concurrent \
+  test_nxreg_api test_nxreg_signed_authority test_snapshot_concurrent \
   test_snapshot_pool_concurrent test_schema_concurrent
 .PHONY: test-nxolmo-state-conformance
 test-nxolmo-state-conformance: $(TARGET)
@@ -1214,7 +1213,7 @@ test-pager-ownership-asan:
 	@mkdir -p build/assurance
 	@$(CC) $(DBGFLAGS) tests/test_pager_exact_ownership_core.c \
 	  core/pager.c core/buddy.c core/dynarray.c core/value.c \
-	  core/utils.c core/checked.c registry/registry.c registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
+	  core/utils.c core/checked.c $(NEXS_REGISTRY_CORE_SRCS) registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
 	  hal/common/pipe_transport_unavailable.c \
 	  -o build/assurance/test_pager_ownership_sanitized
 	@./build/assurance/test_pager_ownership_sanitized
@@ -1226,7 +1225,7 @@ test-recoverable-alloc-core:
 	@mkdir -p build/assurance
 	@$(CC) $(CFLAGS) -UPOOL_64MB -DPOOL_4KB tests/test_recoverable_alloc_core.c \
 	  core/pager.c core/buddy.c core/dynarray.c core/value.c \
-	  core/utils.c core/checked.c registry/registry.c registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
+	  core/utils.c core/checked.c $(NEXS_REGISTRY_CORE_SRCS) registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
 	  hal/common/pipe_transport_unavailable.c \
 	  -o build/assurance/test_recoverable_alloc_core
 	@./build/assurance/test_recoverable_alloc_core
@@ -1235,7 +1234,7 @@ test-recoverable-alloc-asan:
 	@mkdir -p build/assurance
 	@$(CC) $(DBGFLAGS) -UPOOL_64MB -DPOOL_4KB tests/test_recoverable_alloc_core.c \
 	  core/pager.c core/buddy.c core/dynarray.c core/value.c \
-	  core/utils.c core/checked.c registry/registry.c registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
+	  core/utils.c core/checked.c $(NEXS_REGISTRY_CORE_SRCS) registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
 	  hal/common/pipe_transport_unavailable.c \
 	  -o build/assurance/test_recoverable_alloc_sanitized
 	@./build/assurance/test_recoverable_alloc_sanitized
@@ -1302,7 +1301,7 @@ test-registry-integrity-asan:
 	@mkdir -p build/assurance
 	@$(CC) $(DBGFLAGS) tests/test_registry_integrity_core.c \
 	  core/pager.c core/buddy.c core/dynarray.c core/value.c core/utils.c core/checked.c \
-	  registry/registry.c registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
+	  $(NEXS_REGISTRY_CORE_SRCS) registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
 	  hal/common/pipe_transport_unavailable.c \
 	  -o build/assurance/test_registry_integrity_sanitized
 	@./build/assurance/test_registry_integrity_sanitized
@@ -1314,7 +1313,7 @@ test-registry-fallible-oom:
 	@$(CC) $(CFLAGS) -UPOOL_64MB -DPOOL_32KB \
 	  tests/test_registry_fallible_oom.c \
 	  core/pager.c core/buddy.c core/dynarray.c core/value.c \
-	  core/utils.c core/checked.c registry/registry.c registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
+	  core/utils.c core/checked.c $(NEXS_REGISTRY_CORE_SRCS) registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
 	  hal/common/pipe_transport_unavailable.c \
 	  -o build/assurance/test_registry_fallible_oom
 	@./build/assurance/test_registry_fallible_oom
@@ -1324,7 +1323,7 @@ test-registry-fallible-oom-asan:
 	@$(CC) $(DBGFLAGS) -UPOOL_64MB -DPOOL_32KB \
 	  tests/test_registry_fallible_oom.c \
 	  core/pager.c core/buddy.c core/dynarray.c core/value.c \
-	  core/utils.c core/checked.c registry/registry.c registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
+	  core/utils.c core/checked.c $(NEXS_REGISTRY_CORE_SRCS) registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
 	  hal/common/pipe_transport_unavailable.c \
 	  -o build/assurance/test_registry_fallible_oom_asan
 	@./build/assurance/test_registry_fallible_oom_asan
@@ -1336,7 +1335,7 @@ test-value-checked-core:
 	@$(CC) $(CFLAGS) -UPOOL_64MB -DPOOL_32KB \
 	  tests/test_value_checked_core.c \
 	  core/pager.c core/buddy.c core/dynarray.c core/value.c \
-	  core/utils.c core/checked.c registry/registry.c registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
+	  core/utils.c core/checked.c $(NEXS_REGISTRY_CORE_SRCS) registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
 	  hal/common/pipe_transport_unavailable.c \
 	  -o build/assurance/test_value_checked_core
 	@./build/assurance/test_value_checked_core
@@ -1346,7 +1345,7 @@ test-value-checked-asan:
 	@$(CC) $(DBGFLAGS) -UPOOL_64MB -DPOOL_32KB \
 	  tests/test_value_checked_core.c \
 	  core/pager.c core/buddy.c core/dynarray.c core/value.c \
-	  core/utils.c core/checked.c registry/registry.c registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
+	  core/utils.c core/checked.c $(NEXS_REGISTRY_CORE_SRCS) registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
 	  hal/common/pipe_transport_unavailable.c \
 	  -o build/assurance/test_value_checked_asan
 	@./build/assurance/test_value_checked_asan
@@ -1358,7 +1357,7 @@ test-registry-init-recovery:
 	@$(CC) $(CFLAGS) -UPOOL_64MB -DPOOL_4KB \
 	  tests/test_registry_init_recovery_core.c \
 	  core/pager.c core/buddy.c core/dynarray.c core/value.c \
-	  core/utils.c core/checked.c registry/registry.c registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
+	  core/utils.c core/checked.c $(NEXS_REGISTRY_CORE_SRCS) registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
 	  hal/common/pipe_transport_unavailable.c \
 	  -o build/assurance/test_registry_init_recovery
 	@./build/assurance/test_registry_init_recovery
@@ -1368,7 +1367,7 @@ test-registry-init-recovery-asan:
 	@$(CC) $(DBGFLAGS) -UPOOL_64MB -DPOOL_4KB \
 	  tests/test_registry_init_recovery_core.c \
 	  core/pager.c core/buddy.c core/dynarray.c core/value.c \
-	  core/utils.c core/checked.c registry/registry.c registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
+	  core/utils.c core/checked.c $(NEXS_REGISTRY_CORE_SRCS) registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
 	  hal/common/pipe_transport_unavailable.c \
 	  -o build/assurance/test_registry_init_recovery_asan
 	@./build/assurance/test_registry_init_recovery_asan
@@ -1380,7 +1379,7 @@ test-ast-iterative-owner:
 	@$(CC) $(CFLAGS) -UPOOL_64MB -DPOOL_16MB \
 	  tests/test_ast_iterative_owner_core.c \
 	  lang/parser.c lang/lexer.c core/buddy.c core/pager.c core/dynarray.c \
-	  core/value.c core/utils.c core/checked.c registry/registry.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
+	  core/value.c core/utils.c core/checked.c $(NEXS_REGISTRY_CORE_SRCS) $(NEXS_STATE_PRODUCT_LINK_SRCS) \
 	  registry/reg_ipc.c hal/common/pipe_transport_unavailable.c \
 	  -o build/assurance/test_ast_iterative_owner
 	@./build/assurance/test_ast_iterative_owner
@@ -1390,7 +1389,7 @@ test-ast-iterative-owner-asan:
 	@$(CC) $(DBGFLAGS) -UPOOL_64MB -DPOOL_16MB \
 	  tests/test_ast_iterative_owner_core.c \
 	  lang/parser.c lang/lexer.c core/buddy.c core/pager.c core/dynarray.c \
-	  core/value.c core/utils.c core/checked.c registry/registry.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
+	  core/value.c core/utils.c core/checked.c $(NEXS_REGISTRY_CORE_SRCS) $(NEXS_STATE_PRODUCT_LINK_SRCS) \
 	  registry/reg_ipc.c hal/common/pipe_transport_unavailable.c \
 	  -o build/assurance/test_ast_iterative_owner_asan
 	@./build/assurance/test_ast_iterative_owner_asan
@@ -1419,7 +1418,7 @@ else
 endif
 KERNEL_CAP_TEST_SRCS := kernel/cap.c kernel/proc.c \
   core/buddy.c core/pager.c core/value.c core/dynarray.c \
-  core/checked.c core/utils.c registry/registry.c registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
+  core/checked.c core/utils.c $(NEXS_REGISTRY_CORE_SRCS) registry/reg_ipc.c $(NEXS_STATE_PRODUCT_LINK_SRCS) \
   hal/common/pipe_transport_unavailable.c
 
 .PHONY: test-kernel-cap-cspace test-kernel-cap-cspace-oom

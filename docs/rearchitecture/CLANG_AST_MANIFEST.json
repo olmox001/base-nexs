@@ -2,25 +2,25 @@
   "tool": "clang -Xclang -ast-dump=json; selected hosted, freestanding and OS1 cross profiles",
   "status": "PARTIAL_ARCHITECTURE_QUALIFICATION",
   "sources_by_status": {
-    "AST_PARSED": 157,
+    "AST_PARSED": 163,
     "NOT_COMPILED_FEATURE_DISABLED": 1,
     "NOT_QUALIFIED_TARGET_OR_IMPORTED": 33
   },
-  "functions_with_compiler_body": 2329,
-  "direct_ast_call_nodes": 11141,
-  "indirect_or_unresolved_ast_calls": 42,
+  "functions_with_compiler_body": 2486,
+  "direct_ast_call_nodes": 11800,
+  "indirect_or_unresolved_ast_calls": 45,
   "function_compiler_coverage": {
-    "AST_BODY_PARSED": 2125,
+    "AST_BODY_PARSED": 2282,
     "FEATURE_DISABLED": 2,
     "HEADER_INLINE_NOT_PROVEN": 80,
-    "NOT_C_FUNCTION": 631,
+    "NOT_C_FUNCTION": 668,
     "NOT_IN_TARGET_PREPROCESSOR": 11,
     "REFERENCE_READ_ONLY": 770,
-    "TEST_TOOL_AST_NOT_SCANNED": 978,
+    "TEST_TOOL_AST_NOT_SCANNED": 989,
     "UNADAPTED_IMPORTED_REFERENCE": 463,
     "UNQUALIFIED_TOOLCHAIN": 86
   },
-  "catalog_rows_classified": 5146,
+  "catalog_rows_classified": 5351,
   "limitations": [
     "Target-specific source is parsed with selected host, freestanding and OS1 Clang profiles; not a complete build database",
     "seL4/Microkit source cannot be compiled without its Microkit SDK",

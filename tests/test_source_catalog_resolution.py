@@ -6,6 +6,7 @@ They do not infer correctness from existence of a manifest or a zero exit.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -30,14 +31,14 @@ class SourceCatalogResolutionTests(unittest.TestCase):
             cwd=location or self.cwd, capture_output=True,
             text=True, timeout=15)
 
-    def test_single_library_and_service_source_root(self):
+    def test_installed_library_and_service_source_root_excludes_examples(self):
         catalog = [
             line for line in (ROOT / "config/nx_sources.txt").read_text().splitlines()
             if line and not line.startswith("#")
         ]
         on_disk = sorted(
             file.relative_to(ROOT).as_posix()
-            for folder in ("nxlib", "example")
+            for folder in ("nxlib",)
             for file in (ROOT / folder).rglob("*.nx")
         )
         self.assertEqual(on_disk, sorted(catalog))
@@ -156,8 +157,8 @@ class SourceCatalogResolutionTests(unittest.TestCase):
         self.assertTrue(output.startswith("[") and output.endswith("]"))
         observed = output[1:-1].split(", ")
         self.assertEqual(sorted(lines), sorted(observed))
-        self.assertEqual(37, len(observed))
-        self.assertIn("example/minios/logos/logo1.nxtimg", observed)
+        self.assertEqual(14, len(observed))
+        self.assertTrue(all(name.startswith("nxlib/") for name in observed))
         self.assertIn("nxlib/services/fs/init.nx", observed)
         self.assertNotIn("services", observed)
 
@@ -174,7 +175,13 @@ class SourceCatalogResolutionTests(unittest.TestCase):
                      "nexs_embedded_resource_at"):
             self.assertEqual(1, code.count(name + "("))
         self.assertIn("nxlib/services/fs/init.nx", code)
-        self.assertIn("example/minios/logos/logo1.nxtimg", code)
+        # Keep the original complete program resource graph, not just nxlib.
+        self.assertIn('example/minios/shell.nx', code)
+        self.assertIn('example/minios/logo.nx', code)
+        self.assertIn('example/minios/logos/logo1.nxtimg', code)
+        self.assertIn('example/minios/logos/logo2.nxtimg', code)
+        self.assertIn('example/minios/logos/druglords.nxtimg', code)
+        self.assertNotIn("nexs_dep_0_src[] =\n\"example", code)
         self.assertNotIn('{"services/', code)
 
     def test_native_extension_owned_by_selected_runtime_image(self):

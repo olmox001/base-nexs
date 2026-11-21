@@ -1,10 +1,10 @@
 /*
  * compiler/codegen.c — NEXS Code Generator
  * ==========================================
- * Translates a .nx source file into a C wrapper that embeds the script
- * source, all exec() dependencies, and provides a main() (or
- * nexs_main_baremetal()) that initialises the runtime and evaluates the
- * script.
+ * Links exactly ONE runtime with its original .nx entry and the explicit
+ * dependency graph collected by nexs_scan_deps (including passive assets).
+ * An embedded example is NOT a second executable or an auto-start service.
+ * The generated main() (or nexs_main_baremetal()) runs that same runtime.
  *
  * Dependency bundling:
  *   In standalone mode (default), all files referenced by exec("path") are
@@ -80,11 +80,13 @@ static void write_c_string(FILE *out, const char *s, size_t len) {
       fputs("\\t", out);
       break;
     case '\0':
-      fputs("\\0", out);
+      /* Always three octal digits: a following '7' is another byte, not
+       * a continuation of this escape in the generated C translation unit. */
+      fputs("\\000", out);
       break;
     default:
       if (c < 32 || c > 126)
-        fprintf(out, "\\x%02x", (unsigned int)c);
+        fprintf(out, "\\%03o", (unsigned int)c);
       else
         fputc((char)c, out);
       break;
@@ -128,10 +130,11 @@ static void emit_dep_table(FILE *out, NexsDepEntry *deps, int n_deps) {
   /* Embed each dep source */
   for (int i = 0; i < n_deps; i++) {
     fprintf(out, "static const char nexs_dep_%d_src[] =\n", i);
-    if (deps[i].src) {
-      write_c_string(out, deps[i].src, strlen(deps[i].src));
+    if (deps[i].src != NULL) {
+      write_c_string(out, deps[i].src, deps[i].src_len);
     } else {
-      fprintf(out, "\"\"  /* WARNING: could not read '%s' */", deps[i].path);
+      /* Scanner admission must fail before the table is emitted. */
+      fprintf(out, "\"\"");
     }
     fprintf(out, ";\n\n");
   }
@@ -139,13 +142,15 @@ static void emit_dep_table(FILE *out, NexsDepEntry *deps, int n_deps) {
   /* Emit the table struct (must match the extern in sysproc.c) */
   fprintf(
       out,
-      "/* Embedded dependency table — used by nexs_exec() at runtime */\n"
-      "typedef struct { const char *path; const char *src; } NexsEmbedDep;\n"
+      "/* Embedded dependency table used by source evaluation and VFS open */\n"
+      "typedef struct { const char *path; const char *src; size_t bytes;"
+      " unsigned int is_source; } NexsEmbedDep;\n"
       "const NexsEmbedDep nexs_embed_deps_table[] = {\n");
   for (int i = 0; i < n_deps; i++) {
-    fprintf(out, "  { \"%s\", nexs_dep_%d_src },\n", deps[i].path, i);
+    fprintf(out, "  { \"%s\", nexs_dep_%d_src, %zu, %uu },\n",
+            deps[i].path, i, deps[i].src_len, deps[i].is_source);
   }
-  fprintf(out, "  { (void*)0, (void*)0 }  /* sentinel */\n};\n\n");
+  fprintf(out, "  { (void*)0, (void*)0, 0u, 0u }  /* sentinel */\n};\n\n");
 
   fprintf(out, "int nexs_embed_dep_count = %d;\n\n", n_deps);
   /* AOT and hosted interpreter expose the same logical resource API.
@@ -170,16 +175,16 @@ static void emit_embedded_lookup_impl(FILE *out) {
   fprintf(
       out,
       "/* Lookup helper — returns embedded source for path, or NULL */\n"
-      "static const char *nexs_embedded_lookup_local(const char *path) {\n"
-      "  for (int _i = 0; nexs_embed_deps_table[_i].path; _i++) {\n"
-      "    if (__builtin_strcmp(nexs_embed_deps_table[_i].path, path) == 0)\n"
+      "const char *nexs_embedded_lookup(const char *path, size_t *bytes) {\n"
+      "  if (bytes != NULL) *bytes = 0u;\n"
+      "  if (path == NULL) return (void*)0;\n"
+      "  for (int _i = 0; nexs_embed_deps_table[_i].path; ++_i) {\n"
+      "    if (__builtin_strcmp(nexs_embed_deps_table[_i].path, path) == 0) {\n"
+      "      if (bytes != NULL) *bytes = nexs_embed_deps_table[_i].bytes;\n"
       "      return nexs_embed_deps_table[_i].src;\n"
+      "    }\n"
       "  }\n"
       "  return (void*)0;\n"
-      "}\n\n"
-      "/* Provide the symbol that sysproc.c's nexs_exec() calls */\n"
-      "const char *nexs_embedded_lookup(const char *path) {\n"
-      "  return nexs_embedded_lookup_local(path);\n"
       "}\n\n"
       "/* Compiler-linked sources use the same PURE library classifier as hosted.\n"
       " * Resource publication must never automatically activate a system service. */\n"
@@ -239,7 +244,9 @@ int nexs_codegen_ex(const char *src_path, const char *out_c_path, int no_dep,
       n_deps = nexs_scan_deps(src_path, deps, NEXS_MAX_DEPS);
 
       /* 2. The SAME nxlib tree owns both libraries and services.
-       * Logical source paths remain the unique embedded dependency keys. */
+       * Logical paths remain exact embedded dependency keys. Executable
+       * source and passive data both remain available to their ORIGINAL
+       * language/VFS operations; a mere bundle entry is never auto-run. */
       n_deps = nexs_scan_directory("nxlib", deps, n_deps, NEXS_MAX_DEPS);
       if (n_deps < 0) {
         fprintf(stderr, "nexs: incomplete nxlib dependency catalog\n");
@@ -248,6 +255,22 @@ int nexs_codegen_ex(const char *src_path, const char *out_c_path, int no_dep,
         fclose(out);
         free(src);
         return -1;
+      }
+
+      /* nexs_scan_deps has already identified the explicit program
+       * dependencies, including .nxtimg assets. Do NOT erase them.
+       * They are linked bytes in ONE runtime executable; source execution,
+       * VFS import and service activation retain their normal semantics. */
+      for (int i = 0; i < n_deps; ++i) {
+        if (deps[i].src == NULL) {
+          fprintf(stderr, "nexs: unresolved AOT dependency: %s\n",
+                  deps[i].path);
+          nexs_free_deps(deps, n_deps);
+          free(deps);
+          fclose(out);
+          free(src);
+          return -1;
+        }
       }
 
       if (n_deps > 0) {

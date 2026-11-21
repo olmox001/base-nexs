@@ -6,16 +6,67 @@ implementation or a competing plan. **Only Base-NEXS may be modified.**
 NXOLMO and NXEC are read-only reference repositories. NexsOS1 is not
 the target of code changes or testing. Stage verified work, no commit/push.
 
+## Active cutover proof and authoritative source locations
+
+This is part of the original P0–P8/T0–T8 plan, not a new roadmap.
+[END_TO_END_REDESIGN_PLAN.md](END_TO_END_REDESIGN_PLAN.md) now contains
+the exact per-owner source migration map, target tests and the remaining
+positive acceptance gates.
+
+The NXOLMO-derived algorithms have **one product owner**:
+`state/registry/` for StateStore/NXREG/schema/snapshot/migration;
+`state/authority/` for signed and hardware capability validators;
+`state/memory/buffer/` for leases/MPMC;
+`state/storage/block/` for blocks,
+`state/storage/journal/` for WAL, and
+`state/storage/9p/` for 9P framing.
+Their prior 15 source and 15 header paths were retired without
+introducing a second allocator, VFS, registry or capability system.
+
+Source selection, include closures and P0 classifiers now follow the
+canonical owners. The direct RegKey test links the actual signed
+verifier once. seL4 builds select a single privileged source closure;
+missing FS/PM/TTY codegen or failed PD compile can no longer silently
+produce an empty replacement C file.
+
+Proof actually executed: hosted production build, 11 structural source/
+build tests, signed capability and hardware tests, real concurrent
+buffer/StateStore suites, block and WAL fault/mutation suites, original
+9P frame tests and 34 actual RegKey integration assertions. Original
+MiniOS resource/QEMU proof was from the preceding checked tranche,
+not a new cross-ISA guest run after this relocation.
+The selected lexical Power12 report is WARN=275, BLOCK=0 across
+36 strict source files in the selected lexical gate. Strict full-tree/CFG qualification still FAILS
+its previous baseline and has NOT been rerun after the moves.
+
+The earlier source-table paths below are historical *inputs*, not
+current source ownership. Legacy `RegKey`, partial kernel VFS,
+REG-IPC, RuntimeInstance singleton, Plan 9 mount/link, ext4, trusted
+NXEC issuer, HCD and cross-process DMA/FD ownership remain OPEN.
+Neither header movement nor a provider unit test makes them complete.
+Do not repeatedly regenerate source catalogs or run recursive suites
+until the next coherent semantic cutover is stable. Do not modify
+read-only NXOLMO, NXEC or NexsOS1. Stage tested work, no commit/push.
+
 ## Scope, actual evidence and non-claims
 
-The existing source/function catalog indexes 5,096 definitions/labels
-across the product and reference projects, including 2,245 Base-NEXS
-functions and 2,115 Clang-verified compiler bodies across selected
-profiles. All 5,096 still have status
-AUTO_INDEXED_NOT_INDIVIDUALLY_VERIFIED. This does NOT establish complete
+The source/function inventory regenerated after the physical source
+cutover indexes 5,351 definitions/labels across the product and
+reference projects: 2,500 Base-NEXS, 1,597 NXOLMO, 484 NXEC and
+770 targeted read-only NexsOS1 references. It covers 690 source files,
+11,486 lexical call-edge candidates and 53 prototypes without a
+selected source definition. These 5,351 records are still
+AUTO_INDEXED_NOT_INDIVIDUALLY_VERIFIED.
+
+The post-cutover Clang AST pass classified all 5,351 source rows:
+163 translation units AST-parsed, 33 explicitly not qualified and one
+feature-disabled. It found 2,486 compiler function bodies (2,282 mapped
+catalog entries with AST bodies) and 45 indirect/unresolved AST call
+nodes. That is selected-profile evidence, not full source, ABI, CFG,
+seL4 or Power12 qualification. This does NOT establish complete
 semantic/CFG, alias, lock, call-effect or ABI verification, nor two tests
-per function. C/H/assembly source crosscheck: **472 files**, comprising
-242 Base-NEXS, 170 NXOLMO and 60 NXEC. See FUNCTION_CATALOG.csv,
+per function. Current C/H/assembly source crosscheck: **481 files**, comprising
+251 Base-NEXS, 170 NXOLMO and 60 NXEC, with no unclassified entries. See FUNCTION_CATALOG.csv,
 FUNCTION_COMPILER_COVERAGE.csv, CLANG_AST_MANIFEST.json,
 P4_SOURCE_CROSSCHECK.csv and CANONICAL_FUNCTION_OWNERSHIP.csv.
 Unqualified compiler targets and indirect callbacks remain OPEN.
@@ -354,3 +405,136 @@ count, not by a new arbitrary hardware ceiling. On concurrent
 registration, a listing may return a typed BUSY rather than claim
 an inconsistent snapshot. Kernel-grade authority issuance and
 module retirement/RCU are still OPEN.
+
+## Runtime source boundary correction — 21 November 2026
+
+The hosted startup ls / previously contained an example directory with
+13 descendants even before executing any example script. The source list
+indiscriminately included example/*.nx alongside nxlib. This was a wrong
+automatic publication policy, not a mount.
+
+Corrected existing code paths:
+
+- scripts/update_nx_catalog.py, config/nx_sources.txt and
+  config/nx_resources.txt now enumerate the 14 installed nxlib sources
+  only. scripts/quality_gate.py enforces that exact installed tree.
+- runtime/source_hosted.c continues loading only the admitted manifest;
+  runtime/runtime.c accepts only nxlib sources for startup publication.
+  Pure root libraries still activate; services require explicit activation.
+- scripts/stage_nxlib.py installs runtime libraries, services and both
+  manifests; it does not package example source or image assets.
+  External examples resolve through the selected platform's existing VFS.
+- lang/builtins.c sys_bundled() describes runtime resources, not external
+  examples. AOT compilation excludes example imports from its embedded
+  dependency table. The Makefile bulk EMBED_EXAMPLES option was removed;
+  explicitly selected example entry scripts remain valid inputs.
+- Hosted runtime/nexs_line.c now uses TCSANOW for raw-mode transitions;
+  the previous TCSAFLUSH discarded queued pasted REPL input.
+
+Measured against the product checkout after this correction:
+hosted make nxscript PASS, make check-syntax PASS 34/34
+(14 installed plus 20 external example fixtures), make os1-check PASS
+compilation for both amd64 and arm64 and parallel AOT, actual hosted
+external example execution PASS with no example node in the registry,
+and four real PTY interactive tests PASS (REPL, boot shell,
+Druglords and NXED editor). The make check-examples harness executes
+all 20 external examples with functional assertions: 17 direct/exported
+tests and 3 dedicated real PTY tests, PASS 20/20. No test admits examples
+to the automatic runtime catalog. The combined host regression suite
+still has an unrelated untracked registry-list-view contract mismatch:
+5 tests expect NXOLMO identity metadata while the current CLI prints
+values; neither behavior was altered to hide this discrepancy.
+These checks do not prove guest QEMU external mounts, full 9P
+interoperability or closure of the NXEC/NXOLMO P3-P8 milestones.
+
+
+## Current structural T3/T4 implementation (not full P3/P4/P5 exit)
+
+The original RegKey/StateStore is still the only live registry. Its listing
+code was extracted from registry/registry.c into registry/view.c; the
+product build manifest links this SAME StateStore metadata reader on all
+platforms, and the Makefile test links reuse the selected source closure.
+CLI listing and recursive print now display real nx_object_ref identity,
+generation, revision and child count without implicitly rendering payload.
+An iterative traversal and O(n log n) heapsort replace recursive view
+traversal and bubble sort. Payload is still accessed by explicit reg_get.
+
+Registry pointer traversal now uses checked NXOLMO object identities for
+cycle detection, bounded by actual admitted keys, without the old fixed
+64-hop limit or a truncating buffer. reg_set rejects malformed pointer
+target paths before mutation; language reg_set and reg_del report typed
+errors when mutation fails. This is not an authority or MVCC implementation.
+
+Image staging now restores external example scripts and binary assets to
+/home/nxscript/examples in the image as true VFS files; these 24 files are
+not in the 14-source nxlib autoload manifest or automatically registered.
+The image contains 40 files including two configuration catalogs.
+The staging manifest records installed-runtime versus external-vfs roles,
+preserving exact file bytes and hashes. No separate registry/VFS index.
+
+Focused evidence: hosted build and 21 runtime registry tests PASS (including
+128-hop pointer, cycles, rejection without mutation); real production C
+tests PASS (8798 integrity checks, 34 StateStore checks, 32 OOM rollback,
+13 startup rollback, plus ASan/UBSan integrity repeat). registry/view.c
+strict Clang -Werror/-Wpedantic/-Wconversion/-Wshadow/-Wformat=2 PASS.
+10 actual image+source manifest tests PASS. Release gates are OPEN:
+RuntimeInstance, indexed name/payload ownership, NXEC trusted grants,
+real Plan9 namespace and 9P2000.L, writable ext4, durable WAL, REG,
+verified IR, HCD and Power12 all-tree closure. No new QEMU or nxadb
+runtime claim is made for this structural tranche.
+
+
+## Current T3/T4 protected namespace correction (partial, NOT live mount)
+
+The product had three false-authority paths: kernel/vfs.c stored a fixed
+16-slot VfsMount catalogue and wrote /vfs/mount/N strings without real
+mount resolution; sys/sysio.c forwarded user mount/bind/unmount directly to
+RegKey subtree-copy/delete; kernel/syscall.c accepted caller-provided
+sender_pid and mutable /proc/PID/caps as kernel privilege. sys_bind created
+an IPC queue instead of a Plan 9 namespace binding and sys_fork inherited
+the user-written parent caps string.
+
+The narrow safety cutover deletes the fake mount catalogue, makes
+unauthenticated mount/bind/unmount and privileged kernel mutation fail
+closed, and removes the fork-based fake grant inheritance. The original
+RegKey copy functions remain in the C library for old tests and MUST be
+removed after all genuine NXREG namespace consumers are migrated. This is
+NOT a positive mount/link implementation or a complete authority issuer.
+
+nxlib/services/fs/p9_mnt.nx no longer creates fabricated sd00/sd01/sd02/
+sd99 kernel/device identity. The external minios demo still reaches the
+real terminal interactively, but skips image/storage import without a
+verified mounted volume. nxlib/services/fs/init.nx no longer advertises
+a fictitious mount catalogue or a ready filesystem service.
+
+A separate real language defect was fixed: AST_IMPORT propagated an
+already-loaded imported library CTRL_RET beyond the source boundary and
+silently skipped the importing service definitions. The importer now
+continues; errors still propagate. Libraries and services remain intact
+and source files remain accessible through existing VFS policy.
+
+Focused evidence: make nxscript PASS; 11 targeted interpreter/manifest/
+real PTY tests PASS; 21 kernel verbs and 63 direct/wire/REG transfer
+paths exercised in the actual hosted dispatcher with 128 seeded fuzz
+cases and new forged /proc/PID/caps, mount/bind/mkdir/remove and
+fork-inheritance negative assertions PASS. These tests neither validate
+full Plan 9 semantics nor authorize a real hardware register mapping.
+HCD, capability issuer/revocation, masked arrays, transactional push/pull,
+per-domain mount/link, 9P2000.L, QEMU and nxadb are explicitly OPEN.
+
+### Verified restoration: existing compiler and original full language example
+
+Owner map: compiler/dep_scan.c owns nexs_scan_deps; compiler/codegen.c owns
+the one generated runtime image; runtime/runtime.c owns startup admission;
+lang/eval.c owns exec source parsing; sys/fd_owner.c owns source/data open.
+The scanner already detected every MiniOS image. The code generator's former
+removal of example/ entries discarded the detected files. It now includes
+all explicitly referenced script and data bytes with their actual length.
+The original MiniOS boot and all language functions were restored, not
+replaced with C source linking or a synthetic service/mount.
+
+A reproducible QEMU ARM64 suite compares the complete original logo bytes
+against real guest serial output, asserts three exact asset sizes and
+verifies shell interaction and clean exit. The compilations for OS1 AMD64
+and ARM64 also pass. Real namespace mounts, NXEC capability issuer and
+byte-array language Values remain open independently of this correction.
