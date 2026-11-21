@@ -148,6 +148,16 @@ static void emit_dep_table(FILE *out, NexsDepEntry *deps, int n_deps) {
   fprintf(out, "  { (void*)0, (void*)0 }  /* sentinel */\n};\n\n");
 
   fprintf(out, "int nexs_embed_dep_count = %d;\n\n", n_deps);
+  /* AOT and hosted interpreter expose the same logical resource API.
+   * Never interpret embedded binary assets as ordinary C strings. */
+  fprintf(out,
+          "size_t nexs_embedded_resource_count(void) { "
+          "return (size_t)nexs_embed_dep_count; }\n"
+          "const char *nexs_embedded_resource_at(size_t index) {\n"
+          "  if (index >= (size_t)nexs_embed_dep_count) return (void*)0;\n"
+          "  return nexs_embed_deps_table[index].path;\n"
+          "}\n\n");
+
 }
 
 static void emit_embedded_lookup_impl(FILE *out) {
@@ -171,22 +181,26 @@ static void emit_embedded_lookup_impl(FILE *out) {
       "const char *nexs_embedded_lookup(const char *path) {\n"
       "  return nexs_embedded_lookup_local(path);\n"
       "}\n\n"
-      "/* Auto-load all embedded dependencies */\n"
-      "void nexs_embed_load_all(EvalCtx *ctx) {\n"
-      "  for (int i = 0; nexs_embed_deps_table[i].path; i++) {\n"
-      "    const char *src = nexs_embed_deps_table[i].src;\n"
-      "    if (!src) continue;\n"
-      "    const char *p = src;\n"
-      "    while (*p && (*p == ' ' || *p == '\\t' || *p == '\\n' || *p == "
-      "'\\r' || *p == '#')) {\n"
-      "      if (*p == '#') { while (*p && *p != '\\n') p++; } else p++;\n"
-      "    }\n"
-      "    if (strncmp(p, \"library\", 7) == 0) {\n"
-      "      EvalResult r = eval_str(ctx, src);\n"
+      "/* Compiler-linked sources use the same PURE library classifier as hosted.\n"
+      " * Resource publication must never automatically activate a system service. */\n"
+      "extern int nexs_source_is_bootstrap_library(const char *, const char *);\n"
+      "int nexs_embed_load_all(EvalCtx *ctx) {\n"
+      "  if (ctx == NULL) return -1;\n"
+      "  for (int i = 0; i < nexs_embed_dep_count; ++i) {\n"
+      "    const char *name = nexs_embed_deps_table[i].path;\n"
+      "    const char *source = nexs_embed_deps_table[i].src;\n"
+      "    int kind = nexs_source_is_bootstrap_library(name, source);\n"
+      "    if (kind < 0) return -1;\n"
+      "    if (kind == 1) {\n"
+      "      EvalResult r = eval_file(ctx, name);\n"
+      "      int failed = r.sig == CTRL_ERR;\n"
       "      val_free(&r.ret_val);\n"
+      "      if (failed != 0) return -1;\n"
       "    }\n"
       "  }\n"
-      "}\n\n");
+      "  return 0;\n"
+      "}\n"
+      "\n");
 }
 
 /* =========================================================
@@ -224,10 +238,17 @@ int nexs_codegen_ex(const char *src_path, const char *out_c_path, int no_dep,
       /* 1. Explicit dependencies from source */
       n_deps = nexs_scan_deps(src_path, deps, NEXS_MAX_DEPS);
 
-      /* 2. Auto-include standard modules and services for batteries-included
-       * standalone */
-      n_deps = nexs_scan_directory("modules", deps, n_deps, NEXS_MAX_DEPS);
-      n_deps = nexs_scan_directory("services", deps, n_deps, NEXS_MAX_DEPS);
+      /* 2. The SAME nxlib tree owns both libraries and services.
+       * Logical source paths remain the unique embedded dependency keys. */
+      n_deps = nexs_scan_directory("nxlib", deps, n_deps, NEXS_MAX_DEPS);
+      if (n_deps < 0) {
+        fprintf(stderr, "nexs: incomplete nxlib dependency catalog\n");
+        nexs_free_deps(deps, NEXS_MAX_DEPS);
+        free(deps);
+        fclose(out);
+        free(src);
+        return -1;
+      }
 
       if (n_deps > 0) {
         fprintf(stdout, "[codegen] bundling %d dependenc%s\n", n_deps,
@@ -263,7 +284,12 @@ int nexs_codegen_ex(const char *src_path, const char *out_c_path, int no_dep,
     fprintf(out, "void nexs_main_baremetal(void) {\n"
                  "    extern int g_nexs_debug;\n"
                  "    g_nexs_debug = 1; /* Full execution trace enabled */\n"
-                 "    nexs_runtime_init();\n"
+                 "    if (nexs_runtime_init() != 0) {\n"
+                 "        extern void nexs_hal_print(const char *s);\n"
+                 "        nexs_hal_print(\"NEXS runtime admission failed\\n\");\n"
+                 "        nexs_hal_halt();\n"
+                 "        return;\n"
+                 "    }\n"
                  "    if (nexs_script_src[0]) {\n"
                  "        EvalCtx ctx;\n"
                  "        eval_ctx_init(&ctx);\n"
@@ -285,7 +311,10 @@ int nexs_codegen_ex(const char *src_path, const char *out_c_path, int no_dep,
   } else {
     fprintf(out, "int main(int argc, char *argv[]) {\n"
                  "    (void)argc; (void)argv;\n"
-                 "    nexs_runtime_init();\n"
+                 "    if (nexs_runtime_init() != 0) {\n"
+                 "        fprintf(stderr, \"NEXS runtime admission failed\\n\");\n"
+                 "        return 1;\n"
+                 "    }\n"
                  "    if (nexs_script_src[0]) {\n"
                  "        EvalCtx ctx;\n"
                  "        eval_ctx_init(&ctx);\n"

@@ -4,8 +4,8 @@
 # Refactored for better UI and robust logic
 # ================================================================
 
-exec("services/stdlib.nx")
-exec("services/ui/init.nx")
+exec("nxlib/stdlib.nx")
+exec("nxlib/services/ui/init.nx")
 
 # Constants
 TRAVEL_COST    = 100

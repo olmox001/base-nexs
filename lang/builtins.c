@@ -7,8 +7,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 /*
- * Registers built-ins via fn_register_builtin() AND reg_register_builtin()
- * (both paths kept for compatibility with the registry-based dispatcher).
+ * Registers built-ins once through the single callable registry owner.
  *
  * Built-ins:
  *   str, int, float, len, type, buddy_stats, errstr
@@ -21,9 +20,11 @@
  */
 
 #include "../core/include/nexs_alloc.h"
+#include "../core/include/nexs_checked.h"
 #include "../core/include/nexs_common.h"
 #include "../core/include/nexs_value.h"
 #include "../registry/include/nexs_registry.h"
+#include "../runtime/include/nexs_runtime.h"
 #include "include/nexs_eval.h"
 #include "include/nexs_fn.h"
 
@@ -43,17 +44,13 @@
 #include <string.h>
 
 /* =========================================================
-   HELPER — register into both fn_table and registry /sys/
+   HELPER — publish each built-in once into /sys/
    ========================================================= */
 
 static void register_builtin_sig(const char *name, BuiltinFn fn,
                                  const char *sig) {
-  int idx = fn_register_builtin_sig(name, fn, sig);
-  if (idx >= 0) {
-    char path[REG_PATH_MAX];
-    snprintf(path, sizeof(path), "/sys/%s", name);
-    reg_set(path, val_fn_idx(idx), RK_READ | RK_EXEC);
-  }
+  /* fn_register_builtin_sig publishes the one registry-owned object. */
+  (void)fn_register_builtin_sig(name, fn, sig);
 }
 
 /* =========================================================
@@ -266,8 +263,11 @@ static Value builtin_lower(Value *args, int n) {
 
 /*
  * split(s, sep) → arr
- * Simple split on a delimiter string. Returns at most MAX_ARRAYS elements.
+ * Split on a delimiter. Capacity is limited by the actual allocator
+ * provider, not a separate global array-name catalog.
  */
+/* Own and release each temporary Value even when array growth fails.
+ * The array keeps its independent clone on success. */
 static Value builtin_split(Value *args, int n) {
   if (n < 2)
     return val_err(4, "split: requires string and separator");
@@ -277,14 +277,18 @@ static Value builtin_split(Value *args, int n) {
   const char *sep = args[1].data ? (const char *)args[1].data : "";
   size_t seplen = strlen(sep);
 
-  /* Build a temporary array */
   DynArray *arr = arr_create_anon();
+  if (arr == NULL)
+    return val_err(2, "split: array allocation failed");
 
   if (seplen == 0) {
     /* Split into individual characters */
     for (size_t i = 0; s[i]; i++) {
       char ch[2] = {s[i], '\0'};
-      arr_set(arr, i, val_str(ch));
+      if (arr_set_owned(arr, i, val_str(ch)) != 0) {
+        arr_unref(arr);
+        return val_err(2, "split: capacity admission failed");
+      }
     }
   } else {
     size_t idx = 0;
@@ -297,11 +301,17 @@ static Value builtin_split(Value *args, int n) {
         chunk = MAX_STR_LEN - 1;
       strncpy(buf, p, chunk);
       buf[chunk] = '\0';
-      arr_set(arr, idx++, val_str(buf));
+      if (arr_set_owned(arr, idx++, val_str(buf)) != 0) {
+        arr_unref(arr);
+        return val_err(2, "split: capacity admission failed");
+      }
       p = found + seplen;
     }
     /* Last segment */
-    arr_set(arr, idx, val_str(p));
+    if (arr_set_owned(arr, idx, val_str(p)) != 0) {
+      arr_unref(arr);
+      return val_err(2, "split: capacity admission failed");
+    }
   }
 
   Value v;
@@ -399,8 +409,14 @@ static Value builtin_lines_of(Value *args, int n) {
 
   const char *src = (const char *)args[0].data;
   DynArray *arr = arr_create_anon();
+  if (arr == NULL)
+    return val_err(2, "lines_of: array allocation failed");
 
   char *copy = buddy_strdup(src);
+  if (copy == NULL) {
+    arr_unref(arr);
+    return val_err(12, "lines_of: source allocation failed");
+  }
   char *p = copy;
   char *line = p;
   size_t idx = 0;
@@ -408,14 +424,22 @@ static Value builtin_lines_of(Value *args, int n) {
   while (*p) {
     if (*p == '\n') {
       *p = '\0';
-      arr_set(arr, idx++, val_str(line));
+      if (arr_set_owned(arr, idx++, val_str(line)) != 0) {
+        xfree(copy);
+        arr_unref(arr);
+        return val_err(2, "lines_of: capacity admission failed");
+      }
       line = p + 1;
     }
     p++;
   }
   /* Last part */
   if (*line || p > line) {
-    arr_set(arr, idx++, val_str(line));
+    if (arr_set_owned(arr, idx++, val_str(line)) != 0) {
+      xfree(copy);
+      arr_unref(arr);
+      return val_err(2, "lines_of: capacity admission failed");
+    }
   }
 
   xfree(copy);
@@ -441,12 +465,25 @@ static Value builtin_keys(Value *args, int n) {
     return val_err(4, "keys: path not found");
 
   DynArray *arr = arr_create_anon();
+  if (arr == NULL)
+    return val_err(2, "keys: array allocation failed");
 
-  size_t idx = 0;
-  for (RegKey *c = k->children; c; c = c->next) {
-    Value tmp = val_str(c->name);
-    arr_set(arr, idx++, tmp);
-    val_free(&tmp);
+  size_t idx = 0U;
+  RegKey *child = k->children;
+  for (; child != NULL && idx < g_registry.total_keys;
+       child = child->next, ++idx) {
+    Value name = val_str(child->name);
+    if (name.type != TYPE_STR ||
+        arr_set_owned(arr, idx, name) != 0) {
+      if (name.type != TYPE_STR)
+        val_free(&name);
+      arr_unref(arr);
+      return val_err(2, "keys: capacity admission failed");
+    }
+  }
+  if (child != NULL) {
+    arr_unref(arr);
+    return val_err(2, "keys: invalid cyclic namespace");
   }
 
   Value v;
@@ -513,6 +550,8 @@ static Value builtin_arr_create_anon(Value *args, int n) {
   (void)args;
   (void)n;
   DynArray *arr = arr_create_anon();
+  if (arr == NULL)
+    return val_err(2, "arr_create_anon: memory exhausted");
   Value v;
   v.type = TYPE_ARR;
   v.data = arr;
@@ -553,20 +592,23 @@ static Value builtin_arr_join(Value *args, int n) {
   return val_str(result);
 }
 
-/* arr_ins(arr idx val) → nil: inserisce val a idx, shift right */
+/* Mutations here follow the unique DynArray Value ownership convention.
+ * Callers must admit size+1 before calling this no-fail move primitive. */
+/* arr_ins(arr idx val) → nil: checked insertion and one owner per slot. */
 static Value builtin_arr_ins(Value *args, int n) {
   if (n < 3 || args[0].type != TYPE_ARR || !args[0].data)
     return val_err(4, "arr_ins: arr, idx, val");
   DynArray *arr = (DynArray *)args[0].data;
-  size_t idx = (size_t)val_to_int(&args[1]);
+  int64_t requested = val_to_int(&args[1]);
+  if (requested < 0 || (uint64_t)requested > (uint64_t)arr->size)
+    return val_err(4, "arr_ins: index out of range");
+  if (arr->size == SIZE_MAX || arr_ensure_cap(arr, arr->size) != 0)
+    return val_err(2, "arr_ins: capacity admission failed");
+  size_t idx = (size_t)requested;
   Value newval = val_clone(&args[2]);
-  /* Grow array by 1 */
-  arr_ensure_cap(arr, arr->size);
-  /* Shift right from idx */
-  for (size_t j = arr->size; j > idx; j--)
-    arr->items[j] = arr->items[j - 1];
-  arr->items[idx] = newval;
-  arr->size++;
+  if (newval.type == TYPE_ERR && args[2].type != TYPE_ERR)
+    return newval;
+  arr_insert_owned_admitted(arr, idx, newval);
   return val_nil();
 }
 
@@ -575,14 +617,13 @@ static Value builtin_arr_del(Value *args, int n) {
   if (n < 2 || args[0].type != TYPE_ARR || !args[0].data)
     return val_err(4, "arr_del: arr, idx");
   DynArray *arr = (DynArray *)args[0].data;
-  size_t idx = (size_t)val_to_int(&args[1]);
+  int64_t requested = val_to_int(&args[1]);
+  if (requested < 0)
+    return val_err(4, "arr_del: negative index");
+  size_t idx = (size_t)requested;
   if (idx >= arr->size)
     return val_nil();
-  val_free(&arr->items[idx]);
-  /* Shift left */
-  for (size_t j = idx; j < arr->size - 1; j++)
-    arr->items[j] = arr->items[j + 1];
-  arr->size--;
+  arr_remove_compact(arr, idx);
   return val_nil();
 }
 
@@ -682,178 +723,6 @@ static Value builtin_sleep(Value *args, int n) {
 }
 
 /* =========================================================
-   TEXT BUFFER BUILT-INS
-   ========================================================= */
-
-static Value builtin_tb_create(Value *args, int n) {
-  (void)args;
-  (void)n;
-  DynArray *arr = arr_create_anon();
-  arr_set(arr, 0, val_str(""));
-  Value v;
-  v.type = TYPE_ARR;
-  v.data = arr;
-  v.ival = 0;
-  v.fval = 0;
-  v.err_code = 0;
-  v.err_msg = NULL;
-  return v;
-}
-
-static Value builtin_tb_load(Value *args, int n) {
-  if (n < 2 || args[0].type != TYPE_ARR || args[1].type != TYPE_STR)
-    return val_err(4, "tb_load: buffer array and content string required");
-
-  DynArray *buf = (DynArray *)args[0].data;
-  const char *content = (char *)args[1].data;
-
-  for (size_t i = 0; i < buf->size; i++)
-    val_free(&buf->items[i]);
-  buf->size = 0;
-
-  char *copy = buddy_strdup(content);
-  char *p = copy;
-  char *line = p;
-  size_t idx = 0;
-  while (*p) {
-    if (*p == '\n') {
-      *p = '\0';
-      Value tmp = val_str(line);
-      arr_set(buf, idx++, tmp);
-      val_free(&tmp);
-      line = p + 1;
-    }
-    p++;
-  }
-  if (*line || p > line) {
-    Value tmp = val_str(line);
-    arr_set(buf, idx++, tmp);
-    val_free(&tmp);
-  }
-  if (idx == 0) {
-    Value tmp = val_str("");
-    arr_set(buf, 0, tmp);
-    val_free(&tmp);
-  }
-
-  xfree(copy);
-  return val_int((int64_t)idx);
-}
-
-static Value builtin_tb_to_str(Value *args, int n) {
-  if (n < 1 || args[0].type != TYPE_ARR)
-    return val_err(4, "tb_to_str: buffer required");
-  DynArray *buf = (DynArray *)args[0].data;
-
-  /* First pass: compute total size needed */
-  size_t total = 1; /* NUL terminator */
-  for (size_t i = 0; i < buf->size; i++) {
-    if (buf->items[i].type == TYPE_STR && buf->items[i].data)
-      total += strlen((char *)buf->items[i].data) + 1; /* +1 for '\n' */
-  }
-
-  char *res = xmalloc(total);
-  res[0] = '\0';
-  size_t cur_len = 0;
-
-  for (size_t i = 0; i < buf->size; i++) {
-    if (buf->items[i].type == TYPE_STR && buf->items[i].data) {
-      const char *line = (char *)buf->items[i].data;
-      size_t llen = strlen(line);
-      memcpy(res + cur_len, line, llen);
-      cur_len += llen;
-      if (i < buf->size - 1)
-        res[cur_len++] = '\n';
-    }
-  }
-  res[cur_len] = '\0';
-
-  Value v = val_str(res);
-  xfree(res);
-  return v;
-}
-
-static Value builtin_tb_insert_char(Value *args, int n) {
-  if (n < 4 || args[0].type != TYPE_ARR)
-    return val_err(4, "tb_insert_char args");
-  DynArray *buf = (DynArray *)args[0].data;
-  int y = (int)val_to_int(&args[1]);
-  int x = (int)val_to_int(&args[2]);
-  const char *ch = (args[3].type == TYPE_STR) ? (char *)args[3].data : "";
-
-  Value line_val = arr_get_at(buf, (size_t)y);
-  if (line_val.type != TYPE_STR) {
-    val_free(&line_val);
-    return val_nil();
-  }
-  const char *old = (char *)line_val.data;
-  size_t olen = strlen(old);
-
-  if (x < 0)
-    x = 0;
-  if (x > (int)olen)
-    x = (int)olen;
-
-  size_t ins_len = strlen(ch);
-  if (ins_len > SIZE_MAX - olen - 1U) {
-    val_free(&line_val);
-    return val_err(4, "tb_insert_char size overflow");
-  }
-  char *new_str = xmalloc(olen + ins_len + 1U);
-  if (new_str == NULL) {
-    val_free(&line_val);
-    return val_err(2, "tb_insert_char out of memory");
-  }
-  memcpy(new_str, old, (size_t)x);
-  memcpy(new_str + x, ch, ins_len);
-  memcpy(new_str + x + ins_len, old + x, olen - (size_t)x + 1U);
-
-  arr_set(buf, (size_t)y, val_str(new_str));
-  xfree(new_str);
-  val_free(&line_val);
-  return val_nil();
-}
-
-static Value builtin_tb_delete_char(Value *args, int n) {
-  if (n < 3 || args[0].type != TYPE_ARR)
-    return val_err(4, "tb_delete_char args");
-  DynArray *buf = (DynArray *)args[0].data;
-  int y = (int)val_to_int(&args[1]);
-  int x = (int)val_to_int(&args[2]);
-
-  if (x <= 0)
-    return val_int(0);
-
-  Value line_val = arr_get_at(buf, (size_t)y);
-  if (line_val.type != TYPE_STR) {
-    val_free(&line_val);
-    return val_int(0);
-  }
-  const char *old = (char *)line_val.data;
-  size_t olen = strlen(old);
-
-  if (x > (int)olen)
-    x = (int)olen;
-  if (x <= 0) {
-    val_free(&line_val);
-    return val_int(0);
-  }
-
-  char *new_str = xmalloc(olen + 1U);
-  if (new_str == NULL) {
-    val_free(&line_val);
-    return val_err(2, "tb_delete_char out of memory");
-  }
-  memcpy(new_str, old, (size_t)x - 1U);
-  memcpy(new_str + x - 1, old + x, olen - (size_t)x + 1U);
-
-  arr_set(buf, (size_t)y, val_str(new_str));
-  xfree(new_str);
-  val_free(&line_val);
-  return val_int(1);
-}
-
-/* =========================================================
    REGISTRATION
    ========================================================= */
 
@@ -871,51 +740,75 @@ static Value builtin_sys_embedded_read(Value *args, int n) {
   return val_str(src);
 }
 
-typedef struct {
-  const char *path;
-  const char *src;
-} NexsEmbedDep;
-/* The real table is provided by codegen.c during standalone build */
-extern const NexsEmbedDep nexs_embed_deps_table[];
-
+/* Enumerate the actual linked AOT resource catalog first. A normal hosted
+ * interpreter reads the same reviewed catalog used to stage OS1 images.
+ * No second directory enumeration and no table of global C functions. */
 static Value builtin_sys_bundled(Value *args, int n) {
   (void)args;
   (void)n;
   DynArray *arr = arr_create_anon();
-  size_t idx = 0;
-#ifndef NEXS_BAREMETAL
-  DIR *d = opendir("modules");
-  if (d) {
-    struct dirent *ent;
-    while ((ent = readdir(d)) != NULL) {
-      if (ent->d_name[0] == '.')
-        continue;
-      arr_set(arr, idx++, val_str(ent->d_name));
+  if (arr == NULL)
+    return val_err(2, "sys_bundled: array allocation failed");
+
+  size_t total = nexs_embedded_resource_count();
+  if (total > 0U) {
+    for (size_t i = 0U; i < total; ++i) {
+      const char *logical = nexs_embedded_resource_at(i);
+      if (logical == NULL || logical[0] == '\0' ||
+          arr_set_owned(arr, i, val_str(logical)) != 0) {
+        arr_unref(arr);
+        return val_err(2, "sys_bundled: malformed embedded catalog");
+      }
     }
-    closedir(d);
-  }
+  } else {
+#ifndef NEXS_BAREMETAL
+    char mapped[REG_PATH_MAX];
+    const char *logical = "config/nx_resources.txt";
+    const char *path = nexs_platform_source_path(logical, mapped,
+                                                 sizeof(mapped));
+    FILE *input = path != NULL ? fopen(path, "r") : NULL;
+    if (input == NULL) {
+      arr_unref(arr);
+      return val_err(3, "sys_bundled: resource catalog unavailable");
+    }
+    char line[REG_PATH_MAX];
+    int failure = 0;
+    size_t idx = 0U;
+    while (failure == 0 && fgets(line, sizeof(line), input) != NULL) {
+      size_t len = strlen(line);
+      if (len == 0U || (line[len - 1U] != '\n' && !feof(input))) {
+        failure = 1;
+      } else {
+        if (line[len - 1U] == '\n')
+          line[--len] = '\0';
+        if (len > 0U && line[0] != '#') {
+          if (strstr(line, "..") != NULL ||
+              (strncmp(line, "nxlib/", 6U) != 0 &&
+               strncmp(line, "example/", 8U) != 0) ||
+              arr_set_owned(arr, idx, val_str(line)) != 0) {
+            failure = 1;
+          } else {
+            ++idx;
+          }
+        }
+      }
+    }
+    if (ferror(input) != 0)
+      failure = 1;
+    if (fclose(input) != 0)
+      failure = 1;
+    if (failure != 0) {
+      arr_unref(arr);
+      return val_err(3, "sys_bundled: corrupt or unreadable resource catalog");
+    }
 #else
-  /* The table is generated by codegen.c in standalone builds */
-  /* nexs_fprintf(NULL, "[TRACE] sys_bundled: table_addr=0x%llx starting loop\n", (unsigned long long)nexs_embed_deps_table); */
-  for (int i = 0; nexs_embed_deps_table[i].path; i++) {
-    const char *p = nexs_embed_deps_table[i].path;
-    /* const char *s = nexs_embed_deps_table[i].src;
-    nexs_fprintf(NULL, "[TRACE] sys_bundled: adding %s (path_ptr=0x%llx, src_ptr=0x%llx)\n", 
-                 p, (unsigned long long)p, (unsigned long long)s); */
-    if (!p) break;
-    Value tmp = val_str(p);
-    arr_set(arr, idx++, tmp);
-    val_free(&tmp);
-  }
+    /* A freestanding image with --no-dep embeds no source resources. */
 #endif
-  Value v;
-  v.type = TYPE_ARR;
-  v.data = arr;
-  v.ival = 0;
-  v.fval = 0;
-  v.err_code = 0;
-  v.err_msg = NULL;
-  return v;
+  }
+  Value result = val_nil();
+  result.type = TYPE_ARR;
+  result.data = arr;
+  return result;
 }
 
 static Value builtin_sys_debug(Value *args, int n) {
@@ -1002,18 +895,7 @@ void builtins_register_all(void) {
   register_builtin_sig("sys_embedded_read", builtin_sys_embedded_read,
                        SIG("sys_embedded_read(path str)") "str");
 
-  /* Text Buffer library */
-  register_builtin_sig("tb_create", builtin_tb_create,
-                       SIG("tb_create()") "arr");
-  register_builtin_sig("tb_load", builtin_tb_load,
-                       SIG("tb_load(buf arr, content str)") "int");
-  register_builtin_sig("tb_to_str", builtin_tb_to_str,
-                       SIG("tb_to_str(buf arr)") "str");
-  register_builtin_sig(
-      "tb_insert_char", builtin_tb_insert_char,
-      SIG("tb_insert_char(buf arr, y int, x int, ch str)") "nil");
-  register_builtin_sig("tb_delete_char", builtin_tb_delete_char,
-                       SIG("tb_delete_char(buf arr, y int, x int)") "int");
+
 }
 
 #undef SIG

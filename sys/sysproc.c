@@ -36,6 +36,17 @@ __attribute__((weak)) const char *nexs_embedded_lookup(const char *path) {
   return NULL;
 }
 
+/* Standalone codegen overrides these with logical keys from ONE dependency
+ * catalog. The interpreter loads the same resource manifest from disk. */
+__attribute__((weak)) size_t nexs_embedded_resource_count(void) {
+  return 0U;
+}
+
+__attribute__((weak)) const char *nexs_embedded_resource_at(size_t index) {
+  (void)index;
+  return NULL;
+}
+
 /* =========================================================
    SYSCALL IMPLEMENTATIONS
    ========================================================= */
@@ -85,20 +96,17 @@ int nexs_alarm(int msec) {
 
 int nexs_rfork(int flags) {
   if (!(flags & NEXS_RFPROC)) return 0;
+  /* Parent and child MUST inherit the same provider IPC endpoints.
+   * Creating a new pipe after fork splits the registry and loses messages.
+   * Admission occurs in the parent before cloning the process. */
+  if (reg_ipc_enable_pipes() != 0)
+    return -1;
   pid_t pid = fork();
-  if (pid < 0) return -1;
-  /* Bug 3 fix: after fork() the registry lives in two separate heap copies.
-   * Activate the pipe-backed IPC transport so sendmessage/receivemessage
-   * cross the process boundary correctly in hosted (macOS/Linux) mode. */
-  if (pid > 0) {
-    /* Parent: enable pipes and set up wait if needed */
-    reg_ipc_enable_pipes();
-    if (flags & NEXS_RFNOWAIT) signal(SIGCHLD, SIG_IGN);
-    return (int)pid;
-  }
-  /* Child (pid == 0) */
-  reg_ipc_enable_pipes();
-  return 0;
+  if (pid < 0)
+    return -1;
+  if (pid > 0 && (flags & NEXS_RFNOWAIT))
+    signal(SIGCHLD, SIG_IGN);
+  return (int)pid;
 }
 
 int nexs_await(char *buf, int nbuf) {
@@ -213,37 +221,7 @@ void sysproc_register_builtins(void) {
   fn_register_builtin_sig("await",  bi_await,
     SIG("await()") "str");
 
-  /* Store actual fn_table indices in /sys/<name> */
-  {
-    static const char *names[] = {
-      "sleep","exec","exits","exit","alarm","rfork","await","getpid","getwd"
-    };
-    char path[REG_PATH_MAX];
-    int num_names = (sizeof(names) / sizeof(names[0]));
-    for (int _i = 0; _i < num_names; _i++) {
-      NexsFnDef *def = fn_lookup(names[_i]);
-      if (def) {
-        int idx = (int)(def - g_fn_table);
-        snprintf(path, sizeof(path), "/sys/%s", names[_i]);
-        reg_set(path, val_fn_idx(idx), RK_READ | RK_EXEC);
-      }
-    }
-  }
-#else
-  /* Register baremetal builtins (getpid/getwd already registered above) */
-  {
-    static const char *names[] = { "exec", "load", "exits", "exit", "getpid", "getwd" };
-    char path[REG_PATH_MAX];
-    int num_names = (sizeof(names) / sizeof(names[0]));
-    for (int _i = 0; _i < num_names; _i++) {
-      NexsFnDef *def = fn_lookup(names[_i]);
-      if (def) {
-        int idx = (int)(def - g_fn_table);
-        snprintf(path, sizeof(path), "/sys/%s", names[_i]);
-        reg_set(path, val_fn_idx(idx), RK_READ | RK_EXEC);
-      }
-    }
-  }
+  /* Registration already published hosted callables into /sys. */
 #endif
 
   reg_set("/sys/rfork/RFPROC",   val_int(NEXS_RFPROC),   RK_READ);

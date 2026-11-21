@@ -6,54 +6,37 @@
 
 #include "include/nexs_value.h"
 #include "include/nexs_alloc.h"
+#include "include/nexs_checked.h"
 #include "include/nexs_common.h"
 
 #include <string.h>
 
-/* =========================================================
-   GLOBAL STATE
-   ========================================================= */
-
-DynArray *g_arrays[MAX_ARRAYS];
-size_t    g_array_count = 0;
-
-/* =========================================================
-   IMPLEMENTATION
-   ========================================================= */
-
-DynArray *arr_get(const char *name) {
-  if (!name) return NULL;
-  for (size_t i = 0; i < g_array_count; i++)
-    if (strcmp(g_arrays[i]->name, name) == 0)
-      return g_arrays[i];
-  return NULL;
-}
-
-DynArray *arr_get_or_create(const char *name) {
-  if (!name) return NULL;
-  DynArray *a = arr_get(name);
-  if (a) return a;
-  if (g_array_count >= MAX_ARRAYS)
-    die("Array limit reached");
-  a = xmalloc(sizeof(DynArray));
-  strncpy(a->name, name, NAME_LEN - 1);
-  a->name[NAME_LEN - 1] = '\0';
-  a->capacity = 4;
-  a->size = 0;
-  a->refcount = 1; /* Owned by g_arrays */
-  a->items = xmalloc(a->capacity * sizeof(Value));
-  g_arrays[g_array_count++] = a;
-  return a;
-}
+/* Arrays have one owner: the registry's typed Value or the anonymous Value.
+ * Names live in the canonical namespace, not in a duplicate global list.
+ * An array reference cannot outlive its registry key by hidden retention. */
 
 DynArray *arr_create_anon(void) {
-  DynArray *a = xmalloc(sizeof(DynArray));
-  a->name[0] = '\0';
-  a->capacity = 4;
-  a->size = 0;
-  a->refcount = 1; /* Owned by the caller's Value */
-  a->items = xmalloc(a->capacity * sizeof(Value));
-  return a;
+  DynArray *arr = buddy_alloc(sizeof(DynArray));
+  if (arr == NULL)
+    return NULL;
+  memset(arr, 0, sizeof(*arr));
+  const size_t initial_capacity = 4U;
+  size_t initial_bytes = 0U;
+  if (nx_size_mul(initial_capacity, sizeof(Value), &initial_bytes) !=
+      NX_STATUS_OK) {
+    buddy_free(arr);
+    return NULL;
+  }
+  Value *items = buddy_alloc(initial_bytes);
+  if (items == NULL) {
+    buddy_free(arr);
+    return NULL;
+  }
+  memset(items, 0, initial_bytes);
+  arr->capacity = initial_capacity;
+  arr->refcount = 1;
+  arr->items = items;
+  return arr;
 }
 
 void arr_ref(DynArray *arr) {
@@ -69,29 +52,94 @@ void arr_unref(DynArray *arr) {
   }
 }
 
-void arr_ensure_cap(DynArray *arr, size_t index) {
-  if (!arr) return;
-  if (index < arr->capacity) return;
-  size_t nc = arr->capacity;
-  while (nc <= index)
-    nc <<= 1;
-  Value *ni = xmalloc(nc * sizeof(Value));
-  if (arr->items) {
-    memcpy(ni, arr->items, arr->capacity * sizeof(Value));
-    memset(ni + arr->capacity, 0, (nc - arr->capacity) * sizeof(Value));
-    xfree(arr->items);
+/* A failure leaves the original Value pointer/capacity/contents intact.
+ * Capacity is constrained only by checked arithmetic and the actual
+ * allocator provider, never by a hardcoded maximum number of arrays. */
+int arr_ensure_cap(DynArray *arr, size_t index) {
+  if (arr == NULL || index == SIZE_MAX)
+    return -1;
+  if (index < arr->capacity)
+    return 0;
+  size_t required = 0U;
+  size_t required_bytes = 0U;
+  if (nx_size_add(index, 1U, &required) != NX_STATUS_OK ||
+      nx_size_mul(required, sizeof(Value), &required_bytes) != NX_STATUS_OK)
+    return -1;
+  size_t next = arr->capacity ? arr->capacity : 4U;
+  while (next < required) {
+    if (next > (SIZE_MAX / 2U))
+      return -1;
+    next *= 2U;
   }
-  arr->items = ni;
-  arr->capacity = nc;
+  size_t bytes = 0U;
+  size_t existing_bytes = 0U;
+  if (nx_size_mul(next, sizeof(Value), &bytes) != NX_STATUS_OK ||
+      nx_size_mul(arr->capacity, sizeof(Value), &existing_bytes) !=
+      NX_STATUS_OK)
+    return -1;
+  Value *fresh = buddy_alloc(bytes);
+  if (fresh == NULL)
+    return -1;
+  memset(fresh, 0, bytes);
+  if (arr->items != NULL) {
+    memcpy(fresh, arr->items, existing_bytes);
+    buddy_free(arr->items);
+  }
+  arr->items = fresh;
+  arr->capacity = next;
+  return 0;
 }
 
-void arr_set(DynArray *arr, size_t index, Value val) {
-  if (!arr) return;
-  arr_ensure_cap(arr, index);
+/* Preserve the caller's ownership and avoid freeing the old slot before
+ * cloning its replacement (self-assignment otherwise reads freed storage). */
+int arr_set(DynArray *arr, size_t index, Value val) {
+  if (arr == NULL)
+    return -1;
+  /* Clone BEFORE any capacity or slot mutation. The fallible Value ABI
+   * must never overwrite a real item with an OOM error object. */
+  Value replacement = val_nil();
+  if (val_clone_checked(&val, &replacement) != 0)
+    return -1;
+  if (arr_ensure_cap(arr, index) != 0) {
+    val_free(&replacement);
+    return -1;
+  }
   val_free(&arr->items[index]);
-  arr->items[index] = val_clone(&val);
+  arr->items[index] = replacement;
   if (index >= arr->size)
-    arr->size = index + 1;
+    arr->size = index + 1U;
+  return 0;
+}
+
+/* Clone the replacement into the array, then release caller-owned data. */
+int arr_set_owned(DynArray *arr, size_t index, Value owned) {
+  int result = arr_set(arr, index, owned);
+  val_free(&owned);
+  return result;
+}
+
+/* Caller already obtained capacity using arr_ensure_cap, no ghost slot. */
+int arr_insert_owned_admitted(DynArray *arr, size_t index, Value owned) {
+  if (arr == NULL || arr->items == NULL || index > arr->size ||
+      arr->size >= arr->capacity)
+    return -1;
+  for (size_t j = arr->size; j > index; --j)
+    arr->items[j] = arr->items[j - 1U];
+  arr->items[index] = owned;
+  ++arr->size;
+  return 0;
+}
+
+/* Release a single owned Value, move survivors, clear the old tail. */
+int arr_remove_compact(DynArray *arr, size_t index) {
+  if (arr == NULL || arr->items == NULL || index >= arr->size)
+    return -1;
+  val_free(&arr->items[index]);
+  for (size_t j = index; j + 1U < arr->size; ++j)
+    arr->items[j] = arr->items[j + 1U];
+  --arr->size;
+  arr->items[arr->size] = val_nil();
+  return 0;
 }
 
 Value arr_get_at(DynArray *arr, size_t index) {

@@ -73,6 +73,63 @@ static Token make_tok(TokenKind k, const char *text, int line) {
   return t;
 }
 
+/* Decimal-only integer parsing with an explicit int64_t limit.
+ * It uses unsigned intermediate arithmetic, so even INT64_MIN is safe
+ * and no hosted errno, strtoll or freestanding libc extension is needed. */
+static int lexer_parse_integer(const char *text, int64_t *value) {
+  if (text == NULL || value == NULL)
+    return 0;
+  size_t pos = text[0] == '-' ? 1U : 0U;
+  int negative = pos != 0U;
+  if (text[pos] == '\0')
+    return 0;
+  const uint64_t limit = ((~(uint64_t)0) >> 1U) +
+                         (negative ? 1U : 0U);
+  uint64_t number = 0U;
+  while (text[pos] != '\0') {
+    unsigned char ch = (unsigned char)text[pos++];
+    if (ch < '0' || ch > '9')
+      return 0;
+    uint64_t digit = (uint64_t)(ch - '0');
+    if (number > (limit - digit) / 10U)
+      return 0;
+    number = number * 10U + digit;
+  }
+  if (negative) {
+    if (number == limit)
+      *value = -(int64_t)(limit - 1U) - 1;
+    else
+      *value = -(int64_t)number;
+  } else {
+    *value = (int64_t)number;
+  }
+  return 1;
+}
+
+/* The lexical grammar is decimal digits with at most one decimal point.
+ * With NAME_LEN at most 64 there is no exponent and no representable input
+ * long enough to overflow binary64 via atof(). This also rejects 1.2.3. */
+static int lexer_parse_float(const char *text, double *value) {
+  if (text == NULL || value == NULL)
+    return 0;
+  size_t pos = text[0] == '-' ? 1U : 0U;
+  size_t digits = 0U;
+  size_t dots = 0U;
+  while (text[pos] != '\0') {
+    char ch = text[pos++];
+    if (ch == '.')
+      dots++;
+    else if (ch >= '0' && ch <= '9')
+      digits++;
+    else
+      return 0;
+  }
+  if (digits == 0U || dots != 1U)
+    return 0;
+  *value = atof(text);
+  return 1;
+}
+
 /* =========================================================
    KEYWORDS TABLE
    ========================================================= */
@@ -131,6 +188,9 @@ Token lexer_next(Lexer *lex) {
     if (lex->inject_stage == 2) {
       lex->inject_stage = 3;
       Token t = make_tok(TK_STRING, lex->lib_name, 0);
+      t.span = lex->lib_name;
+      t.span_len = strlen(lex->lib_name);
+      t.span_escaped = 0;
       return t;
     }
     if (lex->inject_stage == 3) {
@@ -155,96 +215,135 @@ Token lexer_next(Lexer *lex) {
     return make_tok(TK_NEWLINE, "\\n", line);
   }
 
-  /* String literal */
+  /* String literal: retain its complete source slice. No fixed-size
+   * string copy, no embedded NUL accepted, no silent length truncation. */
   if (c == '"') {
-    size_t i = 0;
     lex->pos++;
-    while (lex->pos < lex->len && lex->src[lex->pos] != '"' &&
-           i < MAX_STR_LEN - 1) {
+    size_t start = lex->pos;
+    size_t decoded = 0;
+    int closed = 0;
+    int oversized = 0;
+    while (lex->pos < lex->len && !closed) {
       char ch = lex->src[lex->pos++];
-      if (ch == '\\' && lex->pos < lex->len) {
-        ch = lex->src[lex->pos++];
-        if (ch == 'n')
-          ch = '\n';
-        else if (ch == 'r')
-          ch = '\r';
-        else if (ch == 'b')
-          ch = '\b';
-        else if (ch == 'e')
-          ch = '\x1b';
-        else if (ch == 't')
-          ch = '\t';
-        else if (ch == '\\')
-          ch = '\\';
-        else if (ch == '"')
-          ch = '"';
-        else if (ch == '0')
-          ch = '\0';
+      if (ch == '"') {
+        closed = 1;
+      } else {
+        if (ch == '\\' && lex->pos < lex->len) {
+          ch = lex->src[lex->pos++];
+          /* A C-style octal escape encodes one byte: \\033 is ESC.
+           * Count the whole escape as one decoded character. */
+          if (ch >= '0' && ch <= '7') {
+            for (int digit = 0; digit < 2 && lex->pos < lex->len &&
+                 lex->src[lex->pos] >= '0' &&
+                 lex->src[lex->pos] <= '7'; ++digit)
+              lex->pos++;
+          }
+        }
+        if (ch == '\n') {
+          lex->line++;
+          lex->col = 1;
+        }
+        if (decoded >= MAX_STR_LEN - 1U)
+          oversized = 1;
+        decoded++;
       }
-      buf[i++] = ch;
     }
-    buf[i] = '\0';
-    /* If buffer filled before closing quote, scan forward to consume it */
-    while (lex->pos < lex->len && lex->src[lex->pos] != '"')
-      lex->pos++;
-    if (lex->pos < lex->len)
-      lex->pos++; /* consume closing " */
-    return make_tok(TK_STRING, buf, line);
-  }
-
-  /* Number */
-  if (isdigit((unsigned char)c) ||
-      (c == '-' && lex->pos + 1 < lex->len &&
-       isdigit((unsigned char)lex->src[lex->pos + 1]))) {
-    size_t i = 0;
-    int is_float = 0;
-    if (c == '-')
-      buf[i++] = lex->src[lex->pos++];
-    while (lex->pos < lex->len &&
-           (isdigit((unsigned char)lex->src[lex->pos]) ||
-            lex->src[lex->pos] == '.') &&
-           i < MAX_STR_LEN - 1) {
-      if (lex->src[lex->pos] == '.')
-        is_float = 1;
-      buf[i++] = lex->src[lex->pos++];
-    }
-    buf[i] = '\0';
-    Token t = make_tok(is_float ? TK_FLOAT : TK_INT, buf, line);
-    t.ival = atoll(buf);
-    t.fval = atof(buf);
+    if (!closed)
+      return make_tok(TK_ERROR, "unterminated string literal", line);
+    if (oversized)
+      return make_tok(TK_ERROR, "string literal exceeds MAX_STR_LEN", line);
+    Token t = make_tok(TK_STRING, "", line);
+    t.span = lex->src + start;
+    t.span_len = lex->pos - start - 1U;
+    t.span_escaped = 1;
     return t;
   }
 
-  /* Registry path: starts with '/' */
-  if (c == '/') {
+  /* Number: consume the complete lexeme; never split an oversized
+   * number into two valid tokens or pass a truncated value to strtoll. */
+  if (isdigit((unsigned char)c) ||
+      (c == '-' && lex->pos + 1U < lex->len &&
+       isdigit((unsigned char)lex->src[lex->pos + 1U]))) {
     size_t i = 0;
-    size_t saved_pos = lex->pos;
-    buf[i++] = lex->src[lex->pos++];
-
-    while (lex->pos < lex->len &&
-           (isalnum((unsigned char)lex->src[lex->pos]) ||
-            lex->src[lex->pos] == '_' || lex->src[lex->pos] == '/') &&
-           i < MAX_STR_LEN - 1) {
+    int is_float = 0;
+    if (c == '-') {
       buf[i++] = lex->src[lex->pos++];
     }
+    while (lex->pos < lex->len &&
+           (isdigit((unsigned char)lex->src[lex->pos]) ||
+            lex->src[lex->pos] == '.')) {
+      char next = lex->src[lex->pos++];
+      if (next == '.')
+        is_float = 1;
+      if (i < NAME_LEN - 1U)
+        buf[i] = next;
+      i++;
+    }
+    if (i >= NAME_LEN)
+      return make_tok(TK_ERROR, "number exceeds NAME_LEN", line);
     buf[i] = '\0';
+    Token t = make_tok(is_float ? TK_FLOAT : TK_INT, buf, line);
+    int valid = is_float ? lexer_parse_float(buf, &t.fval)
+                         : lexer_parse_integer(buf, &t.ival);
+    if (!valid)
+      return make_tok(TK_ERROR, "invalid or out-of-range number", line);
+    return t;
+  }
 
-    if (i >= 2 && (isalpha((unsigned char)buf[1]) || buf[1] == '_'))
-      return make_tok(TK_REGPATH, buf, line);
-    if (i == 1)
-      return make_tok(TK_REGPATH, buf, line);
-    lex->pos = saved_pos + 1;
+  /* Registry paths use a borrowed slice. The parser copies the
+   * entire bounded path (up to REG_PATH_MAX - 1), not text[NAME_LEN]. */
+  if (c == '/') {
+    size_t start = lex->pos++;
+    while (lex->pos < lex->len &&
+           (isalnum((unsigned char)lex->src[lex->pos]) ||
+            lex->src[lex->pos] == '_' || lex->src[lex->pos] == '/')) {
+      lex->pos++;
+    }
+    size_t n = lex->pos - start;
+    if (n == 1U || (n >= 2U &&
+        (isalpha((unsigned char)lex->src[start + 1U]) ||
+         lex->src[start + 1U] == '_'))) {
+      if (n >= REG_PATH_MAX)
+        return make_tok(TK_ERROR, "registry path exceeds REG_PATH_MAX", line);
+      /* Registry currently stores each path component in name[NAME_LEN].
+       * Reject unsupported components instead of creating unreachable,
+       * truncated keys. Complete dynamic names belong to P3/NXREG. */
+      size_t component = 0;
+      for (size_t j = start + 1U; j < lex->pos; ++j) {
+        if (lex->src[j] == '/') {
+          component = 0;
+        } else {
+          component++;
+          if (component >= NAME_LEN)
+            return make_tok(TK_ERROR, "registry component exceeds NAME_LEN", line);
+        }
+      }
+      Token t = make_tok(TK_REGPATH, "/", line);
+      size_t preview = n < NAME_LEN ? n : NAME_LEN - 1U;
+      memcpy(t.text, lex->src + start, preview);
+      t.text[preview] = '\0';
+      t.span = lex->src + start;
+      t.span_len = n;
+      return t;
+    }
+    lex->pos = start + 1U;
     return make_tok(TK_SLASH, "/", line);
   }
 
-  /* Identifier and keywords */
+  /* Identifiers have an explicitly bounded ABI name field.
+   * Oversized names are syntax errors; aliases are never silently created. */
   if (isalpha((unsigned char)c) || c == '_') {
     size_t i = 0;
     while (lex->pos < lex->len &&
            (isalnum((unsigned char)lex->src[lex->pos]) ||
-            lex->src[lex->pos] == '_') &&
-           i < MAX_STR_LEN - 1)
-      buf[i++] = lex->src[lex->pos++];
+            lex->src[lex->pos] == '_')) {
+      char next = lex->src[lex->pos++];
+      if (i < NAME_LEN - 1U)
+        buf[i] = next;
+      i++;
+    }
+    if (i >= NAME_LEN)
+      return make_tok(TK_ERROR, "identifier exceeds NAME_LEN", line);
     buf[i] = '\0';
     for (int j = 0; keywords[j].word; j++)
       if (strcmp(buf, keywords[j].word) == 0)
@@ -318,6 +417,54 @@ Token lexer_next(Lexer *lex) {
   }
   snprintf(buf, sizeof(buf), "unknown character '%c'", c);
   return make_tok(TK_ERROR, buf, line);
+}
+
+/* Copy a complete source slice into a caller-owned, bounded destination.
+ * On failure, discard output; embedded '\0' must not forge a shorter string. */
+int lexer_token_copy(const Token *token, char *out, size_t capacity) {
+  if (token == NULL || out == NULL || capacity == 0)
+    return 0;
+  out[0] = '\0';
+  const char *source = token->text;
+  size_t bytes = strlen(token->text);
+  if ((token->kind == TK_STRING || token->kind == TK_REGPATH) &&
+      token->span != NULL) {
+    source = token->span;
+    bytes = token->span_len;
+  }
+  size_t used = 0;
+  for (size_t i = 0; i < bytes; i++) {
+    unsigned char ch = (unsigned char)source[i];
+    if (token->kind == TK_STRING && token->span_escaped &&
+        ch == '\\' && i + 1U < bytes) {
+      ch = (unsigned char)source[++i];
+      if (ch == 'n') ch = '\n';
+      else if (ch == 'r') ch = '\r';
+      else if (ch == 'b') ch = '\b';
+      else if (ch == 'e') ch = '\x1b';
+      else if (ch == 't') ch = '\t';
+      else if (ch >= '0' && ch <= '7') {
+        unsigned int octal = (unsigned int)(ch - '0');
+        for (unsigned int digit = 0U; digit < 2U && i + 1U < bytes &&
+             source[i + 1U] >= '0' && source[i + 1U] <= '7'; ++digit) {
+          ++i;
+          octal = octal * 8U + (unsigned int)(source[i] - '0');
+        }
+        if (octal > 255U) {
+          out[0] = '\0';
+          return 0;
+        }
+        ch = (unsigned char)octal;
+      }
+    }
+    if (ch == 0 || used >= capacity - 1U) {
+      out[0] = '\0';
+      return 0;
+    }
+    out[used++] = (char)ch;
+  }
+  out[used] = '\0';
+  return 1;
 }
 
 /* =========================================================

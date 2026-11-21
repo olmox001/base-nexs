@@ -33,7 +33,7 @@
 
 /* nexs_embed_deps_table[], nexs_script_src, nexs_embedded_lookup(), and
  * nexs_embed_load_all() are provided by the codegen'd embed file generated
- * via: ./nexs --codegen services/init.nx -o build/sel4-microkit/nexs_embed.c
+ * via: ./nexs --codegen nxlib/services/init.nx -o build/sel4-microkit/nexs_embed.c
  * Compile that file alongside this one in the sel4-microkit Makefile target. */
 extern const char nexs_script_src[] __attribute__((weak));
 
@@ -131,7 +131,10 @@ static Value collect_reply(NexsMR *rep_mr) {
 
 void init(void) {
     nexs_hal_init();
-    nexs_runtime_init();
+    if (nexs_runtime_init() != 0) {
+        nexs_hal_print("[nexs] runtime admission failed\n");
+        return;
+    }
 
 #ifdef NEXS_SEL4_VERIFY
     nexs_sel4_verify_all();

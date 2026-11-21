@@ -1,7 +1,7 @@
 /*
  * hal/sel4/sel4_pd_tty.c — seL4 Microkit Protection Domain: TTY
  * ==============================================================
- * Runs services/tty/init.nx in isolation.
+ * Runs nxlib/services/tty/init.nx in isolation.
  * Same pattern as sel4_pd_fs.c — see that file for full rationale.
  *
  * The TTY PD handles console I/O requests from user processes.
@@ -45,7 +45,10 @@ void nexs_hal_putc(char c) {
 int nexs_hal_getc(void) { return -1; } /* TTY reads handled via IPC from root */
 
 void init(void) {
-    nexs_runtime_init();
+    if (nexs_runtime_init() != 0) {
+        sel4_uart_daemon_puts(g_log_mr, "[nexs_tty] runtime admission failed\n", SEL4_CH_LOG_TTY);
+        return;
+    }
 
     reg_ipc_init_queue("/services/tty/inbox", 64);
 

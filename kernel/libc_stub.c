@@ -9,6 +9,7 @@
 #include <termios.h>
 #include <poll.h>
 #include <stdarg.h>
+#include <errno.h>
 
 /* Nexs includes for actual implementations */
 #include "../core/include/nexs_alloc.h"
@@ -242,11 +243,24 @@ int fputs(const char* s, FILE* stream) { (void)stream; nexs_hal_print(s); return
 int fflush(FILE* stream) { (void)stream; return 0; }
 
 /* File I/O - purely stubs for baremetal */
-FILE *fopen(const char *filename, const char *mode) { (void)filename; (void)mode; return NULL; }
+FILE *fopen(const char *filename, const char *mode) {
+    (void)filename;
+    (void)mode;
+    errno = ENOSYS;  /* No FILE provider: not a simulated missing file. */
+    return NULL;
+}
 int fclose(FILE *stream) { (void)stream; return -1; }
 static char line_buf[512];
 static int line_buf_pos = 0;
 static int line_buf_len = 0;
+
+/* The freestanding FILE backend only implements a readable stdin
+ * stream. Its fread(stdin) returns only after reading the requested span;
+ * every other FILE read is unsupported and must not look like clean EOF.
+ * This reports real stub-provider capability, not a fake disk result. */
+int ferror(FILE *stream) {
+    return stream == stdin ? 0 : 1;
+}
 
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream) {
     if (stream == stdin) {
@@ -386,10 +400,19 @@ int memcmp(const void* lhs, const void* rhs, size_t count) {
 }
 size_t strlen(const char* str) { size_t l=0; while(*str++) l++; return l; }
 char* strcpy(char* dest, const char* src) { char* d=dest; while((*d++ = *src++)); return dest; }
+/* C11 strncpy contract: write exactly count bytes, padding with NUL
+ * after the source terminator, without touching dest[count].
+ * The previous loop wrote one extra byte for every short source. */
 char* strncpy(char* dest, const char* src, size_t count) {
-    char* d = dest;
-    while (count && (*d++ = *src++)) count--;
-    while (count--) *d++ = 0;
+    size_t copied = 0u;
+    while (copied < count && src[copied] != '\0') {
+        dest[copied] = src[copied];
+        copied++;
+    }
+    while (copied < count) {
+        dest[copied] = '\0';
+        copied++;
+    }
     return dest;
 }
 int strcmp(const char* lhs, const char* rhs) {

@@ -28,8 +28,8 @@ struct nexs_os1_source_root {
 static const struct nexs_os1_source_root os1_sources[] = {
   {"example", "/home/nxscript/examples"},
   {"examples", "/home/nxscript/examples"},
-  {"services", "/lib/nxscript/services"},
-  {"modules", "/lib/nxscript/modules"},
+  {"nxlib", "/lib/nxscript/nxlib"},
+  {"config", "/lib/nxscript/config"},
   {"include", "/lib/nxscript/include"}
 };
 

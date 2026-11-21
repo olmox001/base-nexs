@@ -12,9 +12,11 @@ typedef struct Notification Notification;
 
 /* Create/Destroy Endpoints & Notifications */
 Endpoint *ipc_endpoint_create(void);
-void      ipc_endpoint_destroy(Endpoint *ep);
+/* Returns -1 while a process still waits on the endpoint. */
+int       ipc_endpoint_destroy(Endpoint *ep);
 Notification *ipc_notification_create(void);
-void          ipc_notification_destroy(Notification *ntfn);
+/* Never silently discard a waiting receiver. */
+int           ipc_notification_destroy(Notification *ntfn);
 
 /* Core Syscall Logic (Sync) */
 int nexs_ipc_send(Endpoint *ep, Value msg, uint32_t badge);

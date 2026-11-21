@@ -72,7 +72,6 @@ extern "C" {
 #define MAX_ARRAYS 2048
 #define NAME_LEN 64
 #define MAX_PARAMS 16
-#define MAX_FN_DEFS 2048
 #elif defined(POOL_16MB)
 #define POOL_SIZE (16 * 1024 * 1024)
 #define LARGE_POOL_PAGES 4096 /* 16MB */
@@ -83,7 +82,6 @@ extern "C" {
 #define MAX_ARRAYS 1024
 #define NAME_LEN 64
 #define MAX_PARAMS 16
-#define MAX_FN_DEFS 1024
 #elif defined(POOL_4MB)
 #define POOL_SIZE (4 * 1024 * 1024)
 #define LARGE_POOL_PAGES 1024 /* 4MB */
@@ -94,7 +92,6 @@ extern "C" {
 #define MAX_ARRAYS 512
 #define NAME_LEN 64
 #define MAX_PARAMS 16
-#define MAX_FN_DEFS 512
 #elif defined(POOL_512KB)
 #define POOL_SIZE (512 * 1024)
 #define LARGE_POOL_PAGES 128 /* 512KB */
@@ -105,7 +102,6 @@ extern "C" {
 #define MAX_ARRAYS 128
 #define NAME_LEN 64
 #define MAX_PARAMS 16
-#define MAX_FN_DEFS 256
 #elif defined(POOL_32KB)
 #define POOL_SIZE (32 * 1024)
 #define LARGE_POOL_PAGES 8 /* 32KB */
@@ -116,7 +112,6 @@ extern "C" {
 #define MAX_ARRAYS 16
 #define NAME_LEN 32
 #define MAX_PARAMS 8
-#define MAX_FN_DEFS 64
 #elif defined(POOL_16KB)
 #define POOL_SIZE (16 * 1024)
 #define LARGE_POOL_PAGES 4 /* 16KB */
@@ -127,7 +122,6 @@ extern "C" {
 #define MAX_ARRAYS 8
 #define NAME_LEN 24
 #define MAX_PARAMS 4
-#define MAX_FN_DEFS 32
 #elif defined(POOL_4KB)
 #define POOL_SIZE (4 * 1024)
 #define LARGE_POOL_PAGES 1 /* 4KB */
@@ -138,7 +132,6 @@ extern "C" {
 #define MAX_ARRAYS 4
 #define NAME_LEN 16
 #define MAX_PARAMS 4
-#define MAX_FN_DEFS 16
 #else
 /* Default (64MB) - High Stability & Performance */
 #define POOL_SIZE (64 * 1024 * 1024)
@@ -150,7 +143,6 @@ extern "C" {
 #define MAX_ARRAYS 2048
 #define NAME_LEN 64
 #define MAX_PARAMS 16
-#define MAX_FN_DEFS 2048
 #endif
 
 #define NUM_LEAVES (POOL_SIZE / MIN_BLOCK)
@@ -210,7 +202,7 @@ extern "C" {
    PLAN 9 FILE DESCRIPTORS
    ========================================================= */
 
-#define NEXS_MAX_FDS 64
+/* Descriptor indices are admitted by the I/O session provider. */
 
 /* Plan 9-style open flags */
 #define NEXS_OREAD 0
@@ -231,12 +223,6 @@ extern "C" {
 /* =========================================================
    UTILITY MACROS
    ========================================================= */
-
-#define NEXS_ASSERT(ptr, msg)                                                  \
-  do {                                                                         \
-    if (!(ptr))                                                                \
-      die(msg);                                                                \
-  } while (0)
 
 #define REG_PATH(buf, ...) nexs_path_join((buf), sizeof(buf), __VA_ARGS__, NULL)
 

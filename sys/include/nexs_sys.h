@@ -19,26 +19,16 @@
 extern "C" {
 #endif
 
-/* =========================================================
-   FILE DESCRIPTOR TABLE
-   ========================================================= */
-
-typedef struct {
-  FILE *fp;
-  char  path[REG_PATH_MAX];
-  int   in_use;
-  int   flags;
-  const char *emb_src;
-  size_t      emb_pos;
-} NexsFd;
-
-extern NexsFd g_fd_table[NEXS_MAX_FDS];
+/* File descriptors are private to their owning I/O session. Code outside
+ * the sysio provider MUST NOT interpret a descriptor as FILE* or a path
+ * capability. The current runtime binds one bootstrap session; NXEC domain
+ * session binding remains a P2/P4 cutover. */
 
 /* =========================================================
    SYSIO API
    ========================================================= */
 
-NEXS_API void    sysio_init(void);
+NEXS_API int     sysio_init(void);
 NEXS_API int     nexs_open(const char *path, int mode);
 NEXS_API int     nexs_create(const char *path, int mode, int perm);
 NEXS_API int     nexs_close(int fd);

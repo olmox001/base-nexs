@@ -1,0 +1,194 @@
+project,path,kind,symbol,notes
+BASE-NEXS,example/druglords/druglords.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/example_lib.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/exent_bus.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/lib.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/micro_os.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/minios/boot.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/minios/druglords.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/minios/logo.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/minios/logos_config.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/minios/nxed_editor.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/minios/shell.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/minios/termimg.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/minios/wasm_vm.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/nxed_editor copy.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/nxed_editor.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/test.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/test_builtins_all.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/test_input.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/test_parse_loop.nx,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,example/test_parse_loop.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,example/test_syntax.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,kernel/test/test_cap_cspace_integrity.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,kernel/test/test_cap_cspace_oom.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,kernel/test/test_ipc_alloc_core.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,nxlib/fs.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,nxlib/services/auth/init.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,nxlib/services/fs/init.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,nxlib/services/fs/p9_mnt.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,nxlib/services/fs/regfs.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,nxlib/services/hw_dt.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,nxlib/services/init.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,nxlib/services/logos/init.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,nxlib/services/pm/init.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,nxlib/services/tty/init.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,nxlib/services/ui/img.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,nxlib/services/ui/init.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,nxlib/stdlib.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,nxlib/textbuf.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,runtime/main.c,C_OR_PYTHON_MAIN,nexs_main_baremetal,"Executable entrypoint, verify build profile"
+BASE-NEXS,runtime/main.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/compile_to_nxtimg.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/power12_compiler_diagnostics.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/quality_gate.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/rearchitecture_clang_ast.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/rearchitecture_complete_reference_scan.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/rearchitecture_crosscheck.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/rearchitecture_debt.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/rearchitecture_inventory.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/rearchitecture_ownership.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/report_real_syscall_fuzz.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/research/limen_sm_v02.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/research/smd_spp_v01.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/stage_nxlib.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/test-os1-nxadb.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/test_baremetal_qemu.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/test_baremetal_qemu_interactive.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/test_nx_syntax.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/test_os1_compiler.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/test_os1_parallel.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,scripts/test_runtime.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/fixtures/baremetal_smoke.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,tests/fixtures/features/druglords.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,tests/fixtures/features/editor-copy-render.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,tests/fixtures/features/logos.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,tests/fixtures/features/nxed-clamp.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,tests/fixtures/features/shell-help.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,tests/fixtures/features/wasm-vm.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,tests/fixtures/freestanding_strncpy_guest.c,C_OR_PYTHON_MAIN,nexs_main_baremetal,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/fixtures/invalid-syntax.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,tests/fixtures/repl.nx,NEXS_SOURCE_ENTRYPOINT,(top-level script),Syntax catalog only; execution side effects need asserted tests
+BASE-NEXS,tests/fuzz/nx_language_runtime_fuzz.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/fuzz/system_syscall_fuzz.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/fuzz_wal_standalone.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_block_memory.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_block_memory_adversarial.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_buffer.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_buffer_concurrent_views.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_capability.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_hardware_capability.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_migration.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_nxreg_api.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_p9_frame.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_ring_mpmc.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_schema.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_schema_concurrent.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_snapshot_concurrent.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_snapshot_pool.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_snapshot_pool_concurrent.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/nxolmo_canonical/test_wal.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/perf/billion_masked_buffer.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/perf/billion_p9.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_allocator_observation_core.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_array_capacity_core.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_ast_iterative_owner_core.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_buddy_arena_isolation_core.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_buddy_arena_thread_isolation.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_buddy_iteration_core.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_checked_contract.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_clock_provider_hosted.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_crypto_canonical_core.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_foundation_abi.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_freestanding_strncpy_guest.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_full_9p_vfs_roundtrip.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_hal_module_authority_boundary.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_halbc_budget_authority.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_ipc_array_frame_core.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_nxolmo_regkey_state_core.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_operation_catalog_canonical.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_operation_runtime_canonical.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_p9_request_validation.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_pager_exact_ownership_core.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_recoverable_alloc_core.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_registry_fallible_oom.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_registry_init_recovery_core.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_registry_integrity_core.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_runtime_admission_budget_core.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_source_status_core.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_sysio_fd_owner.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+BASE-NEXS,tests/test_value_checked_core.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NEXSOS1-USERKIT-REFERENCE,services/nxexecd/src/main.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NEXSOS1-USERKIT-REFERENCE,services/nxexecd/tests/runtime.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NEXSOS1-USERKIT-REFERENCE,services/nxttyd/src/main.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NEXSOS1-USERKIT-REFERENCE,services/nxttyd/tests/runtime.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NEXSOS1-USERKIT-REFERENCE,services/nxttyd/tests/tty_model_test.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,kernel/tests/hcd_adversarial_test.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,kernel/tests/hcd_core_fixture.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,kernel/tests/hcd_gate_edge_test.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,kernel/tests/hcd_gate_test.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,preboot/tests/unit/hcd_builder_test.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,preboot/tests/unit/hcd_core_profile_test.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,preboot/tests/unit/hcd_crc64_test.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,preboot/tests/unit/hcd_layout_test.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,preboot/tests/unit/hcd_parser_test.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,preboot/tests/unit/hw_access_policy_test.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,preboot/tests/unit/isa_snapshot_test.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,preboot/tests/unit/memory_plan_test.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,preboot/tests/unit/multiboot2_efi_map_test.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,preboot/tests/unit/multiboot2_memory_map_test.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,preboot/tests/unit/uefi_exit_test.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,preboot/tests/unit/uefi_memory_map_test.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXEC,tools/gen-hcd-crc-table.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,example/virtual_memory/main.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,example/virtual_memory/test_driver.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/abi/nxreg_header.cpp,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/concurrency/buffer/test_buffer_concurrent_views.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/concurrency/buffer/test_ring_mpmc.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/concurrency/ext4/test_block_map_concurrent.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/concurrency/ext4/test_directory_concurrent.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/concurrency/registry/test_schema_concurrent.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/concurrency/registry/test_snapshot_concurrent.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/concurrency/registry/test_snapshot_pool_concurrent.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/fuzz/buffer/fuzz_buffer_message_standalone.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/fuzz/ext4/fuzz_bitmap_standalone.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/fuzz/ext4/fuzz_block_map_standalone.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/fuzz/ext4/fuzz_directory_standalone.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/fuzz/ext4/fuzz_group_desc_standalone.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/fuzz/ext4/fuzz_superblock_standalone.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/fuzz/hardware/fuzz_capability_standalone.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/fuzz/journal/fuzz_wal_standalone.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/fuzz/protocol/9p/fuzz_frame_standalone.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/fuzz/registry/fuzz_migration_standalone.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/fuzz/registry/fuzz_tree_standalone.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/integration/ext4/test_real_directory.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/perf/buffer/bench_buffer.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/perf/registry/bench_nxreg_tree.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/perf/registry/bench_state_store.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/authority/test_capability.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/base/test_checked.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/base/test_wire.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/block/test_memory.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/buffer/test_buffer.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/crypto/test_sha256.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/ext4/test_block_map.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/ext4/test_directory.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/ext4/test_directory_lookup.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/ext4/test_hash.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/ext4/test_inode.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/ext4/test_superblock.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/hardware/test_capability.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/journal/test_wal.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/protocol/9p/test_frame.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/registry/test_migration.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/registry/test_nxreg_api.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/registry/test_schema.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/registry/test_snapshot_pool.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/registry/test_state_store.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/runtime/test_budget.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tests/unit/runtime/test_operation_catalog.c,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tools/architectural_limit_audit.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tools/generate_operation_catalog.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tools/operation_accounting_audit.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tools/power_of_ten_audit.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"
+NXOLMO,tools/reference_limit_audit.py,C_OR_PYTHON_MAIN,main,"Executable entrypoint, verify build profile"

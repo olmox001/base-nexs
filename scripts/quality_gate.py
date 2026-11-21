@@ -8,6 +8,7 @@ Both architectures separately compile every native OS1 source with -Werror.
 from __future__ import annotations
 
 import argparse
+import configparser
 import json
 import re
 import subprocess
@@ -18,8 +19,9 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build/assurance"
 VALID_EXTS = {".c", ".h", ".S", ".s"}
 SOURCE_ROOTS = (
-    "core", "registry", "lang", "sys", "runtime", "compiler",
-    "hal", "kernel", "fs",
+    "core", "registry", "authority", "hardware", "buffer", "block", "journal",
+    "lang", "sys", "runtime", "compiler", "hal", "kernel", "fs",
+    "extensions", "include",
 )
 STRICT_ROOTS = ("hal/os1/",)
 FORBIDDEN_CALLS = ("assert", "__assert_fail", "_Static_assert", "static_assert",
@@ -30,6 +32,16 @@ REQUIRED_GROUPS = {
     "NEXS_OS1_ADAPTER_SRCS", "NEXS_KERNEL_SRCS",
     "NEXS_BAREMETAL_ARM64_SRCS", "NEXS_BAREMETAL_AMD64_SRCS",
     "NEXS_BAREMETAL_RISCV64_SRCS",
+}
+ALLOWED_SUBMODULES = {
+    "external/os1/nx-sdk": {
+        "url": "https://github.com/olmox001/NX-SDK.git",
+        "branch": "SPERIMENTAL-LINUX", "update": "none", "active": "false",
+    },
+    "external/references/nxolmo": {
+        "url": "https://github.com/olmox001/NXOLMO.git",
+        "branch": "main", "update": "none", "active": "false",
+    },
 }
 
 
@@ -63,6 +75,39 @@ def audit_source(path: str, source: str, strict: bool) -> list[dict]:
             issues.append({"path": path,
                 "line": clean[:match.start()].count("\n") + 1,
                 "rule": rule, "severity": "block" if strict else "warning"})
+    return issues
+
+
+def submodule_issues(links: list[str], data: str | None) -> list[dict]:
+    """Allow only reviewed, inactive reference gitlinks and their exact URLs."""
+    issues: list[dict] = []
+
+    def fault(rule: str, detail: str) -> None:
+        issues.append({"path": ".gitmodules", "line": 0,
+                       "rule": rule, "detail": detail, "severity": "block"})
+
+    if len(links) != len(ALLOWED_SUBMODULES) or set(links) != set(ALLOWED_SUBMODULES):
+        fault("recursive_submodules", f"Unexpected gitlinks: {links}")
+    if data is None:
+        fault("gitmodule_missing", ".gitmodules")
+        return issues
+
+    config = configparser.ConfigParser(interpolation=None)
+    try:
+        config.read_string(data)
+    except configparser.Error as exc:
+        fault("gitmodule_parse", str(exc))
+        return issues
+    expected = {f'submodule "{path}"' for path in ALLOWED_SUBMODULES}
+    if set(config.sections()) != expected:
+        fault("submodule_sections", f"Unexpected sections: {config.sections()}")
+    for path, attrs in ALLOWED_SUBMODULES.items():
+        section = f'submodule "{path}"'
+        if not config.has_section(section):
+            continue
+        actual = dict(config.items(section))
+        if actual != {"path": path, **attrs}:
+            fault("submodule_config", f"Unexpected config for {path}: {actual}")
     return issues
 
 
@@ -114,20 +159,9 @@ def catalog_issues() -> list[dict]:
             filename = entry.partition(b"\t")[2]
             if mode == b"160000":
                 links.append(filename.decode(errors="replace"))
-    if links != ["external/os1/nx-sdk"]:
-        fault("recursive_submodules", f"Expected only NX-SDK gitlink, got {links}")
     module_file = ROOT / ".gitmodules"
-    if not module_file.is_file():
-        fault("sdk_gitmodule_missing", ".gitmodules")
-    else:
-        data = module_file.read_text()
-        for required in ("external/os1/nx-sdk", "olmox001/NX-SDK.git",
-                         "branch = SPERIMENTAL-LINUX", "update = none",
-                         "active = false"):
-            if required not in data:
-                fault("sdk_gitmodule_invalid", required)
-        if "reference" in data or "recursive" in data:
-            fault("recursive_submodule_config", "obsolete reference entry")
+    module_text = module_file.read_text() if module_file.is_file() else None
+    issues.extend(submodule_issues(links, module_text))
     if (ROOT / "reference/.git").exists():
         fault("recursive_reference_worktree", "reference/.git")
 
@@ -138,8 +172,8 @@ def catalog_issues() -> list[dict]:
               "NXTIMG files must not be rewritten by text normalization")
 
     # .nx is a first-class proprietary library/service file, not an opaque
-    # untracked data asset. The reviewed manifest must exactly match modules,
-    # services and example source trees, including paths containing spaces.
+    # untracked data asset. The reviewed manifest must exactly match nxlib
+    # and example source trees, including paths containing spaces.
     nx_manifest = ROOT / "config/nx_sources.txt"
     if not nx_manifest.is_file():
         fault("nx_script_manifest_missing", str(nx_manifest))
@@ -150,7 +184,7 @@ def catalog_issues() -> list[dict]:
         ]
         on_disk = sorted(
             p.relative_to(ROOT).as_posix()
-            for directory in ("example", "modules", "services")
+            for directory in ("example", "nxlib")
             for p in (ROOT / directory).rglob("*.nx")
         )
         if sorted(set(registered)) != on_disk or len(set(registered)) != len(registered):
@@ -158,6 +192,28 @@ def catalog_issues() -> list[dict]:
             stale = sorted(set(registered) - set(on_disk))
             fault("nx_script_catalog_mismatch",
                   f"unregistered={missing[:10]} stale={stale[:10]}")
+
+    resource_manifest = ROOT / "config/nx_resources.txt"
+    if not resource_manifest.is_file():
+        fault("nx_resource_manifest_missing", str(resource_manifest))
+    else:
+        expected_resources = sorted(
+            p.relative_to(ROOT).as_posix()
+            for directory in ("example", "nxlib")
+            for p in (ROOT / directory).rglob("*")
+            if p.is_file() and p.suffix in (".nx", ".nxtimg")
+        )
+        actual_resources = [
+            entry.strip() for entry in resource_manifest.read_text().splitlines()
+            if entry.strip() and not entry.lstrip().startswith("#")
+        ]
+        if (sorted(actual_resources) != expected_resources or
+                len(actual_resources) != len(set(actual_resources))):
+            fault("nx_resource_catalog_mismatch",
+                  f"expected={len(expected_resources)} actual={len(actual_resources)}")
+        if sorted(p for p in actual_resources if p.endswith(".nx")) != sorted(registered):
+            fault("nx_resource_source_subset_mismatch",
+                  "source and resource manifests disagree")
     return issues
 
 

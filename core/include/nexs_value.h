@@ -31,7 +31,7 @@ typedef enum {
   TYPE_FLOAT = 2,
   TYPE_STR   = 3,
   TYPE_ARR   = 4,
-  TYPE_FN    = 5,  /* index into fn_table (ival holds idx) */
+  TYPE_FN    = 5,  /* registry-owned local callable object; never wire ptr */
   TYPE_ERR   = 6,
   TYPE_BOOL  = 7,
   TYPE_REF   = 8,  /* reference to a registry path (data = buddy_strdup'd path) */
@@ -49,7 +49,7 @@ typedef enum {
 typedef struct {
   ValueType type;
   void    *data;      /* buddy_alloc'd; NULL for NIL/BOOL/INT/FLOAT */
-  int64_t  ival;      /* TYPE_INT, TYPE_BOOL, TYPE_FN (fn_table idx) */
+  int64_t  ival;      /* TYPE_INT and TYPE_BOOL only for live objects */
   double   fval;      /* TYPE_FLOAT */
   int      err_code;  /* TYPE_ERR: error code (0 = ok) */
   char    *err_msg;   /* TYPE_ERR: message (buddy_alloc'd) */
@@ -67,10 +67,6 @@ typedef struct {
   int    refcount; /* Mach-style refcounting */
 } DynArray;
 
-/* Global array table (for compatibility with base REPL) */
-extern DynArray *g_arrays[MAX_ARRAYS];
-extern size_t    g_array_count;
-
 /* =========================================================
    VALUE CONSTRUCTORS
    ========================================================= */
@@ -83,7 +79,7 @@ NEXS_API Value val_str(const char *s);       /* copies s into buddy pool */
 NEXS_API Value val_err(int code, const char *msg);
 NEXS_API Value val_ref(const char *path);    /* reference to registry path */
 NEXS_API Value val_ptr(const char *target);  /* TYPE_PTR: pointer to target path */
-NEXS_API Value val_fn_idx(int64_t idx);      /* TYPE_FN with fn_table index */
+NEXS_API Value val_fn_borrow(void *fn_object); /* caller retains ownership */
 
 /* =========================================================
    VALUE PREDICATES
@@ -128,18 +124,24 @@ NEXS_API void  val_to_str(const Value *v, char *buf, size_t sz);
 NEXS_API void  val_print(const Value *v, FILE *out);
 NEXS_API void  val_free(Value *v);
 NEXS_API Value val_clone(const Value *v);  /* deep copy — buddy_alloc's new data */
+/* Checked deep clone: no partial copies or lost TYPE_ERR diagnostics.
+ * On failure *output remains unchanged; the source is never modified. */
+NEXS_API int   val_clone_checked(const Value *source, Value *output);
 
 /* =========================================================
    DYNARRAY API
    ========================================================= */
 
-NEXS_API DynArray *arr_get_or_create(const char *name);
-NEXS_API DynArray *arr_get(const char *name);
 NEXS_API DynArray *arr_create_anon(void);
 NEXS_API void      arr_ref(DynArray *arr);
 NEXS_API void      arr_unref(DynArray *arr);
-NEXS_API void      arr_ensure_cap(DynArray *arr, size_t index);
-NEXS_API void      arr_set(DynArray *arr, size_t index, Value val);
+NEXS_API int       arr_ensure_cap(DynArray *arr, size_t index);
+NEXS_API int       arr_set(DynArray *arr, size_t index, Value val);
+/* One Value ownership contract for native extensions and language code. */
+NEXS_API int       arr_set_owned(DynArray *arr, size_t index, Value owned);
+NEXS_API int       arr_insert_owned_admitted(DynArray *arr, size_t index,
+                                             Value owned);
+NEXS_API int       arr_remove_compact(DynArray *arr, size_t index);
 NEXS_API Value     arr_get_at(DynArray *arr, size_t index);
 NEXS_API void      arr_delete(DynArray *arr, size_t index);
 NEXS_API void      arr_print(DynArray *arr, FILE *out);
@@ -158,12 +160,11 @@ NEXS_API void      arr_free(DynArray *arr);
 #define VAL_TRUE     val_bool(1)
 #define VAL_FALSE    val_bool(0)
 
-/*
- * nexs_val_fn_print — hook called by val_print for TYPE_FN values.
- * Set once during runtime init (runtime/runtime.c) to fn_print_hook in fn_table.c.
- * Avoids a circular dependency: core → lang.
- */
-extern void (*nexs_val_fn_print)(int64_t fn_idx, FILE *out);
+/* The language-owned callable retains/releases through Value hooks.
+ * The object pointer is NEVER serialized or trusted as a capability. */
+extern void (*nexs_val_fn_print)(const void *object, FILE *out);
+extern int (*nexs_val_fn_retain)(void *object);
+extern void (*nexs_val_fn_release)(void *object);
 
 #define PROPAGATE_ERR(v)                                                       \
   do {                                                                         \

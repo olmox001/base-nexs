@@ -1,0 +1,123 @@
+# nxlib/fs.nx — one canonical filesystem API over NXOLMO RegKey/StateStore
+# Every name maps to the SAME registry object; no surrogate filesystem.
+library "fs"
+
+# The filesystem IS the registry: every file or directory has exactly one
+# canonical RegKey/StateStore identity. No /sys/vfs/files or /sys/vfs/idx.
+fn vfs_normalized(path) {
+  if path == "" { ret "/" }
+  if substr(path 0 1) == "/" { ret path }
+  ret "/" + path
+}
+
+fn vfs_write(path content) {
+  canonical = vfs_normalized(path)
+  if canonical == "/" { ret -1 }
+  reg_set(canonical content)
+  if type(reg_get(canonical)) == "err" { ret -1 }
+  ret nil
+}
+
+fn vfs_read(path) {
+  ret reg_get(vfs_normalized(path))
+}
+
+fn vfs_resolve(path cwd) {
+  if path == "" { ret vfs_normalized(cwd) }
+  if substr(path 0 1) == "/" { ret path }
+  base = vfs_normalized(cwd)
+  if base == "/" { ret "/" + path }
+  ret base + "/" + path
+}
+
+fn vfs_rm(path) {
+  canonical = vfs_normalized(path)
+  if canonical == "/" { ret -1 }
+  reg_del(canonical)
+  ret nil
+}
+
+fn vfs_mkdir(path) {
+  canonical = vfs_normalized(path)
+  if canonical == "/" { ret 0 }
+  if type(reg_get(canonical)) != "err" { ret 0 }
+  reg_set(canonical nil)
+  if type(reg_get(canonical)) == "err" { ret -1 }
+  ret 0
+}
+
+fn vfs_cp(src dst) {
+  content = vfs_read(src)
+  if type(content) == "err" { ret -1 }
+  ret vfs_write(dst content)
+}
+
+fn vfs_mv(src dst) {
+  copied = vfs_cp(src dst)
+  if copied == -1 { ret -1 }
+  ret vfs_rm(src)
+}
+
+fn vfs_ls(path) {
+  canonical = vfs_normalized(path)
+  names = keys(canonical)
+  if type(names) == "err" { ret names }
+  out "  === NEXS namespace [" + canonical + "] ==="
+  i = 0
+  loop {
+    if i >= len(names) { break }
+    name = names[i]
+    if canonical == "/" {
+      child = "/" + name
+    } else {
+      child = canonical + "/" + name
+    }
+    content = reg_get(child)
+    children = keys(child)
+    if type(content) == "nil" || len(children) > 0 {
+      out "  [DIR]  " + name + "/"
+    } else {
+      out "  [FILE] " + name
+    }
+    i = i + 1
+  }
+  ret nil
+}
+
+fn vfs_exists(path) {
+  val = reg_get(vfs_normalized(path))
+  if type(val) == "err" { ret 0 }
+  ret 1
+}
+
+# One admission per imported resource. Accumulate in a local array before
+# publishing a single StateStore object; no persistent @@chunk shadow nodes.
+fn vfs_import(host_path vfs_path) {
+  fd = open(host_path 0)
+  if fd < 0 { ret -1 }
+  chunks = arr_create_anon()
+  i = 0
+  total = 0
+  success = 1
+  loop {
+    if i >= 1024 {
+      success = 0
+      break
+    }
+    part = read(fd 4096)
+    if type(part) == "err" {
+      success = 0
+      break
+    }
+    if len(part) == 0 { break }
+    arr_ins(chunks i part)
+    total = total + len(part)
+    i = i + 1
+  }
+  close(fd)
+  if success == 0 { ret -1 }
+  payload = arr_join(chunks "")
+  result = vfs_write(vfs_path payload)
+  if result == -1 { ret -1 }
+  ret total
+}

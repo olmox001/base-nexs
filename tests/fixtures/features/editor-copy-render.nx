@@ -1,6 +1,6 @@
 # Verify actual legacy editor line drawing against a real text buffer.
 exec("example/nxed_editor copy.nx")
-exec("services/textbuf.nx")
+exec("nxlib/textbuf.nx")
 ed_buf = tb_create()
 tb_insert_char(ed_buf 0 0 "ABC")
 nxed_render_line(0)

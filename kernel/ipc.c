@@ -163,24 +163,26 @@ int nexs_ipc_reply(uint32_t target_pid, Value msg) {
    ========================================================= */
 
 Endpoint *ipc_endpoint_create(void) {
-    Endpoint *ep = xmalloc(sizeof(Endpoint));
-    ep->waiting_send = NULL;
-    ep->waiting_recv = NULL;
-    return ep;
+    /* The one selected allocator returns NULL on real provider exhaustion.
+     * Never terminate another runtime because endpoint admission failed. */
+    return nexs_alloc(sizeof(Endpoint));
 }
 
-void ipc_endpoint_destroy(Endpoint *ep) {
-    /* TODO: Wake up all waiting processes with error */
-    xfree(ep);
+int ipc_endpoint_destroy(Endpoint *ep) {
+    if (ep == NULL || ep->waiting_send != NULL ||
+        ep->waiting_recv != NULL)
+        return -1;
+    nexs_free(ep, sizeof(*ep));
+    return 0;
 }
 
 Notification *ipc_notification_create(void) {
-    Notification *ntfn = xmalloc(sizeof(Notification));
-    ntfn->badge_mask = 0;
-    ntfn->waiting_recv = NULL;
-    return ntfn;
+    return nexs_alloc(sizeof(Notification));
 }
 
-void ipc_notification_destroy(Notification *ntfn) {
-    xfree(ntfn);
+int ipc_notification_destroy(Notification *ntfn) {
+    if (ntfn == NULL || ntfn->waiting_recv != NULL)
+        return -1;
+    nexs_free(ntfn, sizeof(*ntfn));
+    return 0;
 }

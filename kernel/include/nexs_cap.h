@@ -39,4 +39,15 @@ typedef struct {
     uint32_t count;
 } CNode;
 
+/* This is a LOCAL, still-unprotected CSpace structural contract. True
+ * authoritative issuance/revocation will be owned by NXOLMO/NXEC and
+ * checked at protected access and commit, not a registry path or PID. */
+struct NexsProc;
+int cap_init(struct NexsProc *process, uint32_t capacity);
+Cap *cap_lookup(uint32_t slot);
+int cap_insert(struct NexsProc *process, uint32_t slot, Cap capability);
+int cap_remove(struct NexsProc *process, uint32_t slot);
+/* Exact provider-backed owner release, only after every live cap is retired. */
+int cap_destroy(struct NexsProc *process);
+
 #endif

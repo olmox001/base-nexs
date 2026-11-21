@@ -14,6 +14,7 @@
 #include "../../core/include/nexs_alloc.h"
 #include "../../core/include/nexs_value.h"
 #include <stdint.h>
+#include <limits.h>
 #include <string.h>
 
 /* =========================================================
@@ -52,6 +53,8 @@ static uint32_t le_r32(const uint8_t *s) {
    ========================================================= */
 
 static int ser_value(const Value *v, uint8_t *buf, int cap) {
+    if (v == NULL || v->type == TYPE_FN)
+        return -1; /* A raw callable is not a transferable object handle. */
     int pos = 0;
 
 #define NEED(n) do { if (pos + (n) > cap) return -1; } while(0)
@@ -123,11 +126,16 @@ static Value deser_value(const uint8_t *buf, int len, int *consumed) {
     NEED(8); double  fval = 0.0; memcpy(&fval, buf + pos, 8); pos += 8;
 
     NEED(4); uint32_t str_len = le_r32(buf + pos); pos += 4;
+    /* A uint32 wire length must be admitted before narrowing to int. */
+    if (str_len > (uint32_t)(len - pos) || str_len > (uint32_t)INT_MAX)
+        return val_err(99, "bridge: string length invalid");
+    size_t reservation_bytes = (size_t)str_len + 1U;
     char *str_buf = NULL;
-    if (str_len > 0) {
-        NEED((int)str_len);
-        str_buf = (char *)xmalloc(str_len + 1);
-        memcpy(str_buf, buf + pos, str_len);
+    if (str_len > 0U) {
+        str_buf = nexs_alloc(reservation_bytes);
+        if (str_buf == NULL)
+            return val_err(12, "bridge: source allocation failed");
+        memcpy(str_buf, buf + pos, (size_t)str_len);
         str_buf[str_len] = '\0';
         pos += (int)str_len;
     }
@@ -140,7 +148,7 @@ static Value deser_value(const uint8_t *buf, int len, int *consumed) {
     case TYPE_INT:   result = val_int(ival);                              break;
     case TYPE_FLOAT: result = val_float(fval);                            break;
     case TYPE_BOOL:  result = val_bool((int)ival);                        break;
-    case TYPE_FN:    result = val_fn_idx(ival);                           break;
+    case TYPE_FN:    result = val_err(99, "bridge: callable requires capability"); break;
     case TYPE_STR:   result = val_str(str_buf ? str_buf : "");            break;
     case TYPE_REF:   result = val_ref(str_buf ? str_buf : "/");           break;
     case TYPE_PTR:   result = val_ptr(str_buf ? str_buf : "/");           break;
@@ -163,12 +171,12 @@ static Value deser_value(const uint8_t *buf, int len, int *consumed) {
         break;
     }
     default:
-        if (str_buf) xfree(str_buf);
+        if (str_buf != NULL) nexs_free(str_buf, reservation_bytes);
         *consumed = pos;
         return val_err(99, "bridge: unknown type");
     }
 
-    if (str_buf) xfree(str_buf);
+    if (str_buf != NULL) nexs_free(str_buf, reservation_bytes);
     *consumed = pos;
 
 #undef NEED

@@ -6,6 +6,7 @@
 
 #include "include/nexs_value.h"
 #include "include/nexs_alloc.h"
+#include "include/nexs_checked.h"
 #include "include/nexs_common.h"
 #include "include/nexs_utils.h"
 
@@ -13,8 +14,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Hook set by runtime after fn_table init (avoids core→lang dependency) */
-void (*nexs_val_fn_print)(int64_t fn_idx, FILE *out) = NULL;
+/* Lifetime belongs to registry Value; language owns the callable class. */
+void (*nexs_val_fn_print)(const void *object, FILE *out) = NULL;
+int (*nexs_val_fn_retain)(void *object) = NULL;
+void (*nexs_val_fn_release)(void *object) = NULL;
 
 /* =========================================================
    TYPE NAME
@@ -47,8 +50,11 @@ Value val_float(double f) { return (Value){TYPE_FLOAT, NULL, 0, f, 0, NULL}; }
 
 Value val_str(const char *s) {
   Value v = {TYPE_STR, NULL, 0, 0.0, 0, NULL};
-  if (s)
+  if (s != NULL) {
     v.data = buddy_strdup(s);
+    if (v.data == NULL)
+      return val_err(12, "string allocation failed");
+  }
   return v;
 }
 
@@ -61,20 +67,26 @@ Value val_err(int code, const char *msg) {
 
 Value val_ref(const char *path) {
   Value v = {TYPE_REF, NULL, 0, 0.0, 0, NULL};
-  if (path)
+  if (path != NULL) {
     v.data = buddy_strdup(path);
+    if (v.data == NULL)
+      return val_err(12, "reference allocation failed");
+  }
   return v;
 }
 
 Value val_ptr(const char *target) {
   Value v = {TYPE_PTR, NULL, 0, 0.0, 0, NULL};
-  if (target)
+  if (target != NULL) {
     v.data = buddy_strdup(target);
+    if (v.data == NULL)
+      return val_err(12, "pointer allocation failed");
+  }
   return v;
 }
 
-Value val_fn_idx(int64_t idx) {
-  return (Value){TYPE_FN, NULL, idx, 0.0, 0, NULL};
+Value val_fn_borrow(void *fn_object) {
+  return (Value){TYPE_FN, fn_object, 0, 0.0, 0, NULL};
 }
 
 /* =========================================================
@@ -127,7 +139,13 @@ int64_t val_to_int(const Value *v) {
   if (!v) return 0;
   switch (v->type) {
   case TYPE_INT:   return v->ival;
-  case TYPE_FLOAT: return (int64_t)v->fval;
+  case TYPE_FLOAT:
+    /* A floating-point NaN or value outside the signed range cannot
+     * legally be cast to int64_t in C. Preserve the old zero fallback. */
+    if (v->fval != v->fval || v->fval >= 0x1p63 ||
+        v->fval < -0x1p63)
+      return 0;
+    return (int64_t)v->fval;
   case TYPE_BOOL:  return v->ival;
   case TYPE_STR:   return v->data ? atoll((char *)v->data) : 0;
   default:         return 0;
@@ -204,10 +222,10 @@ void val_print(const Value *v, FILE *out) {
     break;
   }
   case TYPE_FN:
-    if (nexs_val_fn_print)
-      nexs_val_fn_print(v->ival, out);
+    if (nexs_val_fn_print && v->data)
+      nexs_val_fn_print(v->data, out);
     else
-      nexs_fprintf(out, "<fn #%lld>", (long long)v->ival);
+      nexs_fprintf(out, "<invalid function>");
     break;
   case TYPE_REF:
     nexs_fprintf(out, "<ref:%s>", v->data ? (char *)v->data : "?");
@@ -236,12 +254,16 @@ void val_free(Value *v) {
   } else if (v->type == TYPE_REF || v->type == TYPE_PTR) {
     if (v->data) xfree(v->data);
     v->data = NULL;
+  } else if (v->type == TYPE_FN) {
+    if (v->data && nexs_val_fn_release)
+      nexs_val_fn_release(v->data);
+    v->data = NULL;
   }
   if (v->type == TYPE_ERR && v->err_msg) {
     xfree(v->err_msg);
     v->err_msg = NULL;
   }
-  /* TYPE_FN lifetime is managed by registry/fn_table */
+  /* Every strong TYPE_FN Value releases its registry-owned callable. */
   v->type = TYPE_NIL;
 }
 
@@ -249,15 +271,20 @@ Value val_clone(const Value *v) {
   if (!v) return val_nil();
   Value res = *v;
   if (v->type == TYPE_STR) {
-    if (v->data) {
-      res.data = buddy_strdup((char *)v->data);
-    } else {
-      res.data = buddy_strdup("");
-    }
+    res.data = buddy_strdup(v->data ? (const char *)v->data : "");
+    if (res.data == NULL)
+      return val_err(12, "string clone allocation failed");
   } else if (v->type == TYPE_ARR) {
     if (v->data) arr_ref((DynArray *)v->data);
   } else if (v->type == TYPE_REF || v->type == TYPE_PTR) {
-    if (v->data) res.data = buddy_strdup((char *)v->data);
+    if (v->data != NULL) {
+      res.data = buddy_strdup((const char *)v->data);
+      if (res.data == NULL)
+        return val_err(12, "reference clone allocation failed");
+    }
+  } else if (v->type == TYPE_FN && v->data) {
+    if (!nexs_val_fn_retain || nexs_val_fn_retain(v->data) != 0)
+      return val_err(2, "callable reference admission failed");
   }
   if (v->type == TYPE_ERR && v->err_msg) {
     res.err_msg = buddy_strdup(v->err_msg);
@@ -267,64 +294,106 @@ Value val_clone(const Value *v) {
   return res;
 }
 
+/* One checked clone contract for the same Value owner implementation.
+ * TYPE_ERR cannot serve as an OOM sentinel when the original value is an
+ * error. Preserve that error's message exactly or refuse the clone. */
+int val_clone_checked(const Value *source, Value *output) {
+  if (source == NULL || output == NULL || source == output)
+    return -1;
+  Value copy = val_clone(source);
+  int failed = (copy.type == TYPE_ERR && source->type != TYPE_ERR) ||
+               (source->type == TYPE_ERR && source->err_msg != NULL &&
+                copy.err_msg == NULL);
+  if (failed) {
+    val_free(&copy);
+    return -1;
+  }
+  *output = copy;
+  return 0;
+}
+
 /* =========================================================
    ARITHMETIC
    ========================================================= */
 
+/* Convert non-string operands only into bounded scalar text.
+ * Existing language string-concatenation tags are preserved. */
+static const char *nexs_concat_operand(const Value *value,
+                                        char buffer[64]) {
+  if (value->type == TYPE_STR)
+    return value->data ? (const char *)value->data : "";
+  if (value->type == TYPE_INT)
+    snprintf(buffer, 64U, "%lld", (long long)value->ival);
+  else if (value->type == TYPE_FLOAT)
+    snprintf(buffer, 64U, "%g", value->fval);
+  else if (value->type == TYPE_BOOL)
+    snprintf(buffer, 64U, "%s", value->ival ? "true" : "false");
+  else if (value->type == TYPE_NIL)
+    snprintf(buffer, 64U, "nil");
+  else
+    snprintf(buffer, 64U, "<%s>", val_type_name(value->type));
+  return buffer;
+}
+
 Value val_add(const Value *a, const Value *b) {
+  if (a == NULL || b == NULL)
+    return val_err(4, "add requires two values");
   if (a->type == TYPE_STR || b->type == TYPE_STR) {
-    char *buf_a = (char *)xmalloc(MAX_STR_LEN);
-    char *buf_b = (char *)xmalloc(MAX_STR_LEN);
-
-    if (a->type == TYPE_STR && a->data) {
-      strncpy(buf_a, (char *)a->data, MAX_STR_LEN - 1);
-      buf_a[MAX_STR_LEN - 1] = '\0';
-    } else {
-      switch (a->type) {
-      case TYPE_INT:   snprintf(buf_a, MAX_STR_LEN, "%lld", (long long)a->ival); break;
-      case TYPE_FLOAT: snprintf(buf_a, MAX_STR_LEN, "%g", a->fval); break;
-      case TYPE_BOOL:  snprintf(buf_a, MAX_STR_LEN, "%s", a->ival ? "true" : "false"); break;
-      case TYPE_NIL:   snprintf(buf_a, MAX_STR_LEN, "nil"); break;
-      default:         snprintf(buf_a, MAX_STR_LEN, "<%s>", val_type_name(a->type)); break;
-      }
-    }
-    if (b->type == TYPE_STR && b->data) {
-      strncpy(buf_b, (char *)b->data, MAX_STR_LEN - 1);
-      buf_b[MAX_STR_LEN - 1] = '\0';
-    } else {
-      switch (b->type) {
-      case TYPE_INT:   snprintf(buf_b, MAX_STR_LEN, "%lld", (long long)b->ival); break;
-      case TYPE_FLOAT: snprintf(buf_b, MAX_STR_LEN, "%g", b->fval); break;
-      case TYPE_BOOL:  snprintf(buf_b, MAX_STR_LEN, "%s", b->ival ? "true" : "false"); break;
-      case TYPE_NIL:   snprintf(buf_b, MAX_STR_LEN, "nil"); break;
-      default:         snprintf(buf_b, MAX_STR_LEN, "<%s>", val_type_name(b->type)); break;
-      }
-    }
-    
-    char *result_buf = (char *)xmalloc(MAX_STR_LEN * 2);
-    snprintf(result_buf, MAX_STR_LEN * 2, "%s%s", buf_a, buf_b);
-    Value res = val_str(result_buf);
-
-    xfree(buf_a);
-    xfree(buf_b);
-    xfree(result_buf);
-    return res;
+    char buffer_a[64] = {0};
+    char buffer_b[64] = {0};
+    const char *left = nexs_concat_operand(a, buffer_a);
+    const char *right = nexs_concat_operand(b, buffer_b);
+    size_t left_size = strlen(left);
+    size_t right_size = strlen(right);
+    size_t total = 0U;
+    size_t allocation_size = 0U;
+    if (nx_size_add(left_size, right_size, &total) != NX_STATUS_OK ||
+        nx_size_add(total, 1U, &allocation_size) != NX_STATUS_OK)
+      return val_err(6, "string concatenation size overflow");
+    char *joined = buddy_alloc(allocation_size);
+    if (joined == NULL)
+      return val_err(12, "string concatenation allocation failed");
+    memcpy(joined, left, left_size);
+    memcpy(joined + left_size, right, right_size);
+    joined[total] = '\0';
+    Value result = val_nil();
+    result.type = TYPE_STR;
+    result.data = joined;
+    return result;
   }
   if (a->type == TYPE_FLOAT || b->type == TYPE_FLOAT)
     return val_float(val_to_float(a) + val_to_float(b));
-  return val_int(val_to_int(a) + val_to_int(b));
+  int64_t sum = 0;
+  if (nx_i64_add(val_to_int(a), val_to_int(b), &sum) != NX_STATUS_OK)
+    return val_err(6, "signed addition overflow");
+  return val_int(sum);
 }
 
-#define ARITH_OP(name, op)                                                      \
-  Value val_##name(const Value *a, const Value *b) {                            \
-    if (a->type == TYPE_FLOAT || b->type == TYPE_FLOAT)                         \
-      return val_float(val_to_float(a) op val_to_float(b));                     \
-    return val_int(val_to_int(a) op val_to_int(b));                             \
-  }
-ARITH_OP(sub, -)
-ARITH_OP(mul, *)
+Value val_sub(const Value *a, const Value *b) {
+  if (a == NULL || b == NULL)
+    return val_err(4, "sub requires two values");
+  if (a->type == TYPE_FLOAT || b->type == TYPE_FLOAT)
+    return val_float(val_to_float(a) - val_to_float(b));
+  int64_t difference = 0;
+  if (nx_i64_sub(val_to_int(a), val_to_int(b), &difference) != NX_STATUS_OK)
+    return val_err(6, "signed subtraction overflow");
+  return val_int(difference);
+}
+
+Value val_mul(const Value *a, const Value *b) {
+  if (a == NULL || b == NULL)
+    return val_err(4, "mul requires two values");
+  if (a->type == TYPE_FLOAT || b->type == TYPE_FLOAT)
+    return val_float(val_to_float(a) * val_to_float(b));
+  int64_t product = 0;
+  if (nx_i64_mul(val_to_int(a), val_to_int(b), &product) != NX_STATUS_OK)
+    return val_err(6, "signed multiplication overflow");
+  return val_int(product);
+}
 
 Value val_div(const Value *a, const Value *b) {
+  if (a == NULL || b == NULL)
+    return val_err(4, "div requires two values");
   if (a->type == TYPE_FLOAT || b->type == TYPE_FLOAT) {
     double dv = val_to_float(b);
     if (dv == 0.0) return val_err(1, "division by zero");
@@ -332,25 +401,78 @@ Value val_div(const Value *a, const Value *b) {
   }
   int64_t iv = val_to_int(b);
   if (iv == 0) return val_err(1, "division by zero");
-  return val_int(val_to_int(a) / iv);
+  int64_t dividend = val_to_int(a);
+  if (dividend == INT64_MIN && iv == -1)
+    return val_err(6, "signed division overflow");
+  return val_int(dividend / iv);
 }
 
 Value val_mod(const Value *a, const Value *b) {
+  if (a == NULL || b == NULL)
+    return val_err(4, "mod requires two values");
   int64_t iv = val_to_int(b);
   if (iv == 0) return val_err(1, "modulo by zero");
-  return val_int(val_to_int(a) % iv);
+  int64_t dividend = val_to_int(a);
+  if (dividend == INT64_MIN && iv == -1)
+    return val_err(6, "signed modulo overflow");
+  return val_int(dividend % iv);
 }
 
-#define CMP_OP(name, op)                                                        \
-  Value val_##name(const Value *a, const Value *b) {                            \
-    if (a->type == TYPE_FLOAT || b->type == TYPE_FLOAT)                         \
-      return val_bool(val_to_float(a) op val_to_float(b));                      \
-    return val_bool(val_to_int(a) op val_to_int(b));                            \
+/* Explicit, compiler-visible comparator implementations. The former
+ * token-pasting CMP_OP macro hid four REAL function bodies from the P0
+ * source and Clang AST inventories, despite linking their symbols. */
+typedef enum {
+  NEXS_ORDER_LT,
+  NEXS_ORDER_GT,
+  NEXS_ORDER_LE,
+  NEXS_ORDER_GE
+} NexsValueOrder;
+
+static Value nexs_value_order(const Value *left, const Value *right,
+                              NexsValueOrder order) {
+  if (left == NULL || right == NULL)
+    return val_err(4, "comparison requires two values");
+  int relation = 0;
+  if (left->type == TYPE_FLOAT || right->type == TYPE_FLOAT) {
+    double a = val_to_float(left);
+    double b = val_to_float(right);
+    if (a != a || b != b)
+      return val_bool(0); /* NaN is unordered for all four relations. */
+    relation = (a > b) - (a < b);
+  } else {
+    int64_t a = val_to_int(left);
+    int64_t b = val_to_int(right);
+    relation = (a > b) - (a < b);
   }
-CMP_OP(lt, <)
-CMP_OP(gt, >)
-CMP_OP(le, <=)
-CMP_OP(ge, >=)
+  switch (order) {
+  case NEXS_ORDER_LT:
+    return val_bool(relation < 0);
+  case NEXS_ORDER_GT:
+    return val_bool(relation > 0);
+  case NEXS_ORDER_LE:
+    return val_bool(relation <= 0);
+  case NEXS_ORDER_GE:
+    return val_bool(relation >= 0);
+  default:
+    return val_err(4, "invalid ordered comparison");
+  }
+}
+
+Value val_lt(const Value *a, const Value *b) {
+  return nexs_value_order(a, b, NEXS_ORDER_LT);
+}
+
+Value val_gt(const Value *a, const Value *b) {
+  return nexs_value_order(a, b, NEXS_ORDER_GT);
+}
+
+Value val_le(const Value *a, const Value *b) {
+  return nexs_value_order(a, b, NEXS_ORDER_LE);
+}
+
+Value val_ge(const Value *a, const Value *b) {
+  return nexs_value_order(a, b, NEXS_ORDER_GE);
+}
 
 Value val_eq(const Value *a, const Value *b) { return val_bool(val_equal(a, b)); }
 Value val_ne(const Value *a, const Value *b) { return val_bool(!val_equal(a, b)); }

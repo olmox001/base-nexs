@@ -11,14 +11,44 @@
 #include "include/nexs_hal.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "include/hal_internal.h"
 #include "include/nexs_mmu.h"
 #include "../../registry/include/nexs_registry.h"
+#include "../../registry/include/nexs_ipc_transport.h"
 #include "../../core/include/nexs_value.h"
 #include "../../core/include/nexs_alloc.h"
 #include <stdio.h>
 #include <stdlib.h>
+
+void nexs_ipc_pipe_abort(int ends[2]) {
+  if (ends == NULL)
+    return;
+  for (size_t i = 0U; i < 2U; ++i) {
+    if (ends[i] >= 0)
+      close(ends[i]);
+    ends[i] = -1;
+  }
+}
+/* Actual hosted POSIX pipe provider, never a kernel/VM substitute. */
+int nexs_ipc_pipe_open(int ends[2]) {
+  if (ends == NULL)
+    return -1;
+  ends[0] = -1;
+  ends[1] = -1;
+  if (pipe(ends) != 0)
+    return -1;
+  int flags = fcntl(ends[1], F_GETFL, 0);
+  if (flags < 0 || fcntl(ends[1], F_SETFL, flags | O_NONBLOCK) != 0) {
+    nexs_ipc_pipe_abort(ends);
+    return -1;
+  }
+  return 0;
+}
+
+
 
 static void hosted_hal_init(void) { /* no-op in hosted mode */ }
 

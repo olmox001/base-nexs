@@ -7,15 +7,17 @@
  * Rules:
  *  - Parses lines looking for: exec("some/path.nx") or exec('some/path.nx')
  *  - Recursively processes each found dependency (depth-first).
- *  - Deduplicates: each resolved absolute path is included exactly once.
+ *  - Deduplicates each logical exec() path exactly once.
  *  - Preserves insertion order (first occurrence wins).
- *  - Resolves relative paths relative to the directory of the parent file.
+ *  - Uses the runtime's same package root provider for nxlib and examples,
+ *    with parent-dir fallback for user-authored relative modules.
  *  - Does NOT follow exec() calls whose argument is a variable (skips them
  *    gracefully — they cannot be statically resolved).
  */
 
 #include "include/nexs_compiler.h"
 #include "../core/include/nexs_utils.h"
+#include "../runtime/include/nexs_runtime.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,7 +43,12 @@ static int dep_already_seen(NexsDepEntry *deps, int count, const char *path) {
 /* Read an entire file into a malloc'd buffer; caller must free() it.
  * Returns NULL on error. */
 static char *dep_read_file(const char *path) {
-    FILE *f = fopen(path, "r");
+    char storage[NEXS_DEP_PATH_MAX];
+    const char *resolved = nexs_platform_source_path(
+        path, storage, sizeof(storage));
+    if (resolved == NULL)
+        return NULL;
+    FILE *f = fopen(resolved, "r");
     if (!f) return NULL;
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
@@ -118,51 +125,30 @@ static int scan_source(const char *src_path, const char *src,
                             strncpy(rel_path, start, len);
                             rel_path[len] = '\0';
 
-                            /*
-                             * The NEXS runtime resolves exec("path") relative to
-                             * the current working directory, NOT the parent file's
-                             * directory.  Use the literal path as the canonical key
-                             * (CWD-relative).  If the file isn't found there, fall
-                             * back to parent-dir-relative (for self-contained libs).
-                             */
-                            if (rel_path[0] == '/') {
-                                strncpy(abs_path, rel_path, NEXS_DEP_PATH_MAX - 1);
-                                abs_path[NEXS_DEP_PATH_MAX - 1] = '\0';
-                            } else {
-                                /* Try CWD-relative first */
-                                strncpy(abs_path, rel_path, NEXS_DEP_PATH_MAX - 1);
-                                abs_path[NEXS_DEP_PATH_MAX - 1] = '\0';
-                                /* If not readable, try parent-dir-relative */
-                                FILE *probe = fopen(abs_path, "r");
-                                if (!probe) {
-                                    char alt[NEXS_DEP_PATH_MAX];
-
-                                    /* 1. Try parent-dir-relative */
-                                    nexs_path_join(alt, sizeof(alt), parent_dir, rel_path, NULL);
-                                    probe = fopen(alt, "r");
-                                    if (probe) {
-                                        strncpy(abs_path, alt, NEXS_DEP_PATH_MAX - 1);
-                                    } else {
-                                        /* 2. Try global paths */
-                                        const char *global_dirs[] = {
-                                            "services", "/usr/local/share/nexs/services",
-                                            "modules", "/usr/local/share/nexs/modules"
-                                        };
-                                        for (int i = 0; i < 4; i++) {
-                                            snprintf(alt, sizeof(alt), "%s/%s", global_dirs[i], rel_path);
-                                            probe = fopen(alt, "r");
-                                            if (probe) {
-                                                strncpy(abs_path, alt, NEXS_DEP_PATH_MAX - 1);
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if (probe) {
-                                    fclose(probe);
-                                }
+                            /* The compiled dependency key is always the
+                             * logical exec() name. The same platform source
+                             * provider used by eval_file and sysio resolves
+                             * package-rooted nxlib/example files, preventing
+                             * CWD-dependent loss and shadowed dependencies.
+                             * Custom relative modules retain the parent-dir
+                             * fallback when their canonical lookup fails. */
+                            memcpy(abs_path, rel_path, len + 1U);
+                            char resolved_storage[NEXS_DEP_PATH_MAX];
+                            const char *resolved = nexs_platform_source_path(
+                                rel_path, resolved_storage, sizeof(resolved_storage));
+                            FILE *probe = resolved != NULL ? fopen(resolved, "r") : NULL;
+                            if (probe == NULL && rel_path[0] != '/') {
+                                char relative_path[NEXS_DEP_PATH_MAX];
+                                nexs_path_join(relative_path,
+                                               sizeof(relative_path),
+                                               parent_dir, rel_path, NULL);
+                                probe = fopen(relative_path, "r");
+                                if (probe != NULL)
+                                    snprintf(abs_path, sizeof(abs_path), "%s",
+                                             relative_path);
                             }
+                            if (probe != NULL)
+                                fclose(probe);
 
                             if (!dep_already_seen(deps, count, abs_path)) {
                                 if (count < max_deps) {
@@ -249,38 +235,67 @@ void nexs_free_deps(NexsDepEntry *deps, int count) {
  * nexs_scan_directory — recursively index all .nx files in a directory.
  */
 #ifndef NEXS_BAREMETAL
-int nexs_scan_directory(const char *dir_path, NexsDepEntry *deps, int count, int max_deps) {
-  DIR *d = opendir(dir_path);
-  if (!d) return count;
+int nexs_scan_directory(const char *dir_path, NexsDepEntry *deps,
+                        int count, int max_deps) {
+  if (dir_path == NULL || deps == NULL || count < 0 || max_deps <= 0)
+    return -1;
+  char root_storage[NEXS_DEP_PATH_MAX];
+  const char *resolved = nexs_platform_source_path(
+      dir_path, root_storage, sizeof(root_storage));
+  if (resolved == NULL)
+    return -1;
+  DIR *directory = opendir(resolved);
+  if (directory == NULL)
+    return -1;
 
-  struct dirent *ent;
-  while ((ent = readdir(d)) != NULL) {
-    if (ent->d_name[0] == '.') continue;
-
-    char path[NEXS_DEP_PATH_MAX];
-    snprintf(path, sizeof(path), "%s/%s", dir_path, ent->d_name);
-
-    struct stat st;
-    if (stat(path, &st) == 0) {
-      if (S_ISDIR(st.st_mode)) {
-        count = nexs_scan_directory(path, deps, count, max_deps);
-      } else {
-        size_t nlen = strlen(ent->d_name);
-        if (nlen > 3 && strcmp(ent->d_name + nlen - 3, ".nx") == 0) {
-          if (!dep_already_seen(deps, count, path)) {
-            if (count < max_deps) {
-              strncpy(deps[count].path, path, NEXS_DEP_PATH_MAX - 1);
-              deps[count].path[NEXS_DEP_PATH_MAX - 1] = '\0';
-              deps[count].src = dep_read_file(path);
-              count++;
-            }
-          }
+  struct dirent *entry;
+  int error = 0;
+  while ((entry = readdir(directory)) != NULL && error == 0) {
+    if (entry->d_name[0] == '.')
+      continue;
+    /* All product names remain LOGICAL paths. Never embed the absolute
+     * host install path or an alias from the current working directory. */
+    char logical[NEXS_DEP_PATH_MAX];
+    int length = snprintf(logical, sizeof(logical), "%s/%s",
+                          dir_path, entry->d_name);
+    if (length < 0 || (size_t)length >= sizeof(logical)) {
+      error = -1;
+      continue;
+    }
+    char physical[NEXS_DEP_PATH_MAX];
+    const char *mapped = nexs_platform_source_path(
+        logical, physical, sizeof(physical));
+    struct stat status;
+    if (mapped == NULL || stat(mapped, &status) != 0) {
+      error = -1;
+      continue;
+    }
+    if (S_ISDIR(status.st_mode)) {
+      count = nexs_scan_directory(logical, deps, count, max_deps);
+      if (count < 0)
+        error = -1;
+    } else if (S_ISREG(status.st_mode)) {
+      size_t name_length = strlen(entry->d_name);
+      if (name_length >= 3U &&
+          strcmp(entry->d_name + name_length - 3U, ".nx") == 0 &&
+          !dep_already_seen(deps, count, logical)) {
+        if (count >= max_deps) {
+          error = -1;
+          continue;
         }
+        char *contents = dep_read_file(logical);
+        if (contents == NULL) {
+          error = -1;
+          continue;
+        }
+        memcpy(deps[count].path, logical, (size_t)length + 1U);
+        deps[count].src = contents;
+        ++count;
       }
     }
   }
-  closedir(d);
-  return count;
+  closedir(directory);
+  return error == 0 ? count : -1;
 }
 #else
 int nexs_scan_directory(const char *dir_path, NexsDepEntry *deps, int count, int max_deps) {

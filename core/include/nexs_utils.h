@@ -27,7 +27,7 @@ NEXS_API const char *nexs_path_basename(const char *path);
 /* Write directory part of path into out (up to outsz bytes) */
 NEXS_API void        nexs_path_dirname(const char *path, char *out, size_t outsz);
 
-/* Duplicate string into buddy pool — caller must xfree() result */
+/* Fallible Buddy string copy: NULL if invalid/OOM; caller xfree()s result. */
 NEXS_API char       *buddy_strdup(const char *s);
 
 /* Safe printf that handles NULL out by using nexs_hal_print on baremetal */

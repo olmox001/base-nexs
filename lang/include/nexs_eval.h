@@ -10,6 +10,7 @@
 #pragma once
 
 #include "nexs_ast.h"
+#include "../../runtime/include/nexs_budget.h"
 #include "../../core/include/nexs_value.h"
 #include "../../core/include/nexs_common.h"
 
@@ -50,6 +51,8 @@ typedef struct {
   int  debug;               /* 1 = print every evaluation step */
   FILE *out;                /* output stream (default stdout) */
   FILE *err;                /* error stream  (default stderr) */
+  nx_operation_budget execution_budget; /* sole NXOLMO work-accounting owner */
+  int fuel_limited; /* explicit owner admission before verified VM */
 } EvalCtx;
 
 /* =========================================================
@@ -57,6 +60,10 @@ typedef struct {
    ========================================================= */
 
 NEXS_API void       eval_ctx_init(EvalCtx *ctx);
+/* Explicit bounded execution; unsupported/unadmitted callers still use the
+ * old profile until a RuntimeInstance provider supplies mandatory budgets.
+ * The budget never authenticates a capability or claims CPU-cycle accuracy. */
+NEXS_API int        eval_ctx_set_fuel_budget(EvalCtx *ctx, uint64_t budget);
 NEXS_API EvalResult eval(EvalCtx *ctx, ASTNode *node);
 NEXS_API EvalResult eval_str(EvalCtx *ctx, const char *src);
 NEXS_API EvalResult eval_str_lib(EvalCtx *ctx, const char *src,

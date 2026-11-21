@@ -21,10 +21,18 @@
    ========================================================= */
 
 ASTNode *ast_alloc(ASTKind kind, Token tok) {
-  ASTNode *n = xmalloc(sizeof(ASTNode));
-  memset(n, 0, sizeof(ASTNode)); // Assicura che tutti i puntatori (args, etc) siano NULL
+  ASTNode *n = nexs_alloc(sizeof(ASTNode));
+  if (n == NULL)
+    return NULL;
+  /* nexs_alloc zeroes all child/argument and allocation-chain pointers. */
   n->kind = kind;
   n->tok = tok;
+  /* Source spans are borrowed exclusively while parsing. Function bodies
+   * may outlive the source buffer in the function table; never retain a
+   * dangling source pointer in their AST diagnostic token. */
+  n->tok.span = NULL;
+  n->tok.span_len = 0;
+  n->tok.span_escaped = 0;
   n->litval = val_nil();
   n->left = n->right = n->children = n->next = n->alt = NULL;
   n->n_params = n->n_args = 0;
@@ -34,44 +42,91 @@ ASTNode *ast_alloc(ASTKind kind, Token tok) {
   return n;
 }
 
-void ast_free(ASTNode *n) {
-  while (n) {
-    ASTNode *next = n->next;
-    ast_free(n->left);
-    ast_free(n->right);
-    ast_free(n->children);
-    ast_free(n->alt);
-    for (int i = 0; i < n->n_args; i++)
-      ast_free(n->args[i]);
-    val_free(&n->litval);
-    xfree(n);
-    n = next;
+/* Every parser-created node is owned by its current parse transaction until
+ * the returned AST has been validated. On a failed parse, the same nodes
+ * are freed once via an intrusive allocation chain, even if syntax failure
+ * stranded some of them outside the partially assembled tree. */
+static ASTNode *parser_ast_alloc(Parser *parser, ASTKind kind, Token tok) {
+  if (parser == NULL || parser->had_error)
+    return NULL;
+  ASTNode *node = ast_alloc(kind, tok);
+  if (node == NULL) {
+    parser->had_error = 1;
+    snprintf(parser->error_msg, sizeof(parser->error_msg),
+             "Line %d: AST allocation failed", tok.line);
+    return NULL;
+  }
+  node->allocation_next = parser->owned_allocations;
+  parser->owned_allocations = node;
+  return node;
+}
+
+static void parser_discard_allocations(Parser *parser) {
+  if (parser == NULL)
+    return;
+  ASTNode *node = parser->owned_allocations;
+  parser->owned_allocations = NULL;
+  const size_t limit = POOL_SIZE / MIN_BLOCK;
+  for (size_t freed = 0U; node != NULL && freed < limit; ++freed) {
+    ASTNode *next = node->allocation_next;
+    val_free(&node->litval);
+    xfree(node);
+    node = next;
   }
 }
 
-/*
- * ast_free_safe: same as ast_free but explicitly NULLs the right child
- * of any AST_FN_DECL node before freeing it, as an extra safety measure.
- * In practice eval already sets n->right = NULL after fn_register(), so
- * ast_free() is also safe.  This version makes the invariant explicit.
- */
-void ast_free_safe(ASTNode *n) {
-  while (n) {
-    ASTNode *next = n->next;
-    if (n->kind == AST_FN_DECL) {
-      /* fn_table owns the body — do not free it */
-      n->right = NULL;
-    }
-    ast_free(n->left);
-    ast_free(n->right);
-    ast_free(n->children);
-    ast_free(n->alt);
-    for (int i = 0; i < n->n_args; i++)
-      ast_free(n->args[i]);
-    val_free(&n->litval);
-    xfree(n);
-    n = next;
+/* Prepend one owned AST sibling chain without a heap-allocated DFS stack.
+ * The original next pointers are preserved until their nodes are consumed.
+ * One chain is appended only once in a well-formed AST tree. */
+static ASTNode *ast_release_prepend(ASTNode *head, ASTNode *pending,
+                                    size_t limit) {
+  if (head == NULL)
+    return pending;
+  ASTNode *last = head;
+  for (size_t examined = 0U;
+       last->next != NULL && examined < limit; ++examined)
+    last = last->next;
+  if (last->next != NULL)
+    return pending;  /* Malformed cyclic chain: never follow unboundedly. */
+  last->next = pending;
+  return head;
+}
+
+/* Consume the one existing ownership graph in bounded iterative preorder.
+ * There are at most POOL_SIZE/MIN_BLOCK live Buddy-backed AST nodes.
+ * We borrow the nodes' own next fields as the pending chain; no recursion,
+ * malloc, synthetic function registry or fixed-size DFS queue is needed.
+ * The right child is skipped ONLY when fn_register already transferred it
+ * and set that pointer to NULL. Parse-error bodies must be freed. */
+static void ast_release_owned(ASTNode *root) {
+  ASTNode *pending = root;
+  const size_t limit = POOL_SIZE / MIN_BLOCK;
+  for (size_t released = 0U;
+       pending != NULL && released < limit; ++released) {
+    ASTNode *current = pending;
+    pending = current->next;
+    pending = ast_release_prepend(current->left, pending, limit);
+    pending = ast_release_prepend(current->right, pending, limit);
+    pending = ast_release_prepend(current->children, pending, limit);
+    pending = ast_release_prepend(current->alt, pending, limit);
+    int count = current->n_args;
+    if (count < 0 || count > MAX_PARAMS)
+      count = MAX_PARAMS;
+    for (int i = 0; i < count; ++i)
+      pending = ast_release_prepend(current->args[i], pending, limit);
+    val_free(&current->litval);
+    xfree(current);
   }
+}
+
+void ast_free(ASTNode *node) {
+  ast_release_owned(node);
+}
+
+void ast_free_safe(ASTNode *node) {
+  /* fn_register clears the transferred AST_FN_DECL.right. For parse
+   * failures right is still owned here and MUST NOT be thrown away. */
+  ast_release_owned(node);
 }
 
 void ast_print(ASTNode *node, FILE *out, int depth) {
@@ -137,6 +192,19 @@ static int parser_expect(Parser *p, TokenKind k) {
   return 1;
 }
 
+/* Preserve the complete token, never a NAME_LEN-sized preview.
+ * Callers own AST allocations and must release them if this fails. */
+static int parser_copy_token(Parser *p, Token token, char *out, size_t cap) {
+  if (lexer_token_copy(&token, out, cap))
+    return 1;
+  if (!p->had_error) {
+    p->had_error = 1;
+    snprintf(p->error_msg, sizeof(p->error_msg),
+             "Line %d: token exceeds destination or contains NUL", token.line);
+  }
+  return 0;
+}
+
 /* =========================================================
    EXPRESSION PARSING
    ========================================================= */
@@ -148,42 +216,74 @@ static ASTNode *parse_primary(Parser *p) {
   Token t = p->cur;
   switch (t.kind) {
   case TK_INT: {
-    ASTNode *n = ast_alloc(AST_INT_LIT, t);
+    ASTNode *n = parser_ast_alloc(p, AST_INT_LIT, t);
+    if (n == NULL)
+      return NULL;
     n->litval = val_int(t.ival);
     parser_advance(p);
     return n;
   }
   case TK_FLOAT: {
-    ASTNode *n = ast_alloc(AST_FLOAT_LIT, t);
+    ASTNode *n = parser_ast_alloc(p, AST_FLOAT_LIT, t);
+    if (n == NULL)
+      return NULL;
     n->litval = val_float(t.fval);
     parser_advance(p);
     return n;
   }
   case TK_STRING: {
-    ASTNode *n = ast_alloc(AST_STR_LIT, t);
-    n->litval = val_str(t.text);
+    ASTNode *n = parser_ast_alloc(p, AST_STR_LIT, t);
+    if (n == NULL)
+      return NULL;
+    char *decoded = nexs_alloc(MAX_STR_LEN);
+    if (decoded == NULL) {
+      p->had_error = 1;
+      snprintf(p->error_msg, sizeof(p->error_msg),
+               "Line %d: string decode allocation failed", t.line);
+      return NULL;
+    }
+    if (!parser_copy_token(p, t, decoded, MAX_STR_LEN)) {
+      nexs_free(decoded, MAX_STR_LEN);
+      return NULL;
+    }
+    n->litval = val_str(decoded);
+    nexs_free(decoded, MAX_STR_LEN);
+    if (n->litval.type != TYPE_STR) {
+      p->had_error = 1;
+      snprintf(p->error_msg, sizeof(p->error_msg),
+               "Line %d: string ownership admission failed", t.line);
+      return NULL;
+    }
     parser_advance(p);
     return n;
   }
   case TK_KW_TRUE: {
-    ASTNode *n = ast_alloc(AST_BOOL_LIT, t);
+    ASTNode *n = parser_ast_alloc(p, AST_BOOL_LIT, t);
+    if (n == NULL)
+      return NULL;
     n->litval = val_bool(1);
     parser_advance(p);
     return n;
   }
   case TK_KW_FALSE: {
-    ASTNode *n = ast_alloc(AST_BOOL_LIT, t);
+    ASTNode *n = parser_ast_alloc(p, AST_BOOL_LIT, t);
+    if (n == NULL)
+      return NULL;
     n->litval = val_bool(0);
     parser_advance(p);
     return n;
   }
   case TK_KW_NIL: {
-    ASTNode *n = ast_alloc(AST_NIL_LIT, t);
+    ASTNode *n = parser_ast_alloc(p, AST_NIL_LIT, t);
+    if (n == NULL)
+      return NULL;
     parser_advance(p);
     return n;
   }
   case TK_KW_PWD: {
-    ASTNode *n = ast_alloc(AST_PWD, t);
+    ASTNode *n = parser_ast_alloc(p, AST_PWD, t);
+    if (n == NULL)
+      return NULL;
     parser_advance(p);
     return n;
   }
@@ -191,7 +291,9 @@ static ASTNode *parse_primary(Parser *p) {
     Token kw = t;
     parser_advance(p);
     if (p->cur.kind == TK_LPAREN) {
-      ASTNode *fn = ast_alloc(AST_FN_CALL, kw);
+      ASTNode *fn = parser_ast_alloc(p, AST_FN_CALL, kw);
+      if (fn == NULL)
+        return NULL;
       strncpy(fn->name, "ls", NAME_LEN - 1);
       parser_advance(p);
       fn->n_args = 0;
@@ -202,13 +304,14 @@ static ASTNode *parse_primary(Parser *p) {
           parser_advance(p);
       }
       if (!parser_expect(p, TK_RPAREN)) {
-        ast_free(fn);
         return NULL;
       }
       return fn;
     }
     /* Simple ls in expression -> default registry list / */
-    ASTNode *n = ast_alloc(AST_REG_LS, kw);
+    ASTNode *n = parser_ast_alloc(p, AST_REG_LS, kw);
+    if (n == NULL)
+      return NULL;
     strncpy(n->path, "/", REG_PATH_MAX - 1);
     return n;
   }
@@ -221,7 +324,9 @@ static ASTNode *parse_primary(Parser *p) {
         return NULL;
       if (!parser_expect(p, TK_RBRACKET))
         return NULL;
-      ASTNode *n = ast_alloc(AST_INDEX, t);
+      ASTNode *n = parser_ast_alloc(p, AST_INDEX, t);
+      if (n == NULL)
+        return NULL;
       strncpy(n->name, t.text, NAME_LEN - 1);
       n->name[NAME_LEN - 1] = '\0';
       n->left = idx;
@@ -229,7 +334,9 @@ static ASTNode *parse_primary(Parser *p) {
     }
     if (p->cur.kind == TK_LPAREN) {
       parser_advance(p);
-      ASTNode *n = ast_alloc(AST_FN_CALL, t);
+      ASTNode *n = parser_ast_alloc(p, AST_FN_CALL, t);
+      if (n == NULL)
+        return NULL;
       strncpy(n->name, t.text, NAME_LEN - 1);
       n->name[NAME_LEN - 1] = '\0';
       while (p->cur.kind != TK_RPAREN && p->cur.kind != TK_EOF &&
@@ -243,12 +350,13 @@ static ASTNode *parse_primary(Parser *p) {
           parser_advance(p);
       }
       if (!parser_expect(p, TK_RPAREN)) {
-        ast_free(n);
         return NULL;
       }
       return n;
     }
-    ASTNode *n = ast_alloc(AST_IDENT, t);
+    ASTNode *n = parser_ast_alloc(p, AST_IDENT, t);
+    if (n == NULL)
+      return NULL;
     strncpy(n->name, t.text, NAME_LEN - 1);
     n->name[NAME_LEN - 1] = '\0';
     return n;
@@ -259,15 +367,21 @@ static ASTNode *parse_primary(Parser *p) {
       return NULL;
     Token pt = p->cur;
     parser_advance(p);
-    ASTNode *n = ast_alloc(AST_REG_ACCESS, pt);
-    strncpy(n->path, pt.text, REG_PATH_MAX - 1);
-    n->path[REG_PATH_MAX - 1] = '\0';
+    ASTNode *n = parser_ast_alloc(p, AST_REG_ACCESS, pt);
+    if (n == NULL)
+      return NULL;
+    if (!parser_copy_token(p, pt, n->path, sizeof(n->path))) {
+      return NULL;
+    }
     return n;
   }
   case TK_REGPATH: {
-    ASTNode *n = ast_alloc(AST_REG_ACCESS, t);
-    strncpy(n->path, t.text, REG_PATH_MAX - 1);
-    n->path[REG_PATH_MAX - 1] = '\0';
+    ASTNode *n = parser_ast_alloc(p, AST_REG_ACCESS, t);
+    if (n == NULL)
+      return NULL;
+    if (!parser_copy_token(p, t, n->path, sizeof(n->path))) {
+      return NULL;
+    }
     parser_advance(p);
     return n;
   }
@@ -280,7 +394,9 @@ static ASTNode *parse_primary(Parser *p) {
   case TK_NOT:
   case TK_KW_NOT: {
     parser_advance(p);
-    ASTNode *n = ast_alloc(AST_UNOP, t);
+    ASTNode *n = parser_ast_alloc(p, AST_UNOP, t);
+    if (n == NULL)
+      return NULL;
     strncpy(n->op, "!", 3);
     n->left = parse_primary(p);
     return n;
@@ -291,7 +407,9 @@ static ASTNode *parse_primary(Parser *p) {
     Token kw = t;
     parser_advance(p);
     if (p->cur.kind == TK_LPAREN) {
-      ASTNode *fn = ast_alloc(AST_FN_CALL, kw);
+      ASTNode *fn = parser_ast_alloc(p, AST_FN_CALL, kw);
+      if (fn == NULL)
+        return NULL;
       strncpy(fn->name, "msgpending", NAME_LEN - 1);
       parser_advance(p);
       fn->n_args = 0;
@@ -302,7 +420,6 @@ static ASTNode *parse_primary(Parser *p) {
           parser_advance(p);
       }
       if (!parser_expect(p, TK_RPAREN)) {
-        ast_free(fn);
         return NULL;
       }
       return fn;
@@ -310,16 +427,21 @@ static ASTNode *parse_primary(Parser *p) {
     Token pt = p->cur;
     if (!parser_expect(p, TK_REGPATH))
       return NULL;
-    ASTNode *n = ast_alloc(AST_MSG_PENDING, pt);
-    strncpy(n->path, pt.text, REG_PATH_MAX - 1);
-    n->path[REG_PATH_MAX - 1] = '\0';
+    ASTNode *n = parser_ast_alloc(p, AST_MSG_PENDING, pt);
+    if (n == NULL)
+      return NULL;
+    if (!parser_copy_token(p, pt, n->path, sizeof(n->path))) {
+      return NULL;
+    }
     return n;
   }
   case TK_KW_RECV: {
     Token kw = t;
     parser_advance(p);
     if (p->cur.kind == TK_LPAREN) {
-      ASTNode *fn = ast_alloc(AST_FN_CALL, kw);
+      ASTNode *fn = parser_ast_alloc(p, AST_FN_CALL, kw);
+      if (fn == NULL)
+        return NULL;
       strncpy(fn->name, "receivemessage", NAME_LEN - 1);
       parser_advance(p);
       fn->n_args = 0;
@@ -336,9 +458,12 @@ static ASTNode *parse_primary(Parser *p) {
     Token pt = p->cur;
     if (!parser_expect(p, TK_REGPATH))
       return NULL;
-    ASTNode *n = ast_alloc(AST_RECV_MSG, pt);
-    strncpy(n->path, pt.text, REG_PATH_MAX - 1);
-    n->path[REG_PATH_MAX - 1] = '\0';
+    ASTNode *n = parser_ast_alloc(p, AST_RECV_MSG, pt);
+    if (n == NULL)
+      return NULL;
+    if (!parser_copy_token(p, pt, n->path, sizeof(n->path))) {
+      return NULL;
+    }
     return n;
   }
   case TK_KW_DEREF: {
@@ -346,9 +471,12 @@ static ASTNode *parse_primary(Parser *p) {
     Token pt = p->cur;
     if (!parser_expect(p, TK_REGPATH))
       return NULL;
-    ASTNode *n = ast_alloc(AST_PTR_DEREF, pt);
-    strncpy(n->path, pt.text, REG_PATH_MAX - 1);
-    n->path[REG_PATH_MAX - 1] = '\0';
+    ASTNode *n = parser_ast_alloc(p, AST_PTR_DEREF, pt);
+    if (n == NULL)
+      return NULL;
+    if (!parser_copy_token(p, pt, n->path, sizeof(n->path))) {
+      return NULL;
+    }
     return n;
   }
   default:
@@ -439,7 +567,9 @@ static ASTNode *parse_binop(Parser *p, int min_prec) {
     ASTNode *right = parse_binop(p, prec + 1);
     if (!right)
       return left;
-    ASTNode *n = ast_alloc(AST_BINOP, op);
+    ASTNode *n = parser_ast_alloc(p, AST_BINOP, op);
+    if (n == NULL)
+      return NULL;
     strncpy(n->op, binop_name(op.kind), 3);
     n->op[3] = '\0';
     n->left = left;
@@ -460,7 +590,9 @@ static ASTNode *parse_block(Parser *p) {
   if (!parser_expect(p, TK_LBRACE))
     return NULL;
   parser_skip_newlines(p);
-  ASTNode *block = ast_alloc(AST_BLOCK, t);
+  ASTNode *block = parser_ast_alloc(p, AST_BLOCK, t);
+  if (block == NULL)
+    return NULL;
   ASTNode *last = NULL;
   while (p->cur.kind != TK_RBRACE && p->cur.kind != TK_EOF && !p->had_error) {
     ASTNode *s = parse_stmt(p);
@@ -488,8 +620,12 @@ ASTNode *parse_stmt(Parser *p) {
     Token lib_tok = p->cur;
     if (!parser_expect(p, TK_STRING))
       return NULL;
-    ASTNode *n = ast_alloc(AST_LIBRARY, t);
-    strncpy(n->name, lib_tok.text, NAME_LEN - 1);
+    ASTNode *n = parser_ast_alloc(p, AST_LIBRARY, t);
+    if (n == NULL)
+      return NULL;
+    if (!parser_copy_token(p, lib_tok, n->name, sizeof(n->name))) {
+      return NULL;
+    }
     return n;
   }
 
@@ -499,8 +635,12 @@ ASTNode *parse_stmt(Parser *p) {
     Token path_tok = p->cur;
     if (!parser_expect(p, TK_STRING))
       return NULL;
-    ASTNode *n = ast_alloc(AST_IMPORT, t);
-    strncpy(n->path, path_tok.text, REG_PATH_MAX - 1);
+    ASTNode *n = parser_ast_alloc(p, AST_IMPORT, t);
+    if (n == NULL)
+      return NULL;
+    if (!parser_copy_token(p, path_tok, n->path, sizeof(n->path))) {
+      return NULL;
+    }
     return n;
   }
 
@@ -518,11 +658,12 @@ ASTNode *parse_stmt(Parser *p) {
       return NULL;
     }
     parser_advance(p);
-    ASTNode *n = ast_alloc(AST_FN_DECL, name_tok);
+    ASTNode *n = parser_ast_alloc(p, AST_FN_DECL, name_tok);
+    if (n == NULL)
+      return NULL;
     strncpy(n->name, name_tok.text, NAME_LEN - 1);
     n->name[NAME_LEN - 1] = '\0';
     if (!parser_expect(p, TK_LPAREN)) {
-      ast_free(n);
       return NULL;
     }
     while (p->cur.kind == TK_IDENT && n->n_params < MAX_PARAMS) {
@@ -534,7 +675,6 @@ ASTNode *parse_stmt(Parser *p) {
         parser_advance(p);
     }
     if (!parser_expect(p, TK_RPAREN)) {
-      ast_free(n);
       return NULL;
     }
     n->right = parse_block(p);
@@ -544,7 +684,9 @@ ASTNode *parse_stmt(Parser *p) {
   /* if cond { then } [else { els }] */
   if (t.kind == TK_KW_IF) {
     parser_advance(p);
-    ASTNode *n = ast_alloc(AST_IF, t);
+    ASTNode *n = parser_ast_alloc(p, AST_IF, t);
+    if (n == NULL)
+      return NULL;
     n->left = parse_expr(p);
     n->right = parse_block(p);
     parser_skip_newlines(p);
@@ -562,7 +704,9 @@ ASTNode *parse_stmt(Parser *p) {
   /* loop { body } */
   if (t.kind == TK_KW_LOOP) {
     parser_advance(p);
-    ASTNode *n = ast_alloc(AST_LOOP, t);
+    ASTNode *n = parser_ast_alloc(p, AST_LOOP, t);
+    if (n == NULL)
+      return NULL;
     n->right = parse_block(p);
     return n;
   }
@@ -570,15 +714,17 @@ ASTNode *parse_stmt(Parser *p) {
   /* break / cont / ret */
   if (t.kind == TK_KW_BREAK) {
     parser_advance(p);
-    return ast_alloc(AST_BREAK, t);
+    return parser_ast_alloc(p, AST_BREAK, t);
   }
   if (t.kind == TK_KW_CONT) {
     parser_advance(p);
-    return ast_alloc(AST_CONT, t);
+    return parser_ast_alloc(p, AST_CONT, t);
   }
   if (t.kind == TK_KW_RET) {
     parser_advance(p);
-    ASTNode *n = ast_alloc(AST_RET, t);
+    ASTNode *n = parser_ast_alloc(p, AST_RET, t);
+    if (n == NULL)
+      return NULL;
     if (p->cur.kind != TK_NEWLINE && p->cur.kind != TK_RBRACE &&
         p->cur.kind != TK_EOF)
       n->left = parse_expr(p);
@@ -588,7 +734,9 @@ ASTNode *parse_stmt(Parser *p) {
   /* out expr */
   if (t.kind == TK_KW_OUT) {
     parser_advance(p);
-    ASTNode *n = ast_alloc(AST_OUT, t);
+    ASTNode *n = parser_ast_alloc(p, AST_OUT, t);
+    if (n == NULL)
+      return NULL;
     n->left = parse_expr(p);
     return n;
   }
@@ -599,16 +747,16 @@ ASTNode *parse_stmt(Parser *p) {
     Token nt = p->cur;
     if (!parser_expect(p, TK_IDENT))
       return NULL;
-    ASTNode *n = ast_alloc(AST_DEL, nt);
+    ASTNode *n = parser_ast_alloc(p, AST_DEL, nt);
+    if (n == NULL)
+      return NULL;
     strncpy(n->name, nt.text, NAME_LEN - 1);
     n->name[NAME_LEN - 1] = '\0';
     if (!parser_expect(p, TK_LBRACKET)) {
-      ast_free(n);
       return NULL;
     }
     n->left = parse_expr(p);
     if (!parser_expect(p, TK_RBRACKET)) {
-      ast_free(n);
       return NULL;
     }
     return n;
@@ -619,7 +767,9 @@ ASTNode *parse_stmt(Parser *p) {
     parser_advance(p);
     if (p->cur.kind == TK_LPAREN) {
       /* Parse as function call */
-      ASTNode *n = ast_alloc(AST_FN_CALL, t);
+      ASTNode *n = parser_ast_alloc(p, AST_FN_CALL, t);
+      if (n == NULL)
+        return NULL;
       strncpy(n->name, "ls", NAME_LEN - 1);
       parser_advance(p);
       while (p->cur.kind != TK_RPAREN && p->cur.kind != TK_EOF &&
@@ -633,17 +783,19 @@ ASTNode *parse_stmt(Parser *p) {
           parser_advance(p);
       }
       if (!parser_expect(p, TK_RPAREN)) {
-        ast_free(n);
         return NULL;
       }
       return n;
     }
     /* Fallback to built-in registry listing */
-    ASTNode *n = ast_alloc(AST_REG_LS, t);
+    ASTNode *n = parser_ast_alloc(p, AST_REG_LS, t);
+    if (n == NULL)
+      return NULL;
     if (p->cur.kind == TK_REGPATH || p->cur.kind == TK_STRING || p->cur.kind == TK_IDENT ||
         (p->cur.kind >= TK_KW_FN && p->cur.kind <= TK_KW_PENDING)) {
-      strncpy(n->path, p->cur.text, REG_PATH_MAX - 1);
-      n->path[REG_PATH_MAX - 1] = '\0';
+      if (!parser_copy_token(p, p->cur, n->path, sizeof(n->path))) {
+        return NULL;
+      }
       parser_advance(p);
     } else {
       n->path[0] = '\0';
@@ -654,11 +806,14 @@ ASTNode *parse_stmt(Parser *p) {
   /* cd /path OR cd("path") OR cd path */
   if (t.kind == TK_KW_CD) {
     parser_advance(p);
-    ASTNode *n = ast_alloc(AST_CD, t);
+    ASTNode *n = parser_ast_alloc(p, AST_CD, t);
+    if (n == NULL)
+      return NULL;
     if (p->cur.kind == TK_REGPATH || p->cur.kind == TK_STRING || p->cur.kind == TK_IDENT || 
         (p->cur.kind >= TK_KW_FN && p->cur.kind <= TK_KW_PENDING)) {
-      strncpy(n->path, p->cur.text, REG_PATH_MAX - 1);
-      n->path[REG_PATH_MAX - 1] = '\0';
+      if (!parser_copy_token(p, p->cur, n->path, sizeof(n->path))) {
+        return NULL;
+      }
       parser_advance(p);
     } else {
       n->left = parse_expr(p);
@@ -669,7 +824,7 @@ ASTNode *parse_stmt(Parser *p) {
   /* pwd */
   if (t.kind == TK_KW_PWD) {
     parser_advance(p);
-    return ast_alloc(AST_PWD, t);
+    return parser_ast_alloc(p, AST_PWD, t);
   }
 
   /* reg /path [= expr] */
@@ -680,15 +835,21 @@ ASTNode *parse_stmt(Parser *p) {
       return NULL;
     if (p->cur.kind == TK_EQ) {
       parser_advance(p);
-      ASTNode *n = ast_alloc(AST_REG_SET, pt);
-      strncpy(n->path, pt.text, REG_PATH_MAX - 1);
-      n->path[REG_PATH_MAX - 1] = '\0';
+      ASTNode *n = parser_ast_alloc(p, AST_REG_SET, pt);
+      if (n == NULL)
+        return NULL;
+      if (!parser_copy_token(p, pt, n->path, sizeof(n->path))) {
+        return NULL;
+      }
       n->left = parse_expr(p);
       return n;
     }
-    ASTNode *n = ast_alloc(AST_REG_ACCESS, pt);
-    strncpy(n->path, pt.text, REG_PATH_MAX - 1);
-    n->path[REG_PATH_MAX - 1] = '\0';
+    ASTNode *n = parser_ast_alloc(p, AST_REG_ACCESS, pt);
+    if (n == NULL)
+      return NULL;
+    if (!parser_copy_token(p, pt, n->path, sizeof(n->path))) {
+      return NULL;
+    }
     return n;
   }
 
@@ -700,7 +861,9 @@ ASTNode *parse_stmt(Parser *p) {
     Token peek = p->cur;
     if (peek.kind == TK_LPAREN) {
       /* Function-call form: delegate to fn_call parsing */
-      ASTNode *fn = ast_alloc(AST_FN_CALL, t);
+      ASTNode *fn = parser_ast_alloc(p, AST_FN_CALL, t);
+      if (fn == NULL)
+        return NULL;
       strncpy(fn->name, "sendmessage", NAME_LEN - 1);
       parser_advance(p); /* consume '(' */
       fn->n_args = 0;
@@ -711,7 +874,6 @@ ASTNode *parse_stmt(Parser *p) {
           parser_advance(p);
       }
       if (!parser_expect(p, TK_RPAREN)) {
-        ast_free(fn);
         return NULL;
       }
       return fn;
@@ -719,9 +881,12 @@ ASTNode *parse_stmt(Parser *p) {
     Token pt = peek;
     if (!parser_expect(p, TK_REGPATH))
       return NULL;
-    ASTNode *n = ast_alloc(AST_SEND_MSG, pt);
-    strncpy(n->path, pt.text, REG_PATH_MAX - 1);
-    n->path[REG_PATH_MAX - 1] = '\0';
+    ASTNode *n = parser_ast_alloc(p, AST_SEND_MSG, pt);
+    if (n == NULL)
+      return NULL;
+    if (!parser_copy_token(p, pt, n->path, sizeof(n->path))) {
+      return NULL;
+    }
     n->left = parse_expr(p);
     return n;
   }
@@ -731,7 +896,9 @@ ASTNode *parse_stmt(Parser *p) {
     parser_advance(p);
     Token peek = p->cur;
     if (peek.kind == TK_LPAREN) {
-      ASTNode *fn = ast_alloc(AST_FN_CALL, t);
+      ASTNode *fn = parser_ast_alloc(p, AST_FN_CALL, t);
+      if (fn == NULL)
+        return NULL;
       strncpy(fn->name, "receivemessage", NAME_LEN - 1);
       parser_advance(p);
       fn->n_args = 0;
@@ -748,9 +915,12 @@ ASTNode *parse_stmt(Parser *p) {
     Token pt = peek;
     if (!parser_expect(p, TK_REGPATH))
       return NULL;
-    ASTNode *n = ast_alloc(AST_RECV_MSG, pt);
-    strncpy(n->path, pt.text, REG_PATH_MAX - 1);
-    n->path[REG_PATH_MAX - 1] = '\0';
+    ASTNode *n = parser_ast_alloc(p, AST_RECV_MSG, pt);
+    if (n == NULL)
+      return NULL;
+    if (!parser_copy_token(p, pt, n->path, sizeof(n->path))) {
+      return NULL;
+    }
     return n;
   }
 
@@ -759,7 +929,9 @@ ASTNode *parse_stmt(Parser *p) {
     parser_advance(p);
     Token peek = p->cur;
     if (peek.kind == TK_LPAREN) {
-      ASTNode *fn = ast_alloc(AST_FN_CALL, t);
+      ASTNode *fn = parser_ast_alloc(p, AST_FN_CALL, t);
+      if (fn == NULL)
+        return NULL;
       strncpy(fn->name, "msgpending", NAME_LEN - 1);
       parser_advance(p);
       fn->n_args = 0;
@@ -776,9 +948,12 @@ ASTNode *parse_stmt(Parser *p) {
     Token pt = peek;
     if (!parser_expect(p, TK_REGPATH))
       return NULL;
-    ASTNode *n = ast_alloc(AST_MSG_PENDING, pt);
-    strncpy(n->path, pt.text, REG_PATH_MAX - 1);
-    n->path[REG_PATH_MAX - 1] = '\0';
+    ASTNode *n = parser_ast_alloc(p, AST_MSG_PENDING, pt);
+    if (n == NULL)
+      return NULL;
+    if (!parser_copy_token(p, pt, n->path, sizeof(n->path))) {
+      return NULL;
+    }
     return n;
   }
 
@@ -793,12 +968,24 @@ ASTNode *parse_stmt(Parser *p) {
     Token target_tok = p->cur;
     if (!parser_expect(p, TK_REGPATH))
       return NULL;
-    ASTNode *n = ast_alloc(AST_PTR_SET, pt);
-    strncpy(n->path, pt.text, REG_PATH_MAX - 1);
-    n->path[REG_PATH_MAX - 1] = '\0';
-    /* Store the target path in n->name (repurposed) */
-    strncpy(n->name, target_tok.text, NAME_LEN - 1);
-    n->name[NAME_LEN - 1] = '\0';
+    ASTNode *n = parser_ast_alloc(p, AST_PTR_SET, pt);
+    if (n == NULL)
+      return NULL;
+    if (!parser_copy_token(p, pt, n->path, sizeof(n->path))) {
+      return NULL;
+    }
+    /* Pointer targets belong to the Value slot, not an ABI name buffer. */
+    char target[REG_PATH_MAX];
+    if (!parser_copy_token(p, target_tok, target, sizeof(target))) {
+      return NULL;
+    }
+    n->litval = val_str(target);
+    if (n->litval.type != TYPE_STR) {
+      p->had_error = 1;
+      snprintf(p->error_msg, sizeof(p->error_msg),
+               "Line %d: pointer literal admission failed", t.line);
+      return NULL;
+    }
     return n;
   }
 
@@ -808,9 +995,12 @@ ASTNode *parse_stmt(Parser *p) {
     Token pt = p->cur;
     if (!parser_expect(p, TK_REGPATH))
       return NULL;
-    ASTNode *n = ast_alloc(AST_PTR_DEREF, pt);
-    strncpy(n->path, pt.text, REG_PATH_MAX - 1);
-    n->path[REG_PATH_MAX - 1] = '\0';
+    ASTNode *n = parser_ast_alloc(p, AST_PTR_DEREF, pt);
+    if (n == NULL)
+      return NULL;
+    if (!parser_copy_token(p, pt, n->path, sizeof(n->path))) {
+      return NULL;
+    }
     return n;
   }
 
@@ -821,19 +1011,22 @@ ASTNode *parse_stmt(Parser *p) {
       parser_advance(p);
       ASTNode *idx = parse_expr(p);
       if (!parser_expect(p, TK_RBRACKET)) {
-        ast_free(idx);
         return NULL;
       }
       if (p->cur.kind == TK_EQ) {
         parser_advance(p);
-        ASTNode *n = ast_alloc(AST_INDEX_ASSIGN, t);
+        ASTNode *n = parser_ast_alloc(p, AST_INDEX_ASSIGN, t);
+        if (n == NULL)
+          return NULL;
         strncpy(n->name, t.text, NAME_LEN - 1);
         n->name[NAME_LEN - 1] = '\0';
         n->left = idx;
         n->right = parse_expr(p);
         return n;
       }
-      ASTNode *n = ast_alloc(AST_INDEX, t);
+      ASTNode *n = parser_ast_alloc(p, AST_INDEX, t);
+      if (n == NULL)
+        return NULL;
       strncpy(n->name, t.text, NAME_LEN - 1);
       n->name[NAME_LEN - 1] = '\0';
       n->left = idx;
@@ -841,7 +1034,9 @@ ASTNode *parse_stmt(Parser *p) {
     }
     if (p->cur.kind == TK_EQ) {
       parser_advance(p);
-      ASTNode *n = ast_alloc(AST_ASSIGN, t);
+      ASTNode *n = parser_ast_alloc(p, AST_ASSIGN, t);
+      if (n == NULL)
+        return NULL;
       strncpy(n->name, t.text, NAME_LEN - 1);
       n->name[NAME_LEN - 1] = '\0';
       n->right = parse_expr(p);
@@ -849,7 +1044,9 @@ ASTNode *parse_stmt(Parser *p) {
     }
     if (p->cur.kind == TK_LPAREN) {
       parser_advance(p);
-      ASTNode *n = ast_alloc(AST_FN_CALL, t);
+      ASTNode *n = parser_ast_alloc(p, AST_FN_CALL, t);
+      if (n == NULL)
+        return NULL;
       strncpy(n->name, t.text, NAME_LEN - 1);
       n->name[NAME_LEN - 1] = '\0';
       while (p->cur.kind != TK_RPAREN && p->cur.kind != TK_EOF &&
@@ -863,12 +1060,13 @@ ASTNode *parse_stmt(Parser *p) {
           parser_advance(p);
       }
       if (!parser_expect(p, TK_RPAREN)) {
-        ast_free(n);
         return NULL;
       }
       return n;
     }
-    ASTNode *n = ast_alloc(AST_IDENT, t);
+    ASTNode *n = parser_ast_alloc(p, AST_IDENT, t);
+    if (n == NULL)
+      return NULL;
     strncpy(n->name, t.text, NAME_LEN - 1);
     n->name[NAME_LEN - 1] = '\0';
     return n;
@@ -887,12 +1085,19 @@ void parser_init(Parser *p, Lexer *lex) {
   p->lex = lex;
   p->had_error = 0;
   p->error_msg[0] = '\0';
+  p->owned_allocations = NULL;
   p->peek.kind = TK_EOF;
   parser_advance(p);
 }
 
 ASTNode *parse_program(Parser *p) {
-  ASTNode *prog = ast_alloc(AST_PROGRAM, p->cur);
+  if (p == NULL)
+    return NULL;
+  ASTNode *prog = parser_ast_alloc(p, AST_PROGRAM, p->cur);
+  if (prog == NULL) {
+    parser_discard_allocations(p);
+    return NULL;
+  }
   ASTNode *last = NULL;
   parser_skip_newlines(p);
   while (p->cur.kind != TK_EOF && !p->had_error) {
@@ -915,5 +1120,11 @@ ASTNode *parse_program(Parser *p) {
     }
     parser_skip_newlines(p);
   }
+  if (p->had_error) {
+    parser_discard_allocations(p);
+    return NULL;
+  }
+  /* Ownership has moved to the linked AST; success is never a leak. */
+  p->owned_allocations = NULL;
   return prog;
 }

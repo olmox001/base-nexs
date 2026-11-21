@@ -1,4 +1,4 @@
-# Reviewed NEXS language source catalog: services, libraries, examples.
+# Reviewed NEXS source subset; see nx_resources.txt for assets.
 example/druglords/druglords.nx
 example/example_lib.nx
 example/exent_bus.nx
@@ -19,17 +19,17 @@ example/test_builtins_all.nx
 example/test_input.nx
 example/test_parse_loop.nx
 example/test_syntax.nx
-modules/stdlib.nx
-services/auth/init.nx
-services/fs/init.nx
-services/fs/p9_mnt.nx
-services/fs/regfs.nx
-services/hw_dt.nx
-services/init.nx
-services/logos/init.nx
-services/pm/init.nx
-services/stdlib.nx
-services/textbuf.nx
-services/tty/init.nx
-services/ui/img.nx
-services/ui/init.nx
+nxlib/fs.nx
+nxlib/services/auth/init.nx
+nxlib/services/fs/init.nx
+nxlib/services/fs/p9_mnt.nx
+nxlib/services/fs/regfs.nx
+nxlib/services/hw_dt.nx
+nxlib/services/init.nx
+nxlib/services/logos/init.nx
+nxlib/services/pm/init.nx
+nxlib/services/tty/init.nx
+nxlib/services/ui/img.nx
+nxlib/services/ui/init.nx
+nxlib/stdlib.nx
+nxlib/textbuf.nx

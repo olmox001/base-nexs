@@ -1,0 +1,40 @@
+# nxlib/services/fs/init.nx — optional filesystem MOUNT service.
+# The actual file/namespace API lives ONLY in nxlib/fs.nx.
+# Loading the image is not permission to start a privileged service.
+library "fs_service"
+import "nxlib/fs.nx"
+
+fn fs_mount(src dst fstype) {
+  result = mount(src dst 0)
+  if type(result) == "err" || result != 0 { ret -1 }
+  count = reg_get("/sys/fs/mount_count")
+  if type(count) == "err" { count = 0 }
+  entry = "/sys/fs/mounts/" + str(count)
+  reg_set(entry + "/src" src)
+  reg_set(entry + "/dst" dst)
+  reg_set(entry + "/fstype" fstype)
+  reg_set("/sys/fs/mount_count" count + 1)
+  ret count
+}
+
+fn fs_umount(dst) {
+  result = unmount("" dst)
+  if type(result) == "err" || result != 0 { ret -1 }
+  ret 0
+}
+
+fn fs_sync() {
+  # No durable synchronization provider has been admitted yet.
+  ret -1
+}
+
+fn fs_stat(path) {
+  ret stat(path)
+}
+
+fn fs_start() {
+  # A namespace owner must explicitly select and authorize every mount.
+  # Do not synthesize SD disks or announce a ready service here.
+  reg_set("/sys/fs/status" "registered")
+  ret 0
+}

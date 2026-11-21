@@ -1,6 +1,6 @@
 # ===================================================================
 # NXED v18 — Professional Text Editor for NEXS
-# Using services/textbuf.nx for data integrity
+# Using nxlib/textbuf.nx for data integrity
 # ===================================================================
 
 # Variabili Globali
@@ -67,7 +67,7 @@ fn nxed_start(initial_file) {
   rawon()
   term_cls()
   
-  exec("services/textbuf.nx")
+  exec("nxlib/textbuf.nx")
   ed_buf = tb_create()
   filename = ""
   if initial_file != "" {

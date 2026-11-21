@@ -1,11 +1,8 @@
-/*
- * sys/sysio.c — Plan 9-style File I/O Syscalls
- * ===============================================
+/* sys/sysio.c — Language bindings, terminal input and keymap only.
+ * Actual file descriptions are owned by sys/fd_owner.c, not a second table.
  */
-
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 200809L
-
 #include "include/nexs_sys.h"
 #include "nexs_hal.h"
 #include "../registry/include/nexs_registry.h"
@@ -13,372 +10,17 @@
 #include "../core/include/nexs_alloc.h"
 #include "../core/include/nexs_value.h"
 #include "../core/include/nexs_common.h"
-
+#include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <unistd.h>
 #include <termios.h>
 #include <poll.h>
 #include "include/nexs_keymap.h"
-
 #ifndef NEXS_BAREMETAL
 #include <sys/ioctl.h>
 #endif
 
-extern const char *nexs_embedded_lookup(const char *path);
-
-/* =========================================================
-   GLOBAL STATE
-   ========================================================= */
-
-NexsFd g_fd_table[NEXS_MAX_FDS];
-static char g_errstr[REG_PATH_MAX] = "";
-
-/* =========================================================
-   INITIALISATION
-   ========================================================= */
-
-void sysio_init(void) {
-  memset(g_fd_table, 0, sizeof(g_fd_table));
-
-  g_fd_table[0].fp = stdin;
-  strncpy(g_fd_table[0].path, "/dev/stdin", REG_PATH_MAX - 1);
-  g_fd_table[0].in_use = 1;
-  g_fd_table[0].flags  = NEXS_OREAD;
-
-  g_fd_table[1].fp = stdout;
-  strncpy(g_fd_table[1].path, "/dev/stdout", REG_PATH_MAX - 1);
-  g_fd_table[1].in_use = 1;
-  g_fd_table[1].flags  = NEXS_OWRITE;
-
-  g_fd_table[2].fp = stderr;
-  strncpy(g_fd_table[2].path, "/dev/stderr", REG_PATH_MAX - 1);
-  g_fd_table[2].in_use = 1;
-  g_fd_table[2].flags  = NEXS_OWRITE;
-}
-
-/* =========================================================
-   HELPERS
-   ========================================================= */
-
-static int fd_alloc(void) {
-  for (int i = 3; i < NEXS_MAX_FDS; i++)
-    if (!g_fd_table[i].in_use) return i;
-  return -1;
-}
-
-static void set_errstr(const char *msg) {
-  if (msg) strncpy(g_errstr, msg, sizeof(g_errstr) - 1);
-  else g_errstr[0] = '\0';
-  g_errstr[sizeof(g_errstr) - 1] = '\0';
-}
-
-/* =========================================================
-   SYSCALLS
-   ========================================================= */
-
-int nexs_open(const char *path, int mode) {
-  if (!path) { set_errstr("open: NULL path"); return -1; }
-  int fd = fd_alloc();
-  if (fd < 0) { set_errstr("open: fd table full"); return -1; }
-  const char *fmode;
-  int base = mode & 0x0F;
-  int trunc = mode & NEXS_OTRUNC;
-  switch (base) {
-  case NEXS_OREAD:  fmode = "r"; break;
-  case NEXS_OWRITE: fmode = trunc ? "w" : "a"; break;
-  case NEXS_ORDWR:  fmode = trunc ? "w+" : "r+"; break;
-  default: set_errstr("open: invalid mode"); return -1;
-  }
-
-  /* 1. Prova embedded virtual files se il file non è su FS (o se in baremetal) */
-  const char *emb = nexs_embedded_lookup(path);
-  if (emb) {
-      g_fd_table[fd].fp = NULL;
-      g_fd_table[fd].emb_src = emb;
-      g_fd_table[fd].emb_pos = 0;
-      strncpy(g_fd_table[fd].path, path, REG_PATH_MAX - 1);
-      g_fd_table[fd].path[REG_PATH_MAX - 1] = '\0';
-      g_fd_table[fd].in_use = 1;
-      g_fd_table[fd].flags  = mode;
-      char regpath[REG_PATH_MAX];
-      snprintf(regpath, sizeof(regpath), "/sys/fd/%d", fd);
-      reg_set(regpath, val_str(path), RK_READ);
-      return fd;
-  }
-
-  /* Only catalogued source reads use the platform's source path mapping.
-   * All writes remain explicit user-specified VFS paths and process ACLs. */
-  char platform_path[REG_PATH_MAX];
-  const char *real_path = (base == NEXS_OREAD && !trunc)
-      ? nexs_platform_source_path(path, platform_path, sizeof(platform_path))
-      : path;
-  if (real_path == NULL) {
-    set_errstr("open: invalid source path");
-    return -1;
-  }
-  FILE *fp = fopen(real_path, fmode);
-  if (!fp) { set_errstr("open: cannot open file"); return -1; }
-  g_fd_table[fd].fp = fp;
-  g_fd_table[fd].emb_src = NULL;
-  g_fd_table[fd].emb_pos = 0;
-  strncpy(g_fd_table[fd].path, path, REG_PATH_MAX - 1);
-  g_fd_table[fd].path[REG_PATH_MAX - 1] = '\0';
-  g_fd_table[fd].in_use = 1;
-  g_fd_table[fd].flags  = mode;
-  char regpath[REG_PATH_MAX];
-  snprintf(regpath, sizeof(regpath), "/sys/fd/%d", fd);
-  reg_set(regpath, val_str(path), RK_READ);
-  return fd;
-}
-
-int nexs_create(const char *path, int mode, int perm) {
-  (void)perm;
-  if (!path) { set_errstr("create: NULL path"); return -1; }
-  int fd = fd_alloc();
-  if (fd < 0) { set_errstr("create: fd table full"); return -1; }
-  const char *fmode;
-  int base = mode & 0x0F;
-  switch (base) {
-  case NEXS_OREAD:  fmode = "w"; break;
-  case NEXS_OWRITE: fmode = "w"; break;
-  case NEXS_ORDWR:  fmode = "w+"; break;
-  default:          fmode = "w";
-  }
-  FILE *fp = fopen(path, fmode);
-  if (!fp) {
-      /* RAMFS fallback for freestanding environments (e.g. seL4) where real files are absent */
-      void *vbuf = xmalloc(4096);
-      if (!vbuf) { set_errstr("create: RAMFS out of memory"); return -1; }
-      memset(vbuf, 0, 4096);
-      g_fd_table[fd].fp = NULL;
-      g_fd_table[fd].emb_src = (const char *)vbuf;
-      g_fd_table[fd].emb_pos = 0;
-      strncpy(g_fd_table[fd].path, path, REG_PATH_MAX - 1);
-      g_fd_table[fd].path[REG_PATH_MAX - 1] = '\0';
-      g_fd_table[fd].in_use = 1;
-      g_fd_table[fd].flags  = mode | 0x8000; /* Special flag bit for dynamic RAMFS file */
-      char regpath[REG_PATH_MAX];
-      snprintf(regpath, sizeof(regpath), "/sys/fd/%d", fd);
-      reg_set(regpath, val_str(path), RK_READ);
-      return fd;
-  }
-  g_fd_table[fd].fp = fp;
-  g_fd_table[fd].emb_src = NULL;
-  g_fd_table[fd].emb_pos = 0;
-  strncpy(g_fd_table[fd].path, path, REG_PATH_MAX - 1);
-  g_fd_table[fd].path[REG_PATH_MAX - 1] = '\0';
-  g_fd_table[fd].in_use = 1;
-  g_fd_table[fd].flags  = mode;
-  char regpath[REG_PATH_MAX];
-  snprintf(regpath, sizeof(regpath), "/sys/fd/%d", fd);
-  reg_set(regpath, val_str(path), RK_READ);
-  return fd;
-}
-
-int nexs_close(int fd) {
-  if (fd < 0 || fd >= NEXS_MAX_FDS) { set_errstr("close: invalid fd"); return -1; }
-  if (!g_fd_table[fd].in_use) { set_errstr("close: fd not open"); return -1; }
-  if (g_fd_table[fd].flags & 0x8000) {
-      if (g_fd_table[fd].emb_src) {
-          xfree((void *)g_fd_table[fd].emb_src);
-      }
-      g_fd_table[fd].emb_src = NULL;
-  } else {
-      if (fd >= 3 && g_fd_table[fd].fp) fclose(g_fd_table[fd].fp);
-  }
-  g_fd_table[fd].fp = NULL;
-  g_fd_table[fd].path[0] = '\0';
-  g_fd_table[fd].in_use = 0;
-  g_fd_table[fd].flags  = 0;
-  char regpath[REG_PATH_MAX];
-  snprintf(regpath, sizeof(regpath), "/sys/fd/%d", fd);
-  reg_delete(regpath);
-  return 0;
-}
-
-int nexs_pread(int fd, char *buf, int n, int64_t offset) {
-  if (fd < 0 || fd >= NEXS_MAX_FDS || !g_fd_table[fd].in_use)
-    { set_errstr("pread: invalid fd"); return -1; }
-  if (!buf || n <= 0) { set_errstr("pread: invalid params"); return -1; }
-
-  if (g_fd_table[fd].flags & 0x8000) {
-      const char *mbuf = g_fd_table[fd].emb_src;
-      size_t pos = (offset >= 0) ? (size_t)offset : g_fd_table[fd].emb_pos;
-      size_t len = 0;
-      while (len < 4096 && mbuf[len] != '\0') len++;
-      if (len == 0) len = 4096; /* If newly created, allow reading uninitialized space */
-      if (pos >= len) return 0;
-      size_t to_read = len - pos;
-      if (to_read > (size_t)n) to_read = (size_t)n;
-      memcpy(buf, mbuf + pos, to_read);
-      if (offset < 0) g_fd_table[fd].emb_pos += to_read;
-      return (int)to_read;
-  }
-
-  if (g_fd_table[fd].emb_src) {
-      size_t len = strlen(g_fd_table[fd].emb_src);
-      size_t pos = (offset >= 0) ? (size_t)offset : g_fd_table[fd].emb_pos;
-      if (pos >= len) return 0;
-      size_t to_read = len - pos;
-      if (to_read > (size_t)n) to_read = (size_t)n;
-      memcpy(buf, g_fd_table[fd].emb_src + pos, to_read);
-      if (offset < 0) g_fd_table[fd].emb_pos += to_read;
-      return (int)to_read;
-  }
-
-  FILE *fp = g_fd_table[fd].fp;
-  if (!fp) { set_errstr("pread: NULL fp"); return -1; }
-  if (offset >= 0 && fseek(fp, (long)offset, SEEK_SET) != 0)
-    { set_errstr("pread: seek failed"); return -1; }
-  return (int)fread(buf, 1, (size_t)n, fp);
-}
-
-int nexs_pwrite(int fd, const char *buf, int n, int64_t offset) {
-  if (fd < 0 || fd >= NEXS_MAX_FDS || !g_fd_table[fd].in_use)
-    { set_errstr("pwrite: invalid fd"); return -1; }
-  if (!buf || n <= 0) { set_errstr("pwrite: invalid params"); return -1; }
-
-  if (g_fd_table[fd].flags & 0x8000) {
-      char *mbuf = (char *)g_fd_table[fd].emb_src;
-      size_t pos = (offset >= 0) ? (size_t)offset : g_fd_table[fd].emb_pos;
-      if (pos + n > 4096) n = 4096 - pos;
-      if (n <= 0) return 0;
-      memcpy(mbuf + pos, buf, n);
-      if (offset < 0) g_fd_table[fd].emb_pos += n;
-      return n;
-  }
-
-  FILE *fp = g_fd_table[fd].fp;
-  if (!fp) { set_errstr("pwrite: NULL fp"); return -1; }
-  if (offset >= 0 && fseek(fp, (long)offset, SEEK_SET) != 0)
-    { set_errstr("pwrite: seek failed"); return -1; }
-  size_t wr = fwrite(buf, 1, (size_t)n, fp);
-  fflush(fp);
-  return (int)wr;
-}
-
-int64_t nexs_seek(int fd, int64_t offset, int whence) {
-  if (fd < 0 || fd >= NEXS_MAX_FDS || !g_fd_table[fd].in_use)
-    { set_errstr("seek: invalid fd"); return -1; }
-
-  if (g_fd_table[fd].emb_src) {
-      size_t len = (g_fd_table[fd].flags & 0x8000) ? 4096 : strlen(g_fd_table[fd].emb_src);
-      int64_t newpos = 0;
-      switch (whence) {
-      case 0: newpos = offset; break;
-      case 1: newpos = (int64_t)g_fd_table[fd].emb_pos + offset; break;
-      case 2: newpos = (int64_t)len + offset; break;
-      default: set_errstr("seek: invalid whence"); return -1;
-      }
-      if (newpos < 0) newpos = 0;
-      if (newpos > (int64_t)len) newpos = (int64_t)len;
-      g_fd_table[fd].emb_pos = (size_t)newpos;
-      return newpos;
-  }
-
-  FILE *fp = g_fd_table[fd].fp;
-  if (!fp) { set_errstr("seek: NULL fp"); return -1; }
-  int w;
-  switch (whence) {
-  case 0: w = SEEK_SET; break;
-  case 1: w = SEEK_CUR; break;
-  case 2: w = SEEK_END; break;
-  default: set_errstr("seek: invalid whence"); return -1;
-  }
-  if (fseek(fp, (long)offset, w) != 0) { set_errstr("seek: failed"); return -1; }
-  return (int64_t)ftell(fp);
-}
-
-int nexs_dup(int oldfd, int newfd) {
-  if (oldfd < 0 || oldfd >= NEXS_MAX_FDS || !g_fd_table[oldfd].in_use)
-    { set_errstr("dup: invalid oldfd"); return -1; }
-  if (newfd < 0) newfd = fd_alloc();
-  if (newfd < 0 || newfd >= NEXS_MAX_FDS) { set_errstr("dup: invalid newfd"); return -1; }
-  if (g_fd_table[newfd].in_use && newfd >= 3) nexs_close(newfd);
-  g_fd_table[newfd] = g_fd_table[oldfd];
-  char regpath[REG_PATH_MAX];
-  snprintf(regpath, sizeof(regpath), "/sys/fd/%d", newfd);
-  reg_set(regpath, val_str(g_fd_table[newfd].path), RK_READ);
-  return newfd;
-}
-
-int nexs_fd2path(int fd, char *buf, int nbuf) {
-  if (fd < 0 || fd >= NEXS_MAX_FDS || !g_fd_table[fd].in_use)
-    { set_errstr("fd2path: invalid fd"); return -1; }
-  if (!buf || nbuf <= 0) { set_errstr("fd2path: invalid buf"); return -1; }
-  strncpy(buf, g_fd_table[fd].path, (size_t)(nbuf - 1));
-  buf[nbuf - 1] = '\0';
-  return 0;
-}
-
-int nexs_remove(const char *path) {
-  if (!path) { set_errstr("remove: NULL path"); return -1; }
-  if (remove(path) != 0) { set_errstr("remove: failed"); return -1; }
-  return 0;
-}
-
-int nexs_pipe(int fd[2]) {
-  if (!fd) { set_errstr("pipe: NULL fd"); return -1; }
-  int pipefd[2];
-  if (pipe(pipefd) != 0) { set_errstr("pipe: creation failed"); return -1; }
-  int fd0 = fd_alloc();
-  if (fd0 < 0) { close(pipefd[0]); close(pipefd[1]); set_errstr("pipe: fd table full"); return -1; }
-  g_fd_table[fd0].fp = fdopen(pipefd[0], "r");
-  strncpy(g_fd_table[fd0].path, "/dev/pipe/r", REG_PATH_MAX - 1);
-  g_fd_table[fd0].in_use = 1;
-  g_fd_table[fd0].flags  = NEXS_OREAD;
-  int fd1 = fd_alloc();
-  if (fd1 < 0) {
-    fclose(g_fd_table[fd0].fp);
-    g_fd_table[fd0].in_use = 0;
-    close(pipefd[1]);
-    set_errstr("pipe: fd table full");
-    return -1;
-  }
-  g_fd_table[fd1].fp = fdopen(pipefd[1], "w");
-  strncpy(g_fd_table[fd1].path, "/dev/pipe/w", REG_PATH_MAX - 1);
-  g_fd_table[fd1].in_use = 1;
-  g_fd_table[fd1].flags  = NEXS_OWRITE;
-  fd[0] = fd0;
-  fd[1] = fd1;
-  return 0;
-}
-
-Value nexs_stat(const char *path) {
-  if (!path) return val_err(4, "stat: NULL path");
-  struct stat sb;
-  if (stat(path, &sb) != 0) return val_err(4, "stat: file not found");
-  char buf[512];
-  snprintf(buf, sizeof(buf),
-           "path=%s size=%lld mode=%o mtime=%lld type=%s",
-           path, (long long)sb.st_size, (unsigned int)(sb.st_mode & 0777),
-           (long long)sb.st_mtime,
-           S_ISDIR(sb.st_mode) ? "dir" : S_ISREG(sb.st_mode) ? "file" : "other");
-  return val_str(buf);
-}
-
-int nexs_chdir(const char *path) {
-  if (!path) { set_errstr("chdir: NULL path"); return -1; }
-  if (chdir(path) != 0) { set_errstr("chdir: failed"); return -1; }
-  return 0;
-}
-
 static int s_key_lookahead = -1;
-
-void nexs_errstr(char *buf, int nbuf) {
-  if (!buf || nbuf <= 0) return;
-  char tmp[REG_PATH_MAX];
-  /* Salva errore corrente */
-  strncpy(tmp, g_errstr, sizeof(tmp) - 1);
-  tmp[sizeof(tmp) - 1] = '\0';
-  /* Imposta nuovo errore dal buffer dell'utente */
-  strncpy(g_errstr, buf, sizeof(g_errstr) - 1);
-  g_errstr[sizeof(g_errstr) - 1] = '\0';
-  /* Ritorna il vecchio errore all'utente */
-  strncpy(buf, tmp, (size_t)(nbuf - 1));
-  buf[nbuf - 1] = '\0';
-}
 
 static int nexs_read_byte(void) {
   if (s_key_lookahead != -1) {
@@ -484,12 +126,20 @@ static Value bi_pipe(Value *args, int n) {
   (void)args; (void)n;
   int fds[2];
   if (nexs_pipe(fds) < 0) return val_err(4, "pipe: failed");
-  DynArray *arr = arr_get_or_create("__pipe__");
-  arr_set(arr, 0, val_int(fds[0]));
-  arr_set(arr, 1, val_int(fds[1]));
-  Value v;
-  v.type = TYPE_ARR; v.data = arr; v.ival = 0;
-  v.fval = 0; v.err_code = 0; v.err_msg = NULL;
+  /* Each pipe owns a distinct anonymous pair. There must never be a
+   * global "__pipe__" array reused across unrelated descriptors. */
+  DynArray *arr = arr_create_anon();
+  if (arr == NULL || arr_set(arr, 0, val_int(fds[0])) != 0 ||
+      arr_set(arr, 1, val_int(fds[1])) != 0) {
+    if (arr != NULL)
+      arr_unref(arr);
+    nexs_close(fds[0]);
+    nexs_close(fds[1]);
+    return val_err(2, "pipe: descriptor array allocation failed");
+  }
+  Value v = val_nil();
+  v.type = TYPE_ARR;
+  v.data = arr;
   return v;
 }
 
@@ -570,7 +220,7 @@ static Value bi_rawon(Value *args, int n) {
   (void)args; (void)n;
 #ifdef NEXS_BAREMETAL
   return val_nil();
-#endif
+#else
   if (s_raw_active) return val_int(0);
   if (!isatty(STDIN_FILENO)) return val_int(-1);
   if (tcgetattr(STDIN_FILENO, &s_orig_term) != 0) return val_int(-1);
@@ -579,20 +229,25 @@ static Value bi_rawon(Value *args, int n) {
   raw.c_lflag &= ~(tcflag_t)(ECHO | ICANON | IEXTEN | ISIG);
   raw.c_cflag |= CS8;
   raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0;
-  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) != 0) return val_int(-1);
+  /* A mode switch must never discard keystrokes already queued by the
+   * terminal: TCSAFLUSH lost commands typed just before the prompt. */
+  if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) != 0) return val_int(-1);
   s_raw_active = 1;
   return val_int(0);
+#endif
 }
 
 static Value bi_rawoff(Value *args, int n) {
   (void)args; (void)n;
 #ifdef NEXS_BAREMETAL
   return val_nil();
-#endif
+#else
   if (!s_raw_active) return val_int(0);
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &s_orig_term);
+  /* Preserve typeahead across successive input() calls. */
+  tcsetattr(STDIN_FILENO, TCSANOW, &s_orig_term);
   s_raw_active = 0;
   return val_int(0);
+#endif
 }
 
 static char s_key_layout[16] = "us";
@@ -851,36 +506,31 @@ void sysio_register_builtins(void) {
     SIG("term_flush()") "nil");
   fn_register_builtin_sig("term_size", bi_term_size,
     SIG("term_size()") "str");
+
+  /* Single terminal driver, two explicit registry interfaces:
+   * public stdlib wrappers maintain per-session shadow buffers;
+   * underscore names are the raw HAL provider contract called by them.
+   * They are aliases to EXISTING callbacks, not a second implementation. */
+  fn_register_builtin_sig("_readkey", bi_readkey,
+    SIG("_readkey()") "str");
+  fn_register_builtin_sig("_term_at", bi_term_at,
+    SIG("_term_at(y int, x int, s str)") "nil");
+  fn_register_builtin_sig("_term_cls", bi_term_cls,
+    SIG("_term_cls()") "nil");
+  fn_register_builtin_sig("_term_flush", bi_term_flush,
+    SIG("_term_flush()") "nil");
+  fn_register_builtin_sig("_term_cursor_move", bi_term_cursor_move,
+    SIG("_term_cursor_move(y int, x int)") "nil");
+  fn_register_builtin_sig("_term_cursor_show", bi_term_cursor_show,
+    SIG("_term_cursor_show(bool)") "nil");
+  fn_register_builtin_sig("_term_size", bi_term_size,
+    SIG("_term_size()") "str");
+
   fn_register_builtin_sig("set_fg_pid", bi_set_fg_pid,
     SIG("set_fg_pid(pid int)") "nil");
 
-  /* Store actual fn_table indices in /sys/<name> for val_print and eval resolution */
-  {
-    static const struct { const char *name; BuiltinFn fn; } t[] = {
-      {"open",bi_open},{"create",bi_create},{"close",bi_close},
-      {"read",bi_read},{"write",bi_write},{"seek",bi_seek},
-      {"dup",bi_dup},{"fd2path",bi_fd2path},{"remove",bi_remove},
-      {"pipe",bi_pipe},{"fstat",bi_fstat},{"chdir",bi_chdir},
-      {"mount",bi_mount},{"bind",bi_bind},{"unmount",bi_unmount},
-      {"rawon",bi_rawon},{"rawoff",bi_rawoff},
-      {"readbyte",bi_readbyte},{"chr",bi_chr},
-      {"set_layout",bi_set_layout},{"readkey",bi_readkey},
-      {"readkey_nb",bi_readkey_nb},{"term_at",bi_term_at},
-      {"term_cls",bi_term_cls},{"term_cursor_move",bi_term_cursor_move},
-      {"term_erase_eol",bi_term_erase_eol},{"term_cursor_show",bi_term_cursor_show},
-      {"term_flush",bi_term_flush},{"term_size",bi_term_size},
-      {"set_fg_pid",bi_set_fg_pid},
-    };
-    char path[REG_PATH_MAX];
-    for (int _i = 0; _i < (int)(sizeof(t)/sizeof(t[0])); _i++) {
-      NexsFnDef *def = fn_lookup(t[_i].name);
-      if (def) {
-        int idx = (int)(def - g_fn_table);
-        snprintf(path, sizeof(path), "/sys/%s", t[_i].name);
-        reg_set(path, val_fn_idx(idx), RK_READ | RK_EXEC);
-      }
-    }
-  }
+  /* Every built-in above was already published to /sys/ by
+   * fn_register_builtin_sig: no second table or registration pass. */
   reg_mkpath("/sys/fd", RK_READ);
 }
 #undef SIG

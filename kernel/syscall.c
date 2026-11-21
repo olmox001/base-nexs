@@ -163,9 +163,9 @@ static Value sys_create(const KernelMsg *m, uint32_t pid) {
 
 static Value sys_remove(const KernelMsg *m, uint32_t pid) {
     if (!caller_has_admin(pid)) return err_eperm();
-    /* Remove registry key */
-    reg_delete(m->arg0);
-    return val_int(0);
+    /* Remove exactly the named NXOLMO VFS resource, not arbitrary
+     * registry memory or a fabricated successful syscall. */
+    return val_int(vfs_remove(m->arg0));
 }
 
 static Value sys_pipe(const KernelMsg *m, uint32_t pid) {

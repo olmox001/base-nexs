@@ -10,17 +10,17 @@ out "==================================================="
 out "[INIT] Fase 1: Caricamento Driver e Servizi (Librerie di Sistema)..."
 
 # Caricamento dei servizi di sistema
-exec("services/stdlib.nx")
-exec("services/fs/init.nx")     # VFS & Mounts
-exec("services/pm/init.nx")     # PM
-exec("services/auth/init.nx")   # Auth & capabilities
-exec("services/tty/init.nx")    # TTY
-exec("services/ui/init.nx")     # UI framebuffer
-exec("services/logos/init.nx") # Logo registry
+exec("nxlib/stdlib.nx")
+exec("nxlib/services/fs/init.nx")     # VFS & Mounts
+exec("nxlib/services/pm/init.nx")     # PM
+exec("nxlib/services/auth/init.nx")   # Auth & capabilities
+exec("nxlib/services/tty/init.nx")    # TTY
+exec("nxlib/services/ui/init.nx")     # UI framebuffer
+exec("nxlib/services/logos/init.nx") # Logo registry
 exec("example/minios/logo.nx") # Import logos into VFS
-exec("services/fs/p9_mnt.nx")   # 9P
-exec("services/hw_dt.nx")       # HW Device Tree
-exec("services/textbuf.nx")     # Text Buffer Library
+exec("nxlib/services/fs/p9_mnt.nx")   # 9P
+exec("nxlib/services/hw_dt.nx")       # HW Device Tree
+exec("nxlib/textbuf.nx")     # Text Buffer Library
 
 out "[INIT] Fase 2: Inizializzazione Sottosistemi..."
 hw_dt_init()

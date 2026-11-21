@@ -51,6 +51,10 @@ fn broker_tick() {
 }
 
 # 3. Database Condiviso (Array Globale e Contatore)
+# Shared ledger is explicitly owned by the root registry namespace.
+# Worker function scopes resolve this object through the registry, not
+# through the removed global array-name table.
+ledger = arr_create_anon()
 reg /db/count = 0
 
 # 4. Logica dei Worker (Parametrica)

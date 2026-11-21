@@ -29,9 +29,12 @@ SECTIONS {
         _bss_end = .;
     }
 
-    /* Align to page boundary, then allocate stack */
+    /* Match the existing AMD64 512 KiB bootstrap reservation. The earlier
+     * 16 KiB ARM64 stack cannot safely accommodate nested interpreter
+     * evaluation and formatting frames. Per-task guarded stacks and peak
+     * stack qualification remain separate acceptance requirements. */
     . = ALIGN(4096);
     _stack_bottom = .;
-    . += 0x4000;        /* 16 KB stack */
+    . += 0x80000;
     _stack_top = .;
 }

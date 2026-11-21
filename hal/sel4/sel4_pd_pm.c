@@ -1,7 +1,7 @@
 /*
  * hal/sel4/sel4_pd_pm.c — seL4 Microkit Protection Domain: Process Manager
  * ==========================================================================
- * Runs services/pm/init.nx in isolation.
+ * Runs nxlib/services/pm/init.nx in isolation.
  * Same pattern as sel4_pd_fs.c — see that file for full rationale.
  *
  * MR virtual addresses (must match nexs_*arch*.system XML):
@@ -43,7 +43,10 @@ void nexs_hal_putc(char c) {
 int nexs_hal_getc(void) { return -1; }
 
 void init(void) {
-    nexs_runtime_init();
+    if (nexs_runtime_init() != 0) {
+        sel4_uart_daemon_puts(g_log_mr, "[nexs_pm] runtime admission failed\n", SEL4_CH_LOG_PM);
+        return;
+    }
 
     /* PM needs scheduler + proc table */
     sched_init();

@@ -21,6 +21,36 @@ class CatalogSafetyTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue((ROOT / path).is_file())
 
+    def test_allowed_reference_gitlinks_are_exact(self):
+        modules = (ROOT / ".gitmodules").read_text()
+        links = sorted(quality_gate.ALLOWED_SUBMODULES)
+        self.assertEqual([], quality_gate.submodule_issues(links, modules))
+        for candidate in (links[:-1], links + ["external/unknown"]):
+            with self.subTest(candidate=candidate):
+                issues = quality_gate.submodule_issues(candidate, modules)
+                self.assertIn("recursive_submodules",
+                              {issue["rule"] for issue in issues})
+
+    def test_reference_configuration_is_fail_closed(self):
+        modules = (ROOT / ".gitmodules").read_text()
+        links = sorted(quality_gate.ALLOWED_SUBMODULES)
+        for original, replacement in (
+            ("url = https://github.com/olmox001/NXOLMO.git",
+             "url = https://example.invalid/NXOLMO.git"),
+            ("branch = main", "branch = other"),
+            ("active = false", "active = true"),
+            ("update = none", "update = checkout"),
+            ("branch = main\n\tupdate = none\n\tactive = false",
+             "branch = main\n\tupdate = none\n\tactive = true"),
+            ("branch = main\n\tupdate = none\n\tactive = false",
+             "branch = main\n\tupdate = checkout\n\tactive = false"),
+        ):
+            with self.subTest(original=original):
+                self.assertIn(original, modules)
+                altered = modules.replace(original, replacement, 1)
+                self.assertTrue(quality_gate.submodule_issues(links, altered))
+        self.assertTrue(quality_gate.submodule_issues(links, None))
+
     def test_old_recursive_reference_is_not_tracked(self):
         self.assertFalse((ROOT / "reference/.git").exists())
 
@@ -29,8 +59,19 @@ class CatalogSafetyTests(unittest.TestCase):
             line for line in (ROOT / "config/nx_sources.txt").read_text().splitlines()
             if line and not line.startswith("#")
         ]
-        self.assertEqual(34, len(entries))
-        self.assertTrue(all((ROOT / entry).is_file() for entry in entries))
+        actual = sorted(
+            path.relative_to(ROOT).as_posix()
+            for directory in ("example", "nxlib")
+            for path in (ROOT / directory).rglob("*.nx")
+        )
+        self.assertEqual(actual, sorted(entries))
+        self.assertEqual(len(entries), len(set(entries)))
+        self.assertIn("nxlib/stdlib.nx", entries)
+        self.assertIn("nxlib/textbuf.nx", entries)
+        self.assertNotIn("modules/stdlib.nx", entries)
+        self.assertNotIn("nxlib/services/stdlib.nx", entries)
+        self.assertTrue(all(not item.startswith("services/") for item in entries))
+        self.assertFalse(list((ROOT / "services").rglob("*.nx")))
 
 
 class LexicalAuditTests(unittest.TestCase):

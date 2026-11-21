@@ -1,0 +1,6 @@
+# Canonical text-buffer module descriptor.
+# All nine text-buffer functions are provided by the ONE /sys registry
+# implementation in lang/builtins.c, including former unique service
+# operations (get/set/split/merge). Loading this module remains supported
+# by the OS1 service catalog and editor; it does not redefine callables.
+library "textbuf"

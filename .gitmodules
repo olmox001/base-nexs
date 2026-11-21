@@ -4,3 +4,9 @@
 	branch = SPERIMENTAL-LINUX
 	update = none
 	active = false
+[submodule "external/references/nxolmo"]
+	path = external/references/nxolmo
+	url = https://github.com/olmox001/NXOLMO.git
+	branch = main
+	update = none
+	active = false

@@ -7,8 +7,11 @@
 #include "../../core/include/nexs_common.h"
 #include <stdint.h>
 #include <stddef.h>
+#include "nexs_types.h"
 
 typedef struct {
+    nx_object_ref object; /* NXOLMO identity, not local numeric inode ID */
+    uint64_t revision;
     uint64_t ino;
     uint32_t mode;      /* S_IFREG | S_IFDIR | S_IFLNK */
     uint32_t uid, gid;
@@ -26,6 +29,7 @@ int vfs_dup(int oldfd, int newfd);     /* -1 for newfd = next available */
 int vfs_seek(int fd, int64_t offset, int whence); /* SEEK_SET=0 CUR=1 END=2 */
 int vfs_stat(const char *path, VfsInode *out);
 int vfs_mkdir(const char *path, uint32_t mode);
+int vfs_remove(const char *path);
 int vfs_mount(const char *src, const char *dst, const char *fstype);
 
 #endif

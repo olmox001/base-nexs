@@ -1,0 +1,65 @@
+{
+  "by_language": {
+    "AssemblyCandidate": 21,
+    "C": 4514,
+    "C++": 1,
+    "NEXS": 248,
+    "Python": 362
+  },
+  "by_phase": {
+    "P0": 36,
+    "P1": 215,
+    "P2": 216,
+    "P3": 523,
+    "P4": 180,
+    "P5": 689,
+    "P6": 79,
+    "P7": 1327,
+    "P8": 1881
+  },
+  "by_project": {
+    "BASE-NEXS": 2295,
+    "NEXSOS1-KERNEL-REFERENCE": 663,
+    "NEXSOS1-SDK-REFERENCE": 29,
+    "NEXSOS1-USERKIT-REFERENCE": 78,
+    "NXEC": 484,
+    "NXOLMO": 1597
+  },
+  "by_role": {
+    "build-tool": 126,
+    "example": 69,
+    "external-reference-readonly": 770,
+    "imported-reference-nonproduct": 295,
+    "language-application": 161,
+    "language-library": 43,
+    "language-service": 43,
+    "product": 2325,
+    "test": 1146,
+    "unadapted-linux-reference-gate-blocker": 168
+  },
+  "entrypoints_or_nexs_sources": 193,
+  "exclusions": [
+    "NexsOS1: ONLY targeted read-only NXEXEC/TTY/object/HAL/VFS reference submodules",
+    "External Git submodules inside NXOLMO except the separately indexed NXEC",
+    "NXOLMO imported reference snapshots are labeled non-product",
+    "Linux 9P files remain a strict audit blocker, but are not linked as NXOLMO-native 9P",
+    "C function-like macros and prototypes are not function definitions",
+    "Assembly labels are lexical candidates, not established callable routines",
+    "NEXS script top-level statements are counted in source-file inventory, not functions"
+  ],
+  "lexical_call_edge_candidates": 10876,
+  "proposed_test_mapping_rows": 2325,
+  "prototypes_without_selected_source_definition": 53,
+  "python_parse_failures": [],
+  "source_files_indexed": 672,
+  "source_revisions": {
+    "BASE-NEXS": "15ee3c1f4855c4c79820acd63779a999c650bf2b",
+    "NEXSOS1-KERNEL-REFERENCE": "44d096b84204c47343fc2a61e2f6d3df8b571329",
+    "NEXSOS1-SDK-REFERENCE": "d4179ac5c467974e80633632de16a17daa1c4e9a",
+    "NEXSOS1-USERKIT-REFERENCE": "b78a95a7c875503d88d91f19790d819e76ed8f4b",
+    "NXEC": "713f2c605afe6ce18559ed895d6a34cf21051548",
+    "NXOLMO": "8b211982ac97a51acc2430e6bde018840c34a31d"
+  },
+  "total_definitions_or_assembly_candidates": 5146,
+  "warning": "AUTO-INDEXED functions; architecture/semantics require code review."
+}

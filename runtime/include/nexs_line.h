@@ -114,7 +114,6 @@ NEXS_API void nexs_line_add_history(NxLineEditor *le, const char *line);
 
 NEXS_API int  nexs_line_raw_on(void);
 NEXS_API void nexs_line_raw_off(void);
-NEXS_API int  nexs_line_is_tty(void);
 
 NEXS_API NxKey      nexs_key_read(void);
 NEXS_API const char *nexs_key_name(NxKeyCode k);

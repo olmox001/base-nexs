@@ -82,6 +82,8 @@ struct ASTNode {
   ASTNode *children;
   ASTNode *next;
   ASTNode *alt;
+  /* Intrusive parse-attempt owner chain; never a second AST graph/index. */
+  ASTNode *allocation_next;
 };
 
 /* =========================================================
@@ -94,6 +96,8 @@ typedef struct {
   Token  peek;
   int    had_error;
   char   error_msg[256];
+  /* Transient transactional allocation ledger; cleared on parse success. */
+  ASTNode *owned_allocations;
 } Parser;
 
 /* =========================================================
@@ -104,16 +108,16 @@ NEXS_API ASTNode *ast_alloc(ASTKind kind, Token tok);
 NEXS_API void     ast_print(ASTNode *node, FILE *out, int depth);
 
 /*
- * ast_free: recursively free all nodes.
+ * ast_free: release the owned AST iteratively with bounded traversal.
  * For AST_FN_DECL, if n->right has been transferred to the fn_table
  * (set to NULL by eval after fn_register), it is skipped automatically.
  */
 NEXS_API void ast_free(ASTNode *n);
 
 /*
- * ast_free_safe: same as ast_free but also NULLs out any AST_FN_DECL
- * right-child before freeing, as a safety measure.  Prefer using this
- * in eval_str after fn_register has already NULLed the body.
+ * ast_free_safe: same bounded ownership release as ast_free.
+ * A function body is excluded only after fn_register has actually taken
+ * ownership and cleared AST_FN_DECL.right. Parse failures retain the body.
  */
 NEXS_API void ast_free_safe(ASTNode *n);
 

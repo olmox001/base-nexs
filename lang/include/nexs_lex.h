@@ -100,7 +100,13 @@ typedef enum {
 
 typedef struct {
   TokenKind kind;
+  /* Small, NUL-terminated preview for identifiers/operators/diagnostics.
+   * Long literals and registry paths are borrowed source slices, not
+   * copied into this fixed-size buffer. No lexer-owned heap allocations. */
   char text[NAME_LEN];
+  const char *span;
+  size_t span_len;
+  unsigned char span_escaped;
   int64_t ival;
   double fval;
   int line;
@@ -131,6 +137,10 @@ NEXS_API void lexer_init(Lexer *lex, const char *src);
 NEXS_API void lexer_init_lib(Lexer *lex, const char *src, const char *lib_name);
 NEXS_API Token lexer_next(Lexer *lex);
 NEXS_API Token lexer_peek(Lexer *lex);
+/* Copy the complete decoded string/path into a caller-owned buffer. Returns
+ * 0 on overflow, embedded NUL or malformed token, NEVER truncates. The slice
+ * remains borrowed from the source until the parser has copied it. */
+NEXS_API int lexer_token_copy(const Token *token, char *out, size_t capacity);
 NEXS_API const char *token_kind_name(TokenKind k);
 
 #ifdef __cplusplus

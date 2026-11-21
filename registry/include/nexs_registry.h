@@ -11,6 +11,7 @@
 
 #include "../../core/include/nexs_common.h"
 #include "../../core/include/nexs_value.h"
+#include "nexs_state_store.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -34,7 +35,7 @@ typedef struct {
   MsgNode *tail;       /* enqueue at tail */
   int      count;
   int      max_count;
-  /* Pipe-backed IPC transport (activated after rfork/fork in hosted mode).
+  /* Pipe-backed IPC transport (initialized BEFORE hosted rfork/fork).
    * pipe_fd[0] = read end, pipe_fd[1] = write end.
    * -1 means the pipe has not been created yet. */
   int      pipe_fd[2];
@@ -48,6 +49,9 @@ typedef struct {
 typedef struct RegKey RegKey;
 
 struct RegKey {
+  /* Stable NXOLMO object reference; never a pointer/slot authority grant.
+   * The following named links are a local path projection until P3 cutover. */
+  nx_object_ref object;
   char       name[NAME_LEN];
   char       path[REG_PATH_MAX];
   Value      val;
@@ -59,8 +63,13 @@ struct RegKey {
 };
 
 typedef struct {
+  /* One canonical NXOLMO object state machine. No second object-ID table. */
+  nx_state_store state;
+  nx_state_slot *slots;
+  uint32_t *index;
+  uint32_t *rehash_index;
   RegKey *root;
-  size_t  total_keys;
+  size_t total_keys;
 } Registry;
 
 extern Registry g_registry;
@@ -69,10 +78,25 @@ extern Registry g_registry;
    CORE REGISTRY API
    ========================================================= */
 
-NEXS_API void    reg_init(void);
+/* 0 only when all namespace roots are admitted; -1 on OOM/reentry.
+ * A failed initialization publishes no root and reclaims its allocations. */
+/* ONE shared NXOLMO RegKey path admission contract for registry, VFS and
+ * installed/bundled sources. 1=valid exact canonical absolute path,
+ * 0=invalid. Does not authenticate a caller or allocate resources. */
+NEXS_API int     reg_path_valid(const char *path);
+NEXS_API int     reg_init(void);
+/* Actual canonical object reference/typed metadata, not a RegKey pointer.
+ * This path projection is not an authority grant; NXREG capability checks
+ * must be applied at protected call/commit boundaries. */
+NEXS_API nx_status reg_object_read(const char *path, nx_state_node *node,
+                                    nx_result *result);
 NEXS_API RegKey *reg_mkpath(const char *path, uint8_t rights);
 NEXS_API RegKey *reg_lookup(const char *path);
 NEXS_API RegKey *reg_resolve(const char *name, const char *scope_path);
+/* Same namespace, typed callable resolution. Preserves the separate
+ * variable-versus-callable lookup semantics without duplicate tables. */
+NEXS_API RegKey *reg_resolve_callable(const char *name,
+                                      const char *scope_path);
 NEXS_API int     reg_set(const char *path, Value val, uint8_t rights);
 NEXS_API Value   reg_get(const char *path);
 NEXS_API int     reg_delete(const char *path);
@@ -134,20 +158,13 @@ NEXS_API int reg_ipc_recv(const char *path, Value *out_msg);
 NEXS_API int reg_ipc_pending(const char *path);
 
 /*
- * reg_ipc_enable_pipes — switch ALL existing IPC queues to pipe-backed
- * transport.  Must be called in both parent and child immediately after
- * fork() so that subsequent sendmessage/receivemessage cross the process
- * boundary via real POSIX pipes instead of the forked heap copies.
- * Safe to call multiple times (idempotent for already-converted queues).
+ * reg_ipc_enable_pipes — prepare existing queues BEFORE hosted fork so
+ * the two processes inherit the SAME actual pipe file descriptors.
+ * Uses bounded in-place registry traversal; fails closed on provider pipe
+ * exhaustion without discarding the old queue's pending messages.
+ * Returns 0 on success, -1 on failure; not the finalized REG protocol.
  */
-NEXS_API void reg_ipc_enable_pipes(void);
-
-/* =========================================================
-   BUILT-IN REGISTRATION HELPER
-   ========================================================= */
-
-/* Registers a C function as a TYPE_FN value at /sys/<name> */
-NEXS_API void reg_register_builtin(const char *name, void *fn);
+NEXS_API int reg_ipc_enable_pipes(void);
 
 #ifdef __cplusplus
 }

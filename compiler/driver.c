@@ -1,339 +1,272 @@
 /*
- * compiler/driver.c — NEXS Compilation Driver
- * =============================================
- * Orchestrates: dep-scan → codegen → gcc → optional ELF inspection.
+ * NEXS hosted AOT launcher.
  *
- * New:
- *   nexs_compile_file_ex(src, target, out, no_dep)
- *   nexs_compile_file is a backwards-compat wrapper (no_dep=0).
+ * Compiler inputs are compiled to a private staging directory.  Make only
+ * receives generated, trusted staging paths.  No user-controlled path is
+ * interpolated into a shell command, no shell launcher is used and no
+ * predictable PID-named /tmp file is shared with other compiler instances.
+ *
+ * All build source lists are owned by config/sources.mk, not duplicated here.
+ * This translation unit is selected exclusively for hosted toolchain builds.
  */
+#define _XOPEN_SOURCE 700
+#define _DARWIN_C_SOURCE 1
 
-#include "../core/include/nexs_common.h"
 #include "include/nexs_compiler.h"
 #include "targets.h"
 
+#include <errno.h>
+#include <fcntl.h>
+#include <spawn.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
-/* =========================================================
-   HELPERS
-   ========================================================= */
+extern char **environ;
 
-/* Print entry-point info from an ELF binary (baremetal only) */
-static void nexs_print_baremetal_info(const char *out_path,
-                                      const TargetConfig *tc) {
-  fprintf(stdout, "[baremetal] target=%s output=%s\n", tc->name, out_path);
-
-  FILE *f = fopen(out_path, "rb");
-  if (!f)
-    return;
-
-  /* Minimal ELF header parsing — just grab e_entry */
-  unsigned char ident[16];
-  if (fread(ident, 1, 16, f) < 16 || ident[0] != 0x7f || ident[1] != 'E' ||
-      ident[2] != 'L' || ident[3] != 'F') {
-    fclose(f);
-    return;
-  }
-
-  int is64 = (ident[4] == 2);
-  if (is64) {
-    fseek(f, 24, SEEK_SET); /* e_entry is at offset 24 in 64-bit ELF */
-    unsigned long long entry = 0;
-    if (fread(&entry, 8, 1, f) == 1)
-      fprintf(stdout, "[baremetal] entry point: 0x%llx\n",
-              (unsigned long long)entry);
-  } else {
-    fseek(f, 24, SEEK_SET);
-    unsigned int entry = 0;
-    if (fread(&entry, 4, 1, f) == 1)
-      fprintf(stdout, "[baremetal] entry point: 0x%x\n", entry);
-  }
-  fclose(f);
+static int nexs_dir_exists(const char *path) {
+  struct stat status;
+  return stat(path, &status) == 0 && S_ISDIR(status.st_mode);
 }
 
-/* AOT target builds use the single Make source graph and real backend
- * toolchains rather than maintaining a conflicting second list of HAL sources.
- * Only bounded local paths can enter the existing system()-based launcher.
- */
-static int os1_path_safe(const char *path) {
-  if (path == NULL || path[0] == '\0') return 0;
-  for (size_t i = 0; i < 1024U && path[i] != '\0'; ++i) {
-    const unsigned char c = (unsigned char)path[i];
-    const int alpha = (c >= 'a' && c <= 'z') ||
-                      (c >= 'A' && c <= 'Z');
-    const int digit = c >= '0' && c <= '9';
-    const int punctuation = c == '/' || c == '.' || c == '_' ||
-                            c == '-' || c == ' ' || c == ':';
-    if (!alpha && !digit && !punctuation) return 0;
-    if (i == 1023U) return 0;
-  }
-  return 1;
+static int nexs_make_directory(const char *path) {
+  if (mkdir(path, 0700) == 0) return 0;
+  if (errno == EEXIST && nexs_dir_exists(path)) return 0;
+  return -1;
 }
 
-static int nexs_compile_native(const char *src_path,
-                               CompileTarget target, const char *out_path,
-                               int no_dep) {
-  if (!os1_path_safe(src_path) || !os1_path_safe(out_path)) {
-    fprintf(stderr, "nxscript: unsafe AOT build source/output path\n");
-    return -1;
+/* A user output path is processed as bytes, never passed to the build shell.
+ * The loop grows only according to its actual checked input length. */
+static int nexs_ensure_output_parent(const char *output) {
+  char *copy = strdup(output);
+  if (copy == NULL) return -1;
+  int result = 0;
+  size_t length = strlen(copy);
+  for (size_t i = 1; i < length && result == 0; ++i) {
+    if (copy[i] != '/') continue;
+    copy[i] = '\0';
+    if (nexs_make_directory(copy) != 0) result = -1;
+    copy[i] = '/';
   }
-  const char *goal = NULL;
-  const char *input_var = NULL;
-  const char *output_var = NULL;
-  const char *deps_var = NULL;
-  int embed_deps = no_dep == 0;
+  free(copy);
+  return result;
+}
+
+static char *nexs_join(const char *first, const char *second) {
+  size_t a = strlen(first);
+  size_t b = strlen(second);
+  if (a > SIZE_MAX - b - 1U) return NULL;
+  char *buffer = malloc(a + b + 1U);
+  if (buffer == NULL) return NULL;
+  memcpy(buffer, first, a);
+  memcpy(buffer + a, second, b + 1U);
+  return buffer;
+}
+
+static char *nexs_assignment(const char *key, const char *value) {
+  size_t a = strlen(key);
+  size_t b = strlen(value);
+  if (a > SIZE_MAX - b - 2U) return NULL;
+  char *buffer = malloc(a + b + 2U);
+  if (buffer == NULL) return NULL;
+  memcpy(buffer, key, a);
+  buffer[a] = '=';
+  memcpy(buffer + a + 1U, value, b + 1U);
+  return buffer;
+}
+
+/* Only the caller's selected historical resource profile reaches Make. */
+static const char *nexs_pool_profile(void) {
+  static const char *const allowed[] = {
+      "4KB", "16KB", "32KB", "512KB", "4MB", "16MB", "64MB"};
+  const char *requested = getenv("NEXS_POOL_PROFILE");
+  if (requested == NULL || requested[0] == '\0') return "64MB";
+  if (strncmp(requested, "POOL_", 5U) == 0) requested += 5U;
+  for (size_t i = 0; i < sizeof(allowed) / sizeof(allowed[0]); ++i) {
+    if (strcmp(requested, allowed[i]) == 0) return allowed[i];
+  }
+  return NULL;
+}
+
+static const char *nexs_make_goal(CompileTarget target) {
   switch (target) {
+  case TARGET_LINUX_AMD64:
+  case TARGET_LINUX_ARM64:
+  case TARGET_MACOS_AMD64:
+  case TARGET_MACOS_ARM64:
+    return "aot-hosted";
   case TARGET_OS1_AMD64:
-    goal = "os1-aot-amd64";
-    break;
+    return "os1-aot-amd64";
   case TARGET_OS1_ARM64:
-    goal = "os1-aot-arm64";
-    break;
+    return "os1-aot-arm64";
   case TARGET_BAREMETAL_AMD64:
-    goal = "baremetal-amd64";
-    break;
+    return "baremetal-amd64";
   case TARGET_BAREMETAL_ARM64:
-    goal = "baremetal-arm64";
-    break;
+    return "baremetal-arm64";
   default:
-    return -1;
+    return NULL;
   }
-  if (target == TARGET_OS1_AMD64 || target == TARGET_OS1_ARM64) {
-    input_var = "OS1_AOT_ENTRY_NX";
-    output_var = "OS1_AOT_OUTPUT";
-    deps_var = "OS1_AOT_NO_DEP";
-    embed_deps = no_dep != 0;
-  } else {
-    input_var = "BAREMETAL_ENTRY_NX";
-    output_var = "BAREMETAL_OUTPUT";
-    deps_var = "BAREMETAL_EMBED_DEPS";
-  }
-  char cmd[2300];
-  const int size = snprintf(cmd, sizeof(cmd),
-      "make --no-print-directory %s='%s' %s='%s' %s=%d %s",
-      input_var, src_path, output_var, out_path, deps_var, embed_deps, goal);
-  if (size < 0 || (size_t)size >= sizeof(cmd)) {
-    fprintf(stderr, "nxscript: AOT command exceeds capacity\n");
-    return -1;
-  }
-  return system(cmd) == 0 ? 0 : -1;
 }
 
-/* =========================================================
-   nexs_compile_file_ex
-   ========================================================= */
-
-int nexs_compile_file_ex(const char *src_path, CompileTarget target,
-                         const char *out_path, int no_dep) {
-  if (!src_path || !out_path)
-    return -1;
-  if (target < 0 || target >= TARGET_COUNT)
-    return -1;
-
-  const TargetConfig *tc = &nexs_targets[target];
-  if (target == TARGET_OS1_AMD64 || target == TARGET_OS1_ARM64 ||
-      target == TARGET_BAREMETAL_AMD64 || target == TARGET_BAREMETAL_ARM64)
-    return nexs_compile_native(src_path, target, out_path, no_dep);
-
-  /* --- Step 0: Create output directory if needed --- */
-  {
-    char outdir[512];
-    strncpy(outdir, out_path, sizeof(outdir) - 1);
-    outdir[sizeof(outdir) - 1] = '\0';
-    char *slash = strrchr(outdir, '/');
-    if (slash && slash != outdir) {
-      *slash = '\0';
-      char mkdir_cmd[640];
-      snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p '%s'", outdir);
-      (void)system(mkdir_cmd);
-    }
-  }
-
-  /* --- Step 1: Detect memory footprint via Host dry-runs --- */
-  const char *profiles[] = {"POOL_4KB", "POOL_16KB", "POOL_32KB", "POOL_512KB",
-                            "POOL_4MB", "POOL_16MB", "POOL_64MB"};
-  const int profile_count = 7;
-  int best_profile_idx = profile_count - 1; /* Default to 64MB */
-
-  /* Check for environment override */
-  const char *env_pool = getenv("NEXS_POOL_PROFILE");
-  if (env_pool) {
-    for (int i = 0; i < profile_count; i++) {
-      if (strcmp(profiles[i], env_pool) == 0) {
-        best_profile_idx = i;
-        goto skip_profiling;
-      }
-    }
-    /* If profile name matches without POOL_ prefix */
-    char buf[64];
-    snprintf(buf, sizeof(buf), "POOL_%s", env_pool);
-    for (int i = 0; i < profile_count; i++) {
-      if (strcmp(profiles[i], buf) == 0) {
-        best_profile_idx = i;
-        goto skip_profiling;
-      }
-    }
-  }
-
-  char test_c[256];
-  snprintf(test_c, sizeof(test_c), "/tmp/nexs_prof_test_%d.c", (int)getpid());
-  if (nexs_codegen_ex(src_path, test_c, no_dep, 0 /* test on host */) != 0) {
-    fprintf(stderr, "nexs: codegen failed during profiling for '%s'\n",
-            src_path);
-    return -1;
-  }
-  /* Run host profiling for all targets (including baremetal) to detect
-   * footprint. The 1-second alarm prevents infinite loops. */
-  for (int i = 0; i < profile_count; i++) {
-    char test_bin[256], build_cmd[1024], run_cmd[1024];
-    snprintf(test_bin, sizeof(test_bin), "/tmp/nexs_prof_test_%d.bin",
-             (int)getpid());
-
-    snprintf(
-        build_cmd, sizeof(build_cmd),
-        "gcc -O2 -std=c11 -Icore/include -Iregistry/include -Ilang/include "
-        "-Isys/include -Iruntime/include -Icompiler/include -Ihal/include "
-        "-D%s %s core/buddy.c core/pager.c core/value.c core/dynarray.c "
-        "core/utils.c registry/registry.c registry/reg_ipc.c lang/fn_table.c "
-        "lang/lexer.c lang/parser.c lang/eval.c lang/builtins.c sys/sysio.c "
-        "sys/sysproc.c runtime/runtime.c runtime/nexs_line.c "
-        "hal/bc/nexs_hal_bc.c hal/module/nexs_hal_module.c "
-        "hal/common/console.c hal/common/timer.c "
-        "hal/hal_hosted.c -o %s >/dev/null 2>&1",
-        profiles[i], test_c, test_bin);
-
-    if (system(build_cmd) != 0) {
-      continue;
-    }
-
-    char run_out[256];
-    snprintf(run_out, sizeof(run_out), "/tmp/nexs_prof_out_%d.txt",
-             (int)getpid());
-
-    /* Use perl to set a cross-platform 1-second timeout */
-    snprintf(run_cmd, sizeof(run_cmd),
-             "perl -e 'alarm 1; exec \"%s\"' > '%s' 2>&1", test_bin, run_out);
-    system(run_cmd);
-
-    FILE *fout = fopen(run_out, "r");
-    int failed = 0;
-    if (fout) {
-      char line[1024];
-      while (fgets(line, sizeof(line), fout)) {
-        if (strstr(line, "Buddy alloc failed")) {
-          failed = 1;
-          break;
-        }
-      }
-      fclose(fout);
-    }
-    unlink(run_out);
-    unlink(test_bin);
-
-    if (!failed) {
-      best_profile_idx = i;
-      break;
-    }
-  }
-  unlink(test_c);
-
-skip_profiling:;
-
-  /* --- Step 2: Generate actual C wrapper file --- */
-  char script_c[256];
-  snprintf(script_c, sizeof(script_c), "/tmp/nexs_build_%d.c", (int)getpid());
-
-  if (nexs_codegen_ex(src_path, script_c, no_dep, tc->is_baremetal) != 0) {
-    fprintf(stderr, "nexs: codegen failed for '%s'\n", src_path);
-    return -1;
-  }
-
-  /* --- Step 3: Build gcc command --- */
-  char cmd[4096];
-  int pos = 0;
-
-  pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, "%s", tc->gcc_binary);
-  pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " %s %s",
-                  tc->arch_flags, tc->os_flags);
-  pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
-                  " -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter -D%s",
-                  profiles[best_profile_idx]);
-  pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
-                  " -Icore/include -Iregistry/include -Ilang/include"
-                  " -Isys/include -Iruntime/include"
-                  " -Icompiler/include -Ihal/include");
-
-  pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
-                  " '%s'"
-                  " core/buddy.c core/pager.c core/value.c"
-                  " core/dynarray.c core/utils.c"
-                  " registry/registry.c registry/reg_ipc.c"
-                  " lang/fn_table.c lang/lexer.c lang/parser.c"
-                  " lang/eval.c lang/builtins.c"
-                  " sys/sysio.c sys/sysproc.c"
-                  " runtime/runtime.c runtime/nexs_line.c runtime/main.c"
-                  " hal/bc/nexs_hal_bc.c hal/module/nexs_hal_module.c",
-                  script_c);
-
-  if (tc->is_baremetal) {
-    pos +=
-        snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " kernel/libc_stub.c");
-  } else {
-    pos +=
-        snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
-                 " hal/common/console.c hal/common/timer.c hal/hal_hosted.c");
-  }
-
-  /* Bare-metal extras */
-  if (tc->is_baremetal) {
-    if (tc->ld_script)
-      pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -T '%s'",
-                      tc->ld_script);
-    pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
-                    " -nostdlib -nostartfiles -ffreestanding -Ikernel/include");
-
-    if (strcmp(tc->name, "baremetal-arm64") == 0) {
-      pos += snprintf(
-          cmd + pos, sizeof(cmd) - (size_t)pos,
-          " hal/arm64/boot.S hal/arm64/exc_vectors.S hal/arm64/exc_handler.c"
-          " hal/arm64/uart.c hal/arm64/mmu.c hal/arm64/gic.c"
-          " hal/arm64/timer.c hal/arm64/fdt.c kernel/ctx_arm64.S");
-    } else if (strcmp(tc->name, "baremetal-amd64") == 0) {
-      pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
-                      " hal/amd64/boot.S hal/amd64/isr_stubs.S hal/amd64/uart.c"
-                      " hal/amd64/gdt.c hal/amd64/idt.c hal/amd64/apic.c"
-                      " hal/amd64/mmu.c hal/amd64/acpi.c kernel/ctx_amd64.S");
-    } else if (strcmp(tc->name, "sel4-microkit") == 0) {
-      pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos,
-                      " hal/hal_sel4.c");
-    }
-  }
-
-  pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -o '%s'", out_path);
-
-  fprintf(stdout, "[compile] %s\n", cmd);
-
-  /* --- Step 3: Execute --- */
-  int rc = system(cmd);
-
-  /* --- Step 4: Cleanup temp file --- */
-  unlink(script_c);
-
-  /* --- Step 5: Print bare-metal access point info --- */
-  if (rc == 0 && tc->is_baremetal)
-    nexs_print_baremetal_info(out_path, tc);
-
-  return (rc == 0) ? 0 : -1;
+static const char *nexs_embed_key(CompileTarget target) {
+  if (target == TARGET_OS1_AMD64 || target == TARGET_OS1_ARM64)
+    return "OS1_AOT_EMBED_C";
+  if (target == TARGET_BAREMETAL_AMD64 ||
+      target == TARGET_BAREMETAL_ARM64)
+    return "BAREMETAL_EMBED_C";
+  return "AOT_EMBED_C";
 }
 
-/* =========================================================
-   nexs_compile_file — backwards-compat wrapper
-   ========================================================= */
+static const char *nexs_output_key(CompileTarget target) {
+  if (target == TARGET_OS1_AMD64 || target == TARGET_OS1_ARM64)
+    return "OS1_AOT_OUTPUT";
+  if (target == TARGET_BAREMETAL_AMD64 ||
+      target == TARGET_BAREMETAL_ARM64)
+    return "BAREMETAL_OUTPUT";
+  return "AOT_OUTPUT";
+}
 
-int nexs_compile_file(const char *src_path, CompileTarget target,
-                      const char *out_path) {
-  return nexs_compile_file_ex(src_path, target, out_path, 0 /* bundle deps */);
+/* Synchronously start the executable, not a shell. No command interpolation. */
+static int nexs_run_make(char *const arguments[]) {
+  pid_t child = 0;
+  int result = posix_spawnp(&child, "make", NULL, NULL, arguments, environ);
+  if (result != 0) {
+    fprintf(stderr, "nexs: cannot launch make: %s\n", strerror(result));
+    return -1;
+  }
+  for (unsigned int retry = 0U; retry < 32U; ++retry) {
+    int status = 0;
+    pid_t waited = waitpid(child, &status, 0);
+    if (waited == child)
+      return WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -1;
+    if (waited < 0 && errno != EINTR) return -1;
+  }
+  fprintf(stderr, "nexs: compiler wait interrupted repeatedly\n");
+  return -1;
+}
+
+static int nexs_build_generated(CompileTarget target, const char *source,
+                                const char *output, const char *profile) {
+  char *embed = nexs_assignment(nexs_embed_key(target), source);
+  char *dest = nexs_assignment(nexs_output_key(target), output);
+  char *pool = nexs_assignment("POOL_PROFILE", profile);
+  char *target_arg = nexs_assignment("AOT_HOST_TARGET",
+                                      nexs_targets[target].name);
+  const char *goal = nexs_make_goal(target);
+  int result = -1;
+  if (goal != NULL && embed != NULL && dest != NULL && pool != NULL &&
+      target_arg != NULL) {
+    char *const args[] = {
+        "make", "--no-print-directory", embed, dest, pool, target_arg,
+        (char *)goal, NULL};
+    result = nexs_run_make(args);
+  }
+  free(embed);
+  free(dest);
+  free(pool);
+  free(target_arg);
+  return result;
+}
+
+static int nexs_copy_checked(int source, int target, off_t length) {
+  unsigned char bytes[16384];
+  off_t remaining = length;
+  while (remaining > 0) {
+    size_t request = remaining < (off_t)sizeof(bytes)
+                         ? (size_t)remaining : sizeof(bytes);
+    ssize_t count = read(source, bytes, request);
+    if (count <= 0) return -1;
+    size_t done = 0;
+    while (done < (size_t)count) {
+      ssize_t written = write(target, bytes + done, (size_t)count - done);
+      if (written <= 0) return -1;
+      done += (size_t)written;
+    }
+    remaining -= count;
+  }
+  return 0;
+}
+
+/* Cross-volume publication uses a private sibling, never a partial final
+ * file. This preserves execution mode and replaces destination atomically. */
+static int nexs_copy_cross_volume(const char *source, const char *output) {
+  char *destination_temp = nexs_join(output, ".nexs-XXXXXX");
+  if (destination_temp == NULL) return -1;
+  int input = open(source, O_RDONLY);
+  int output_fd = mkstemp(destination_temp);
+  int result = -1;
+  struct stat metadata;
+  if (input >= 0 && output_fd >= 0 && fstat(input, &metadata) == 0 &&
+      metadata.st_size > 0 && S_ISREG(metadata.st_mode) &&
+      nexs_copy_checked(input, output_fd, metadata.st_size) == 0 &&
+      fchmod(output_fd, metadata.st_mode & 0777U) == 0 &&
+      fsync(output_fd) == 0) {
+    result = 0;
+  }
+  if (input >= 0 && close(input) != 0) result = -1;
+  if (output_fd >= 0 && close(output_fd) != 0) result = -1;
+  if (result == 0 && rename(destination_temp, output) != 0) result = -1;
+  if (result != 0) unlink(destination_temp);
+  free(destination_temp);
+  return result;
+}
+
+static int nexs_publish_binary(const char *source, const char *output) {
+  struct stat metadata;
+  if (stat(source, &metadata) != 0 || metadata.st_size <= 0 ||
+      !S_ISREG(metadata.st_mode)) return -1;
+  if (nexs_ensure_output_parent(output) != 0) return -1;
+  if (rename(source, output) == 0) return 0;
+  if (errno != EXDEV) return -1;
+  return nexs_copy_cross_volume(source, output);
+}
+
+/* One isolated build, one generated program, one canonical Make source graph.
+ * A compilation failure leaves any previous destination binary untouched. */
+int nexs_compile_file_ex(const char *source, CompileTarget target,
+                         const char *output, int no_dependencies) {
+  if (source == NULL || source[0] == '\0' ||
+      output == NULL || output[0] == '\0' ||
+      (unsigned int)target >= TARGET_COUNT ||
+      nexs_make_goal(target) == NULL) {
+    fprintf(stderr, "nexs: unavailable target or invalid input\n");
+    return -1;
+  }
+  const char *profile = nexs_pool_profile();
+  if (profile == NULL || nexs_make_directory("build") != 0) {
+    fprintf(stderr, "nexs: invalid resource profile or build directory\n");
+    return -1;
+  }
+  char staging[] = "build/.nexs-aot-XXXXXX";
+  if (mkdtemp(staging) == NULL) return -1;
+  char *generated = nexs_join(staging, "/program.c");
+  char *binary = nexs_join(staging, "/program.bin");
+  char *object = nexs_join(staging, "/program.o");
+  int rc = -1;
+  if (generated != NULL && binary != NULL && object != NULL &&
+      nexs_codegen_ex(source, generated, no_dependencies,
+          target == TARGET_BAREMETAL_AMD64 ||
+          target == TARGET_BAREMETAL_ARM64) == 0 &&
+      nexs_build_generated(target, generated, binary, profile) == 0) {
+    rc = nexs_publish_binary(binary, output);
+  }
+  if (generated != NULL) unlink(generated);
+  if (binary != NULL) unlink(binary);
+  if (object != NULL) unlink(object);
+  if (rmdir(staging) != 0) rc = -1;
+  free(generated);
+  free(binary);
+  free(object);
+  if (rc != 0) fprintf(stderr, "nexs: target compilation failed\n");
+  return rc;
+}
+
+int nexs_compile_file(const char *source, CompileTarget target,
+                      const char *output) {
+  return nexs_compile_file_ex(source, target, output, 0);
 }

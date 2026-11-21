@@ -3,14 +3,15 @@
  *
  * Binary AST encoding (NOT WASM, NOT C transpilation).
  *
- * Header (16B):
+ * Header (20 bytes):
  *   "NXBC" | version(2) | flags(2) | n_consts(4) | n_nodes(4) | entry(4)
  *
  * ConstPool[n_consts]:
  *   type(1) | len(4) | data(len)
  *
- * Node[n_nodes]:
+ * Node[n_nodes] (18 wire bytes, not sizeof(NxbNode)):
  *   kind(1) | flags(1) | left(4) | right(4) | extra(8)
+ * Byte fields require explicit endian encoding; C struct padding is NOT wire.
  */
 #ifndef NEXS_BITCODE_H
 #define NEXS_BITCODE_H
@@ -69,15 +70,7 @@ typedef struct {
     uint32_t  entry;
 } NxbProgram;
 
-/* Encode the AST of src_path to out_path (.nxb file).
- * Returns 0 on success. */
-int nexs_encode_bc(const char *src_path, const char *out_path);
-
-/* Decode a .nxb file into a NxbProgram.
- * Caller must call nexs_free_bc() when done. */
-int nexs_decode_bc(const char *path, NxbProgram *out);
-
-/* Free all memory in a decoded NxbProgram. */
-void nexs_free_bc(NxbProgram *prog);
+/* Format vocabulary only. No .nxb compiler/decoder is exported until P6
+ * has a real verified implementation and byte-fidelity/fuzz tests. */
 
 #endif

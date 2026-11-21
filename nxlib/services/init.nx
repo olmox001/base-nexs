@@ -1,0 +1,39 @@
+reg /sys/init/status = "booting"
+reg /sys/init/pid    = 1
+
+exec("nxlib/stdlib.nx")
+
+out "[init] NEXS PID 1 starting..."
+
+# Security first
+exec("nxlib/services/auth/init.nx")
+
+# Mount namespaces
+exec("nxlib/services/fs/init.nx")
+
+# Process manager
+exec("nxlib/services/pm/init.nx")
+
+# TTY / console
+exec("nxlib/services/tty/init.nx")
+
+# UI framebuffer
+exec("nxlib/services/ui/init.nx")
+
+reg /sys/init/status = "running"
+out "[init] All services running."
+
+# Wait loop — PID 1 never exits
+loop {
+  msg = receivemessage /proc/1/inbox
+  if msg == "shutdown" {
+    out "[init] Shutdown received."
+    reg /sys/init/status = "shutdown"
+    exits "shutdown"
+  }
+  if msg == "reboot" {
+    out "[init] Reboot received."
+    reg /sys/init/status = "reboot"
+    exits "reboot"
+  }
+}

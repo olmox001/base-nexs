@@ -4,9 +4,8 @@
  * Evaluates the AST against the hierarchical registry.
  *
  * Key changes vs original:
- *   - AST_FN_DECL: calls fn_register(); sets n->right = NULL (fn_table owns
- * body)
- *   - AST_FN_CALL: dispatches via fn_table (fn_lookup_by_idx / fn_lookup)
+ *   - AST_FN_DECL: transfers the body to the canonical registry Value
+ *   - AST_FN_CALL: resolves and retains the registry-owned callable
  *   - eval_str: calls ast_free(prog) safely — fn bodies are NULL'd
  *   - New cases: AST_SEND_MSG, AST_RECV_MSG, AST_MSG_PENDING, AST_PTR_SET,
  * AST_PTR_DEREF
@@ -22,6 +21,7 @@
 #include "include/nexs_fn.h"
 #include "include/nexs_lex.h"
 #include "../hal/include/nexs_hal.h"
+#include "../runtime/include/nexs_source_status.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -42,6 +42,8 @@ void eval_ctx_init(EvalCtx *ctx) {
   ctx->scope[REG_PATH_MAX - 1] = '\0';
   ctx->call_depth = 0;
   ctx->debug = 0;
+  memset(&ctx->execution_budget, 0, sizeof(ctx->execution_budget));
+  ctx->fuel_limited = 0;
 #ifdef NEXS_BAREMETAL
   ctx->out = NULL;
   ctx->err = NULL;
@@ -49,6 +51,35 @@ void eval_ctx_init(EvalCtx *ctx) {
   ctx->out = stdout;
   ctx->err = stderr;
 #endif
+}
+
+/* An explicit task/owner budget is charged for every AST dispatch.
+ * This does not yet meter native service calls, page traffic or preempt
+ * recursive C frames: the complete P2 verified VM remains required. */
+int eval_ctx_set_fuel_budget(EvalCtx *ctx, uint64_t fuel) {
+  if (ctx == NULL)
+    return -1;
+  /* Zero is an explicit deny-all budget. The NXOLMO operation initializer
+   * admits only positive budgets; the zero case never authorizes dispatch. */
+  if (fuel == 0U) {
+    memset(&ctx->execution_budget, 0, sizeof(ctx->execution_budget));
+  } else if (nx_operation_budget_init(&ctx->execution_budget,
+                                      0U, fuel, UINT64_MAX) != NX_STATUS_OK) {
+    return -1;
+  }
+  ctx->fuel_limited = 1;
+  return 0;
+}
+
+static int eval_charge_fuel(EvalCtx *ctx) {
+  if (ctx == NULL)
+    return 0;
+  if (!ctx->fuel_limited)
+    return 1;
+  if (ctx->execution_budget.fuel_remaining == 0U)
+    return 0;
+  return nx_operation_budget_consume(
+      &ctx->execution_budget, UINT64_C(1)) == NX_STATUS_OK;
 }
 
 /* =========================================================
@@ -115,6 +146,8 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
     return ok(val_nil());
   if (!ctx)
     return err_result("NULL EvalCtx in eval_node");
+  if (!eval_charge_fuel(ctx))
+    return err_result("execution fuel exhausted");
 
   /* DEBUG_PRINT(ctx, "eval_node kind=%d", n->kind); */
 
@@ -223,13 +256,26 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
 
     char path[REG_PATH_MAX];
     RegKey *existing = reg_resolve(n->name, ctx->scope);
-    if (existing) {
-      /* Update existing key */
-      reg_set(existing->path, vr.ret_val, RK_ALL);
+    /* The original language has distinct variable and callable bindings.
+     * An assignment to a variable named 'type', 'mod' or a user function
+     * creates/updates a lexical value without rewriting the callable
+     * object under /fn or /sys. Explicit reg_set("/fn/name", ...)
+     * remains the only path-based authoritative mutation mechanism. */
+    if (existing != NULL && existing->val.type == TYPE_FN)
+      existing = NULL;
+    int status = -1;
+    if (existing != NULL) {
+      status = reg_set(existing->path, vr.ret_val, RK_ALL);
     } else {
-      /* Create new in current scope */
-      snprintf(path, sizeof(path), "%s/%s", ctx->scope, n->name);
-      reg_set(path, vr.ret_val, RK_ALL);
+      int written = snprintf(path, sizeof(path), "%s/%s",
+                             strcmp(ctx->scope, REG_ROOT) == 0 ? "" : ctx->scope,
+                             n->name);
+      if (written >= 0 && (size_t)written < sizeof(path))
+        status = reg_set(path, vr.ret_val, RK_ALL);
+    }
+    if (status != 0) {
+      val_free(&vr.ret_val);
+      return err_result("variable registry admission failed");
     }
     Value ret = val_clone(&vr.ret_val);
     val_free(&vr.ret_val);
@@ -245,11 +291,8 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
     val_free(&ir.ret_val);
     DynArray *arr = NULL;
     RegKey *k = reg_resolve(n->name, ctx->scope);
-    if (k && k->val.type == TYPE_ARR && k->val.data) {
+    if (k && k->val.type == TYPE_ARR && k->val.data)
       arr = (DynArray *)k->val.data;
-    } else {
-      arr = arr_get(n->name);
-    }
 
     if (!arr)
       return err_result("array not found");
@@ -276,26 +319,57 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
     }
 
     DynArray *arr = NULL;
+    int initialized_new = 0;
     RegKey *k = reg_resolve(n->name, ctx->scope);
-    if (k && k->val.type == TYPE_ARR && k->val.data) {
+    if (k != NULL) {
+      if (k->val.type != TYPE_ARR || k->val.data == NULL) {
+        val_free(&vr.ret_val);
+        return err_result("array variable is not an array");
+      }
       arr = (DynArray *)k->val.data;
     } else {
-      arr = arr_get_or_create(n->name);
-      /* If we created/found it via name, ensure it's in the current scope too
-       */
+      /* Registry takes a reference to the new array, not a second copy
+       * indexed by a global name. Check the actual scope/path first. */
       char path[REG_PATH_MAX];
-      snprintf(path, sizeof(path), "%s/%s", ctx->scope, n->name);
-      Value av;
+      int written = snprintf(path, sizeof(path), "%s/%s",
+                             strcmp(ctx->scope, REG_ROOT) == 0 ? "" : ctx->scope,
+                             n->name);
+      if (written < 0 || (size_t)written >= sizeof(path)) {
+        val_free(&vr.ret_val);
+        return err_result("array namespace path exceeds REG_PATH_MAX");
+      }
+      arr = arr_create_anon();
+      if (arr == NULL) {
+        val_free(&vr.ret_val);
+        return err_result("array object allocation failed");
+      }
+      /* Initialize first element BEFORE publishing a registry key.
+       * An invalid index or exhausted provider must leave no ghost key. */
+      if (arr_set(arr, (size_t)idx, vr.ret_val) != 0) {
+        arr_unref(arr);
+        val_free(&vr.ret_val);
+        return err_result("array capacity admission failed");
+      }
+      initialized_new = 1;
+      Value av = val_nil();
       av.type = TYPE_ARR;
       av.data = arr;
-      av.ival = 0;
-      av.fval = 0;
-      av.err_code = 0;
-      av.err_msg = NULL;
-      reg_set(path, av, RK_ALL);
+      int registered = reg_set(path, av, RK_ALL);
+      arr_unref(arr);
+      if (registered != 0) {
+        val_free(&vr.ret_val);
+        return err_result("array registry insertion failed");
+      }
+      k = reg_lookup(path);
+      if (k == NULL || k->val.type != TYPE_ARR || k->val.data == NULL) {
+        val_free(&vr.ret_val);
+        return err_result("array registry ownership missing");
+      }
     }
-
-    arr_set(arr, (size_t)idx, vr.ret_val);
+    if (!initialized_new && arr_set(arr, (size_t)idx, vr.ret_val) != 0) {
+      val_free(&vr.ret_val);
+      return err_result("array capacity admission failed");
+    }
     Value ret = val_clone(&vr.ret_val);
     val_free(&vr.ret_val);
     return ok(ret);
@@ -311,11 +385,8 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
 
     DynArray *arr = NULL;
     RegKey *k = reg_resolve(n->name, ctx->scope);
-    if (k && k->val.type == TYPE_ARR && k->val.data) {
+    if (k && k->val.type == TYPE_ARR && k->val.data)
       arr = (DynArray *)k->val.data;
-    } else {
-      arr = arr_get(n->name);
-    }
 
     if (arr && idx >= 0)
       arr_delete(arr, (size_t)idx);
@@ -413,24 +484,17 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
     return ok(val_str(ctx->scope));
 
   /* --- Function declaration ---
-   * fn_table takes ownership of n->right (the body).
-   * We set n->right = NULL so ast_free(prog) skips it.
+   * The one registry owns the callable and its AST body.
+   * The parser releases the transferred pointer by nulling n->right.
    */
   case AST_FN_DECL: {
-    /* Register in fn_table — transfers ownership of n->right */
-    int idx = fn_register(n->name, n->right,
-                          (const char (*)[NAME_LEN])n->params, n->n_params);
-    /* CRITICAL: NULL out the body so ast_free doesn't double-free */
+    /* Exactly one registry-owned callable object receives the AST.
+     * On error, the parser retains ownership of n->right. */
+    if (fn_register(n->name, n->right,
+                    (const char (*)[NAME_LEN])n->params,
+                    n->n_params) != 0)
+      return err_result("callable registry admission failed");
     n->right = NULL;
-
-    if (idx < 0)
-      return err_result("fn_register: table full");
-
-    /* Store the fn_table index in the registry so call resolution works */
-    char path[REG_PATH_MAX];
-    snprintf(path, sizeof(path), "%s/%s", REG_FN, n->name);
-    Value fv = val_fn_idx((int64_t)idx);
-    reg_set(path, fv, RK_READ | RK_EXEC);
     return ok(val_nil());
   }
 
@@ -453,36 +517,11 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
       args[i] = ar.ret_val;
     }
 
-    /* Resolve the function */
-    NexsFnDef *def = NULL;
-
-    /* 1. Try fn_table by name (covers both user and builtin) */
-    def = fn_lookup(n->name);
-
-    /* 2. If not in fn_table, look in registry (legacy path) */
-    if (!def) {
-      RegKey *k = reg_resolve(n->name, ctx->scope);
-      if (!k) {
-        char syspath[REG_PATH_MAX];
-        snprintf(syspath, sizeof(syspath), "%s/%s", REG_SYS, n->name);
-        k = reg_lookup(syspath);
-      }
-      if (k && k->val.type == TYPE_FN) {
-        /* Registry contains ival=idx for fn_table entries, or ival=1 for legacy
-         * builtins */
-        if (k->val.ival == 1 && k->val.data) {
-          /* Legacy builtin: data is a BuiltinFn pointer */
-          BuiltinFn fn = (BuiltinFn)k->val.data;
-          Value res = fn(args, n_args);
-          for (int i = 0; i < n_args; i++)
-            val_free(&args[i]);
-          return ok(res);
-        }
-        /* fn_table entry: ival is the index */
-        def = fn_lookup_by_idx((int)k->val.ival);
-      }
-    }
-
+    /* The current registry is the sole source of named callables.
+     * Its typed resolver honors the distinct language callable namespace:
+     * local scalars cannot hide functions, but deleting/replacing an
+     * actual /fn or /sys callable remains authoritative. */
+    NexsFnDef *def = fn_lookup_in_scope(n->name, ctx->scope);
     if (!def) {
       char msg[128];
       snprintf(msg, sizeof(msg), "function not found: '%s'", n->name);
@@ -491,39 +530,67 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
       return err_result(msg);
     }
 
-    /* Dispatch */
+    /* Hold the object through the whole call, even if its name is
+     * redefined/deleted in the body. No dangling AST body on replacement. */
+    if (fn_object_retain(def) != 0) {
+      for (int i = 0; i < n_args; i++)
+        val_free(&args[i]);
+      return err_result("callable lifetime admission failed");
+    }
     if (def->is_builtin) {
       Value res = def->builtin_fn(args, n_args);
+      fn_object_release(def);
       for (int i = 0; i < n_args; i++)
         val_free(&args[i]);
       return ok(res);
     }
 
-    /* User function */
+    /* User function (legacy recursive C evaluator, VM still pending) */
     if (ctx->call_depth >= MAX_CALL_DEPTH) {
       for (int i = 0; i < n_args; i++)
         val_free(&args[i]);
+      fn_object_release(def);
       return err_result("stack overflow: too many recursion levels");
     }
     ASTNode *fn_body = def->body;
     if (!fn_body) {
       for (int i = 0; i < n_args; i++)
         val_free(&args[i]);
+      fn_object_release(def);
       return err_result("empty function body");
     }
 
     char *new_scope = reg_push_scope(n->name);
+    if (new_scope == NULL) {
+      fn_object_release(def);
+      for (int i = 0; i < n_args; ++i)
+        val_free(&args[i]);
+      return err_result("function scope admission failed");
+    }
     ctx->call_depth++;
 
-    /* Bind parameters into scope (initialize missing ones to nil) */
-    for (int i = 0; i < def->n_params; i++) {
+    /* Bind parameters atomically with respect to function execution:
+     * on any failed binding, destroy this new scope and do NOT call body. */
+    int scope_bound = 1;
+    for (int i = 0; i < def->n_params && scope_bound; i++) {
       char ppath[REG_PATH_MAX];
-      snprintf(ppath, sizeof(ppath), "%s/%s", new_scope, def->params[i]);
-      if (i < n_args) {
-        reg_set(ppath, args[i], RK_ALL);
-      } else {
-        reg_set(ppath, val_nil(), RK_ALL);
+      int path_size = snprintf(ppath, sizeof(ppath), "%s/%s",
+                               new_scope, def->params[i]);
+      if (path_size < 0 || (size_t)path_size >= sizeof(ppath)) {
+        scope_bound = 0;
+      } else if (reg_set(ppath, i < n_args ? args[i] : val_nil(),
+                         RK_ALL) != 0) {
+        scope_bound = 0;
       }
+    }
+    if (!scope_bound) {
+      --ctx->call_depth;
+      reg_pop_scope(new_scope);
+      nexs_free(new_scope, REG_PATH_MAX);
+      fn_object_release(def);
+      for (int i = 0; i < n_args; ++i)
+        val_free(&args[i]);
+      return err_result("function parameter binding failed");
     }
 
     char saved_scope[REG_PATH_MAX];
@@ -538,7 +605,8 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
     ctx->scope[REG_PATH_MAX - 1] = '\0';
     ctx->call_depth--;
     reg_pop_scope(new_scope);
-    xfree(new_scope);
+    nexs_free(new_scope, REG_PATH_MAX);
+    fn_object_release(def);
     for (int i = 0; i < n_args; i++)
       val_free(&args[i]);
 
@@ -567,6 +635,10 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
   /* --- Loop --- */
   case AST_LOOP: {
     while (1) {
+      /* A zero-statement loop still consumes work and must terminate
+       * under a finite admitted budget; body nodes charge separately. */
+      if (!eval_charge_fuel(ctx))
+        return err_result("execution fuel exhausted");
       EvalResult r = eval_block(ctx, n->right);
       if (r.sig == CTRL_BREAK) {
         val_free(&r.ret_val);
@@ -630,7 +702,7 @@ static EvalResult eval_node(EvalCtx *ctx, ASTNode *n) {
 
   /* ptr /path = /target */
   case AST_PTR_SET: {
-    int rc = reg_set_ptr(n->path, n->name);
+    int rc = reg_set_ptr(n->path, (const char *)n->litval.data);
     if (rc < 0)
       return err_result("ptr: failed to set pointer");
     return ok(val_nil());
@@ -703,68 +775,40 @@ EvalResult eval_file(EvalCtx *ctx, const char *fpath) {
   if (!ctx || !fpath)
     return err_result("NULL ctx or fpath");
 
+  /* Exactly ONE RegKey/StateStore namespace. A packaged logical resource
+   * always lives at its canonical root name; other relative resources
+   * resolve through the same EvalCtx scope as cd/ls/reg.
+   * No /sys/vfs/files alias, sentinel data node or separate VFS index. */
   char normalized[REG_PATH_MAX];
-  const char *p = fpath;
-  /* Strip leading slash if present for VFS registry key lookup */
-  if (p[0] == '/')
-    p++;
-
-  /* 0. Resolve relative paths via VFS CWD if possible */
-  if (fpath[0] != '/') {
-    Value cwd_val = reg_get("/proc/1/vfs_cwd");
-    if (cwd_val.type == TYPE_STR && cwd_val.data &&
-        ((char *)cwd_val.data)[0] != '\0') {
-      snprintf(normalized, sizeof(normalized), "%s/%s", (char *)cwd_val.data,
-               fpath);
-    } else {
-      strncpy(normalized, fpath, sizeof(normalized) - 1);
-      normalized[sizeof(normalized) - 1] = '\0';
-    }
-    val_free(&cwd_val);
+  const char *logical = fpath[0] == '/' ? fpath + 1 : fpath;
+  int packaged = strncmp(logical, "nxlib/", 6U) == 0 ||
+                 strncmp(logical, "example/", 8U) == 0;
+  if (fpath[0] == '/' || packaged) {
+    int written = snprintf(normalized, sizeof(normalized), "/%s", logical);
+    if (written < 0 || (size_t)written >= sizeof(normalized))
+      return err_result("source path too long");
   } else {
-    strncpy(normalized, p, sizeof(normalized) - 1);
-    normalized[sizeof(normalized) - 1] = '\0';
+    nexs_path_join(normalized, sizeof(normalized), ctx->scope,
+                   fpath, NULL);
   }
+  if (normalized[0] != '/' || strlen(normalized) >= REG_PATH_MAX)
+    return err_result("invalid source registry name");
 
-  /* 1. Check Registry VFS (/sys/vfs/files/) */
-  char reg_vfs_path[REG_PATH_MAX];
-  snprintf(reg_vfs_path, sizeof(reg_vfs_path), "/sys/vfs/files/%s", normalized);
-  Value vfs_val = reg_get(reg_vfs_path);
-  if (vfs_val.type == TYPE_STR && vfs_val.data) {
-    const char *vfs_content = (char *)vfs_val.data;
-    if (strncmp(vfs_content, "BUNDLED", 7) == 0) {
-      const char *lookup_path = normalized;
-      if (strncmp(vfs_content, "BUNDLED:", 8) == 0) {
-        lookup_path = vfs_content + 8;
-      }
-      const char *emb = nexs_embedded_lookup(lookup_path);
-      if (emb) {
-        EvalResult r = eval_str(ctx, emb);
-        val_free(&vfs_val);
-        return r;
-      }
-    } else {
-      /* Direct content from Registry */
-      EvalResult r = eval_str(ctx, vfs_content);
-      val_free(&vfs_val);
-      return r;
+  RegKey *file_node = reg_lookup(normalized);
+  if (file_node != NULL) {
+    if (file_node->val.type != TYPE_STR || file_node->val.data == NULL)
+      return err_result("registry resource is not executable text");
+    Value source = reg_get(normalized);
+    if (source.type != TYPE_STR || source.data == NULL) {
+      val_free(&source);
+      return err_result("registry source read failed");
     }
-  }
-  val_free(&vfs_val);
-
-  /* 2. Fallback to embedded table (AOT) using normalized path */
-  const char *emb = nexs_embedded_lookup(normalized);
-  if (emb) {
-    return eval_str(ctx, emb);
-  }
-  /* Also try original path in embedded table */
-  if (p != fpath) {
-    emb = nexs_embedded_lookup(p);
-    if (emb)
-      return eval_str(ctx, emb);
+    EvalResult r = eval_str(ctx, (const char *)source.data);
+    val_free(&source);
+    return r;
   }
 
-  /* 3. Filesystem: the selected HAL maps catalog roots, but only the
+  /* 2. Filesystem first; packaged source is an ENOENT fallback. The
    * ordinary SDK FILE capability performs actual access and ACL checks. */
   char platform_path[REG_PATH_MAX];
   const char *file_path = nexs_platform_source_path(
@@ -772,32 +816,63 @@ EvalResult eval_file(EvalCtx *ctx, const char *fpath) {
   if (file_path == NULL)
     return err_result("invalid or oversized source path");
   FILE *f = fopen(file_path, "r");
-  if (!f) {
+  if (f == NULL) {
+    /* An installed source has priority over embedded AOT fallback. Do not
+     * treat a provider I/O error as permission to execute embedded code:
+     * only a genuine absent resource may select the packaged source. */
+    int source_error = errno;
+    nx_status source_status = nexs_source_status_from_errno(source_error);
+    if (nexs_source_embedded_admissible(source_status)) {
+      const char *emb = nexs_embedded_lookup(normalized);
+      if (emb == NULL && fpath[0] == '/')
+        emb = nexs_embedded_lookup(fpath + 1);
+      if (emb != NULL)
+        return eval_str(ctx, emb);
+    }
     char msg[256];
-    snprintf(msg, sizeof(msg), "cannot open '%s': %s", fpath, strerror(errno));
+    snprintf(msg, sizeof(msg), "cannot open '%s': %s",
+             fpath, strerror(source_error));
     return err_result(msg);
   }
-  fseek(f, 0, SEEK_END);
+  if (fseek(f, 0, SEEK_END) != 0) {
+    fclose(f);
+    return err_result("cannot seek source file");
+  }
   long sz = ftell(f);
-  if (sz <= 0) {
+  if (sz < 0 || (uintmax_t)sz >= SIZE_MAX) {
+    fclose(f);
+    return err_result("source file size unavailable or too large");
+  }
+  if (sz == 0) {
     fclose(f);
     return ok(val_nil());
   }
-  fseek(f, 0, SEEK_SET);
-  char *src = xmalloc((size_t)sz + 1);
-  size_t bytes_read = fread(src, 1, (size_t)sz, f);
-  src[bytes_read] = '\0';
-  fclose(f);
-
-  /* Auto-inject include guard for modules/ files that lack a library statement.
-   * services/stdlib.nx uses its own library guard — no injection needed. */
-  const char *lib_name = NULL;
-  if (strstr(fpath, "modules/")) {
-    const char *last_slash = strrchr(fpath, '/');
-    lib_name = last_slash ? last_slash + 1 : fpath;
+  if (fseek(f, 0, SEEK_SET) != 0) {
+    fclose(f);
+    return err_result("cannot rewind source file");
   }
+  size_t source_bytes = (size_t)sz;
+  char *src = nexs_alloc(source_bytes + 1U);
+  if (src == NULL) {
+    fclose(f);
+    return err_result("source file allocation failed");
+  }
+  size_t bytes_read = fread(src, 1, source_bytes, f);
+  /* fread reports a short count for EOF or I/O failure on every selected
+   * provider, including the freestanding SDK which has no ferror(). */
+  int read_failed = bytes_read != source_bytes;
+  fclose(f);
+  if (read_failed) {
+    nexs_free(src, source_bytes + 1U);
+    return err_result("source file read failed");
+  }
+  src[bytes_read] = '\0';
 
-  EvalResult r = eval_str_lib(ctx, src, lib_name);
-  xfree(src);
+  /* The nxlib sources declare explicit language module IDs when needed.
+   * Never synthesize another "library" token: it would execute the first
+   * guard and cause the second one to return early, silently hiding
+   * service exports such as vfs_import(). */
+  EvalResult r = eval_str(ctx, src);
+  nexs_free(src, source_bytes + 1U);
   return r;
 }

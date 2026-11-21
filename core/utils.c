@@ -27,22 +27,47 @@ void nexs_trim(char *s) {
     s[i] = '\0';
 }
 
+/* One canonical RegKey/StateStore namespace. Empty path components
+ * (e.g. ls with no argument) select the current node, not /sys/.
+ * Absolute components select an absolute path; this helper is never
+ * an authorization check. */
 void nexs_path_join(char *buf, size_t bufsz, ...) {
-  if (!buf || bufsz == 0)
+  if (buf == NULL || bufsz == 0U)
     return;
   va_list ap;
   va_start(ap, bufsz);
   buf[0] = '\0';
-  const char *seg;
-  while ((seg = va_arg(ap, const char *)) != NULL) {
-    if (seg[0] == '/') {
-      snprintf(buf, bufsz, "%s", seg);
-    } else {
-      size_t l = strlen(buf);
-      if (l > 0 && buf[l - 1] != '/')
-        strncat(buf, "/", bufsz - strlen(buf) - 1);
-      strncat(buf, seg, bufsz - strlen(buf) - 1);
+  size_t length = 0U;
+  const char *segment = NULL;
+  for (size_t part = 0U;
+       part < REG_PATH_MAX &&
+       (segment = va_arg(ap, const char *)) != NULL; ++part) {
+    if (segment[0] == '\0')
+      continue;
+    if (segment[0] == '/') {
+      length = 0U;
+      buf[0] = '\0';
+    } else if (length > 0U && buf[length - 1U] != '/') {
+      if (length + 1U >= bufsz) {
+        buf[0] = '\0';
+        va_end(ap);
+        return;
+      }
+      buf[length++] = '/';
     }
+    size_t remaining = bufsz - length;
+    size_t copied = 0U;
+    while (copied < remaining && segment[copied] != '\0') {
+      if (copied + 1U >= remaining) {
+        buf[0] = '\0';
+        va_end(ap);
+        return;
+      }
+      buf[length + copied] = segment[copied];
+      copied += 1U;
+    }
+    length += copied;
+    buf[length] = '\0';
   }
   va_end(ap);
 }
